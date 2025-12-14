@@ -1,6 +1,8 @@
 # cert-manager Configuration Application
-# Deploys ClusterIssuers and Certificates AFTER cert-manager is installed
-# Uses sync wave to ensure proper ordering
+# Deploys ClusterIssuers and Certificates AFTER:
+# 1. cert-manager controller is installed (wave -10)
+# 2. Vault and External Secrets are ready (wave 0-2)
+# 3. Cloudflare API token ExternalSecret is created (wave 3)
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -8,8 +10,8 @@ metadata:
   name: cert-manager-config
   namespace: argocd
   annotations:
-    # Ensure this syncs after cert-manager controller is ready
-    argocd.argoproj.io/sync-wave: "-8"
+    # Deploy after bootstrap-secrets creates cloudflare-api-token
+    argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

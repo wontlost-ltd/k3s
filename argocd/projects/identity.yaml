@@ -19,6 +19,9 @@ spec:
       server: https://kubernetes.default.svc
   # Limited cluster-scoped resources
   clusterResourceWhitelist:
+    # Namespace creation (for CreateNamespace=true)
+    - group: ''
+      kind: Namespace
     # Ingress classes if needed
     - group: networking.k8s.io
       kind: IngressClass
