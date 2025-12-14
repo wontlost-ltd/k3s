@@ -56,3 +56,18 @@
 - 22:58 NZST | shell rg -n "emberstack" -n | 搜索 reflector 依赖引用
 - 22:59 NZST | shell cat > .claude/review-report.md | 生成评审报告
 - 23:00 NZST | shell cat .claude/review-report.md | 校验评审报告内容
+- 23:33 NZST | sequential-thinking | params: 评审任务思考 | output: 明确需按5层框架审查k3s GitOps
+- 23:34 NZST | code-index set_project_path(/Users/rpang/IdeaProjects/k3s) | 初始化代码索引
+- 23:34 NZST | code-index find_files("**/*.yaml") | 列出仓库内主要YAML配置
+- 23:35 NZST | shell sed -n '1,200p' README.md | 回顾整体结构与App-of-Apps描述
+- 23:36 NZST | shell cat argocd/kustomization.yaml | 查看 ArgoCD 顶层资源打包
+- 23:36 NZST | shell cat argocd/projects/infrastructure.yaml | 校验AppProject源仓及权限
+- 23:37 NZST | shell cat argocd/projects/aster-lang.yaml & wontlost.yaml | 核对域项目白名单
+- 23:38 NZST | shell cat argocd/applicationsets/*.yaml | 审查 ApplicationSet 生成逻辑与模板
+- 23:39 NZST | shell cat apps/infrastructure/cert-manager/{kustomization,application,config-application}.yaml | 评估同步波次与Helm参数
+- 23:40 NZST | shell cat apps/infrastructure/vault/{application,config-application,internal-tls.yaml} | 检查Vault TLS链路
+- 23:41 NZST | shell cat apps/infrastructure/external-secrets/{application,config-application,vault-secretstore.yaml} | 核对ESO与Vault集成
+- 23:42 NZST | shell cat apps/infrastructure/{reflector,authentik}/application.yaml | 复查依赖注释与资源限制
+- 23:43 NZST | shell ls -a apps/{aster-lang/wontlost}/* | 确认占位目录仅含 .gitkeep
+- 23:44 NZST | shell cat apps/infrastructure/{cert-manager/cloudflare-secret.yaml.template,vault/README.md} | 收集前置手工步骤证据
+- 23:47 NZST | shell TZ="Pacific/Auckland" date "+%Y-%m-%d %H:%M" | 获取当前NZ时间 2025-12-14 23:47

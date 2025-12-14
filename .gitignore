@@ -1,7 +1,11 @@
 # Secrets - never commit real credentials
 *-secret.yaml
+!*-external-secret.yaml
 *.secret.yaml
 secrets/
+
+# Exclude .claude
+.claude
 
 # IDE
 .idea/

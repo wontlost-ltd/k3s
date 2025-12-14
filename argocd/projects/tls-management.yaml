@@ -1,40 +1,39 @@
-# Infrastructure Project
-# Core ArgoCD self-management and shared platform components
+# TLS Management Project
+# Manages cert-manager and reflector for certificate issuance and replication
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: infrastructure
+  name: tls-management
   namespace: argocd
 spec:
-  description: "ArgoCD self-management and platform orchestration"
+  description: "TLS certificate management - cert-manager and reflector"
   sourceRepos:
     - 'https://github.com/wontlost-ltd/k3s.git'
-    # ArgoCD official repo for self-management
-    - 'https://github.com/argoproj/argo-cd.git'
-    - 'https://argoproj.github.io/argo-helm'
-    # Ingress
-    - 'https://traefik.github.io/charts'
+    - 'https://charts.jetstack.io'
+    - 'https://emberstack.github.io/helm-charts'
   destinations:
-    # ArgoCD namespace for self-management
+    # cert-manager namespace
+    - namespace: cert-manager
+      server: https://kubernetes.default.svc
+    # reflector namespace
+    - namespace: reflector
+      server: https://kubernetes.default.svc
+    # ArgoCD namespace for Application resources
     - namespace: argocd
       server: https://kubernetes.default.svc
-    # Traefik namespace
-    - namespace: traefik
-      server: https://kubernetes.default.svc
+  # Cluster-scoped resources needed for TLS
   clusterResourceWhitelist:
-    # ArgoCD CRDs
-    - group: argoproj.io
+    # cert-manager CRDs
+    - group: cert-manager.io
       kind: '*'
-    # Ingress resources
-    - group: networking.k8s.io
-      kind: IngressClass
-    - group: networking.k8s.io
-      kind: Ingress
-    # Traefik CRDs
-    - group: traefik.io
+    - group: acme.cert-manager.io
       kind: '*'
-    - group: traefik.containo.us
-      kind: '*'
+    # ClusterIssuers
+    - group: cert-manager.io
+      kind: ClusterIssuer
+    # Reflector needs to watch secrets across namespaces
+    - group: ''
+      kind: Namespace
     # Webhook configurations
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration

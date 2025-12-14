@@ -9,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: infrastructure
+  project: secrets-management
   source:
     repoURL: https://charts.external-secrets.io
     chart: external-secrets
@@ -59,10 +59,15 @@ spec:
           create: true
           name: external-secrets
 
-        # Metrics (optional)
+        # Metrics for observability
         metrics:
           service:
-            enabled: false
+            enabled: true
+            port: 8080
+          serviceMonitor:
+            enabled: true
+            labels:
+              release: prometheus
 
   destination:
     server: https://kubernetes.default.svc

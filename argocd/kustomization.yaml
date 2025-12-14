@@ -3,14 +3,19 @@ kind: Kustomization
 namespace: argocd
 
 resources:
-  # ArgoCD Projects
+  # ArgoCD Projects - split by function for least privilege
+  - projects/infrastructure.yaml
+  - projects/tls-management.yaml
+  - projects/secrets-management.yaml
+  - projects/identity.yaml
   - projects/aster-lang.yaml
   - projects/wontlost.yaml
-  - projects/infrastructure.yaml
-  # ApplicationSets
+  # ApplicationSets - organized by function
+  - applicationsets/tls-management.yaml
+  - applicationsets/secrets-management.yaml
+  - applicationsets/identity.yaml
   - applicationsets/aster-lang.yaml
   - applicationsets/wontlost.yaml
-  - applicationsets/infrastructure.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
   # Repository credentials (apply separately with secrets)

@@ -7,14 +7,15 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
+    # Use git files generator to only include directories with kustomization.yaml
     - git:
         repoURL: https://github.com/wontlost-ltd/k3s.git
         revision: main
-        directories:
-          - path: apps/aster-lang/*
+        files:
+          - path: apps/aster-lang/*/kustomization.yaml
   template:
     metadata:
-      name: 'aster-{{ .path.basename }}'
+      name: 'aster-{{ index .path.segments 2 }}'
       namespace: argocd
       labels:
         domain: aster-lang.cloud
@@ -26,10 +27,10 @@ spec:
       source:
         repoURL: https://github.com/wontlost-ltd/k3s.git
         targetRevision: main
-        path: '{{ .path.path }}'
+        path: 'apps/aster-lang/{{ index .path.segments 2 }}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'aster-{{ .path.basename }}'
+        namespace: 'aster-{{ index .path.segments 2 }}'
       syncPolicy:
         automated:
           prune: true

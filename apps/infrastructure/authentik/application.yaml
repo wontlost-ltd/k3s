@@ -9,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: infrastructure
+  project: identity
   source:
     repoURL: https://charts.goauthentik.io
     chart: authentik

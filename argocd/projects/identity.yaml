@@ -1,0 +1,32 @@
+# Identity Project
+# Manages Authentik for SSO and identity management
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: identity
+  namespace: argocd
+spec:
+  description: "Identity and authentication - Authentik SSO"
+  sourceRepos:
+    - 'https://github.com/wontlost-ltd/k3s.git'
+    - 'https://charts.goauthentik.io'
+  destinations:
+    # Authentik namespace
+    - namespace: authentik
+      server: https://kubernetes.default.svc
+    # ArgoCD namespace for Application resources
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  # Limited cluster-scoped resources
+  clusterResourceWhitelist:
+    # Ingress classes if needed
+    - group: networking.k8s.io
+      kind: IngressClass
+    # ClusterRoles for RBAC
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

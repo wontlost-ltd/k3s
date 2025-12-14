@@ -9,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: infrastructure
+  project: secrets-management
   source:
     repoURL: https://helm.releases.hashicorp.com
     chart: vault
@@ -61,10 +61,18 @@ spec:
                 cluster_address = "[::]:8201"
                 tls_cert_file = "/vault/tls/tls.crt"
                 tls_key_file = "/vault/tls/tls.key"
+                telemetry {
+                  unauthenticated_metrics_access = true
+                }
               }
 
               storage "file" {
                 path = "/vault/data"
+              }
+
+              telemetry {
+                prometheus_retention_time = "30s"
+                disable_hostname = true
               }
 
           # Mount TLS certificate from cert-manager
@@ -108,6 +116,13 @@ spec:
         ui:
           enabled: true
           serviceType: ClusterIP
+
+        # Prometheus metrics
+        serverTelemetry:
+          serviceMonitor:
+            enabled: true
+            selectors:
+              release: prometheus
 
   destination:
     server: https://kubernetes.default.svc

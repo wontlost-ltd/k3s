@@ -1,15 +1,14 @@
-# Vault Configuration Application
-# Deploys internal TLS certificates BEFORE vault helm chart
-# Uses sync wave to ensure proper ordering
-
+# Bootstrap Application
+# Deploys ExternalSecrets for automated secret management
+# Depends on External Secrets Operator being ready
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: vault-config
+  name: bootstrap-secrets
   namespace: argocd
   annotations:
-    # Sync after cert-manager ClusterIssuers are ready (creates TLS certs)
-    argocd.argoproj.io/sync-wave: "-4"
+    # Deploy after external-secrets-config (ClusterSecretStore must be ready)
+    argocd.argoproj.io/sync-wave: "3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -17,12 +16,13 @@ spec:
   source:
     repoURL: https://github.com/wontlost-ltd/k3s.git
     targetRevision: main
-    path: apps/infrastructure/vault
+    path: apps/infrastructure/bootstrap
     directory:
-      include: 'internal-tls.yaml'
+      include: '*-external-secret.yaml'
   destination:
     server: https://kubernetes.default.svc
-    namespace: vault
+    # Resources are cluster-scoped or specify their own namespace
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true

@@ -1,35 +1,38 @@
+# TLS Management ApplicationSet
+# Manages cert-manager and reflector applications
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: infrastructure-apps
+  name: tls-management-apps
   namespace: argocd
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
-    - git:
-        repoURL: https://github.com/wontlost-ltd/k3s.git
-        revision: main
-        directories:
-          - path: apps/infrastructure/*
+    - list:
+        elements:
+          - name: cert-manager
+            namespace: cert-manager
+          - name: reflector
+            namespace: reflector
   template:
     metadata:
-      name: 'infra-{{ .path.basename }}'
+      name: 'tls-{{ .name }}'
       namespace: argocd
       labels:
-        tier: infrastructure
-        app.kubernetes.io/part-of: infrastructure
+        tier: tls-management
+        app.kubernetes.io/part-of: tls-management
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
-      project: infrastructure
+      project: tls-management
       source:
         repoURL: https://github.com/wontlost-ltd/k3s.git
         targetRevision: main
-        path: '{{ .path.path }}'
+        path: 'apps/infrastructure/{{ .name }}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{ .path.basename }}'
+        namespace: '{{ .namespace }}'
       syncPolicy:
         automated:
           prune: true

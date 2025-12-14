@@ -1,36 +1,36 @@
+# Identity ApplicationSet
+# Manages Authentik SSO application
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: wontlost-apps
+  name: identity-apps
   namespace: argocd
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
-    # Use git files generator to only include directories with kustomization.yaml
-    - git:
-        repoURL: https://github.com/wontlost-ltd/k3s.git
-        revision: main
-        files:
-          - path: apps/wontlost/*/kustomization.yaml
+    - list:
+        elements:
+          - name: authentik
+            namespace: authentik
   template:
     metadata:
-      name: 'wontlost-{{ index .path.segments 2 }}'
+      name: 'identity-{{ .name }}'
       namespace: argocd
       labels:
-        domain: wontlost.com
-        app.kubernetes.io/part-of: wontlost
+        tier: identity
+        app.kubernetes.io/part-of: identity
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
-      project: wontlost
+      project: identity
       source:
         repoURL: https://github.com/wontlost-ltd/k3s.git
         targetRevision: main
-        path: 'apps/wontlost/{{ index .path.segments 2 }}'
+        path: 'apps/infrastructure/{{ .name }}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'wontlost-{{ index .path.segments 2 }}'
+        namespace: '{{ .namespace }}'
       syncPolicy:
         automated:
           prune: true

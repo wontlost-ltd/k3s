@@ -9,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: infrastructure
+  project: tls-management
   source:
     repoURL: https://charts.jetstack.io
     chart: cert-manager
@@ -49,9 +49,13 @@ spec:
               cpu: 500m
               memory: 512Mi
 
-        # Enable prometheus metrics
+        # Enable prometheus metrics for observability
         prometheus:
-          enabled: false
+          enabled: true
+          servicemonitor:
+            enabled: true
+            labels:
+              release: prometheus
 
   destination:
     server: https://kubernetes.default.svc
