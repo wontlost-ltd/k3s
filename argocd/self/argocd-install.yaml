@@ -110,8 +110,10 @@ spec:
         # Configs
         configs:
           cm:
-            # Disable admin account when OIDC is configured (security best practice)
-            admin.enabled: "false"
+            # Keep admin account enabled as emergency fallback
+            # Primary authentication is via OIDC (Authentik)
+            # Admin password stored in argocd-initial-admin-secret
+            admin.enabled: "true"
             # ArgoCD URL
             url: https://argocd.aster-lang.cloud
             # OIDC Configuration (Authentik)
@@ -132,6 +134,8 @@ spec:
               g, argocd-admins, role:admin
               # Readonly group gets read-only access
               g, argocd-readonly, role:readonly
+              # Local admin account has full access (emergency fallback)
+              g, admin, role:admin
               # Default policy for authenticated users
               p, role:readonly, applications, get, */*, allow
               p, role:readonly, certificates, get, *, allow

@@ -2,20 +2,14 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: kube-system
 
-# Security patches for K3s system components
-# Add resources and patches below as needed
-
-resources: []
-  # - network-policies.yaml
-  # - pod-security-policies.yaml
+# Security resources for kube-system
+resources:
+  - network-policies.yaml
 
 # Strategic merge patches for existing K3s resources
-# patches:
-#   - path: traefik-security-patch.yaml
-#     target:
-#       kind: Deployment
-#       name: traefik
-
-# Example: Patch Traefik deployment for security hardening
-# patchesStrategicMerge:
-#   - traefik-security-patch.yaml
+patches:
+  - path: traefik-security-patch.yaml
+    target:
+      kind: Deployment
+      name: traefik
+      namespace: kube-system

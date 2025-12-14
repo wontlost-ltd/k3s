@@ -1,0 +1,11 @@
+# Default Deny All Ingress for data-services namespace
+# All pods must have explicit NetworkPolicy to receive traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-services
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

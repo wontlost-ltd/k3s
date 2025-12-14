@@ -1,7 +1,7 @@
-# Example: Traefik Security Hardening Patch
-# Rename to traefik-security-patch.yaml and uncomment in kustomization.yaml to apply
-#
-# This patch applies security best practices to the K3s-managed Traefik deployment
+# Traefik Security Hardening Patch
+# Applied via strategic merge to the K3s-managed Traefik deployment
+# Security best practices: drop capabilities, read-only rootfs, resource limits
+# NOTE: Do NOT modify args - K3s manages Traefik entrypoints and configuration
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,7 +16,6 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
             capabilities:
               drop:
                 - ALL
@@ -30,10 +29,3 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-          # Additional security args
-          args:
-            - --global.checknewversion=false
-            - --global.sendanonymoususage=false
-            # Uncomment to enable access logs
-            # - --accesslog=true
-            # - --accesslog.format=json

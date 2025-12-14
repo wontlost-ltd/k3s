@@ -40,9 +40,10 @@ spec:
       log_statement: "ddl"
       log_min_duration_statement: "1000"
     pg_hba:
-      # Allow connections from data-services namespace pods
-      # Note: In production, consider using NetworkPolicy for additional security
-      - host all all 10.0.0.0/8 scram-sha-256
+      # Allow connections from cluster pod network
+      # NetworkPolicy provides additional namespace-level isolation
+      # Adjust CIDR to match your cluster's pod network if different
+      - host all all 10.42.0.0/16 scram-sha-256
 
   # Bootstrap configuration
   bootstrap:
@@ -142,35 +143,41 @@ spec:
       - sourceLabels: [__meta_kubernetes_pod_name]
         targetLabel: instance
 
-  # Backup configuration
-  # IMPORTANT: Configure one of the following backup methods for production:
-  #
-  # Option 1: Object Store Backup (recommended for production)
-  # Requires S3-compatible storage (AWS S3, MinIO, etc.) and backup credentials secret
-  # backup:
-  #   barmanObjectStore:
-  #     destinationPath: s3://postgres-backups/shared-postgres/
-  #     endpointURL: https://s3.amazonaws.com  # or MinIO endpoint
-  #     s3Credentials:
-  #       accessKeyId:
-  #         name: postgres-backup-credentials
-  #         key: ACCESS_KEY_ID
-  #       secretAccessKey:
-  #         name: postgres-backup-credentials
-  #         key: SECRET_ACCESS_KEY
-  #     wal:
-  #       compression: gzip
-  #     data:
-  #       compression: gzip
-  #   retentionPolicy: "30d"
-  #
-  # Option 2: Volume Snapshot Backup (requires CSI snapshot support)
-  # Note: local-path-provisioner does NOT support snapshots
-  # Use this only with storage classes that support CSI snapshots (e.g., Longhorn, Rook-Ceph)
-  # backup:
-  #   volumeSnapshot:
-  #     className: <your-snapshot-class>
-  #     snapshotOwnerReference: cluster
+  # Backup configuration - S3-compatible object store
+  # Requires postgres-backup-credentials secret with ACCESS_KEY_ID and SECRET_ACCESS_KEY
+  # See apps/infrastructure/bootstrap/postgres-backup-external-secret.yaml
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://postgres-backups/shared-postgres/
+      endpointURL: https://s3.aster-lang.cloud
+      s3Credentials:
+        accessKeyId:
+          name: postgres-backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: postgres-backup-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+    retentionPolicy: "30d"
+
+---
+# Scheduled Backup - daily full backup at 2 AM UTC
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: shared-postgres-daily-backup
+  namespace: data-services
+spec:
+  schedule: "0 2 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: shared-postgres
+  immediate: false
+  suspend: false
 
 ---
 # PodDisruptionBudget for the cluster

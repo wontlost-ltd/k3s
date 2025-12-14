@@ -1,0 +1,59 @@
+# NetworkPolicy for Shared Redis
+# Restricts access to Redis to only authorized namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shared-redis-network-policy
+  namespace: data-services
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow Redis connections from authentik namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow Redis connections from aster-lang namespace (policy-api caching)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aster-lang
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow Sentinel connections for failover coordination
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aster-lang
+      ports:
+        - protocol: TCP
+          port: 26379
+    # Allow metrics scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9121  # Redis exporter metrics
+    # Allow intra-cluster communication between Redis pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379

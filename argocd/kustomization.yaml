@@ -21,6 +21,7 @@ resources:
   - applicationsets/wontlost.yaml
   # Standalone Applications (special sync policies)
   - ../apps/infrastructure/kube-system/application.yaml
+  - ../apps/infrastructure/data-services-network-policies/application.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
   # SSO configuration (enabled after Authentik is ready)

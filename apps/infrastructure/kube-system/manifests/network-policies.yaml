@@ -1,0 +1,212 @@
+# Network Policies for kube-system
+# Defense-in-depth: default-deny + explicit allow for CoreDNS and Traefik
+---
+# Default deny all ingress and egress for kube-system
+# Pods must have explicit NetworkPolicy to communicate
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: kube-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# CoreDNS Network Policy
+# DNS must be accessible from all cluster pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coredns-network-policy
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: kube-dns
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow DNS queries from all cluster pods (required for cluster DNS)
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      from:
+        - namespaceSelector: {}
+    # Allow metrics scraping from monitoring namespace only
+    - ports:
+        - protocol: TCP
+          port: 9153
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+  egress:
+    # Allow upstream DNS queries (external DNS resolution)
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow API server communication (service discovery)
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+
+---
+# Traefik Ingress Controller Network Policy
+# Must accept external traffic and route to backend services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traefik-network-policy
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow external HTTP/HTTPS traffic (ingress controller purpose)
+    # No 'from' selector = allows from anywhere including external
+    - ports:
+        - protocol: TCP
+          port: 8000  # web entrypoint
+        - protocol: TCP
+          port: 8443  # websecure entrypoint
+    # Allow metrics/dashboard from monitoring namespace only
+    - ports:
+        - protocol: TCP
+          port: 9000
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+  egress:
+    # Allow routing to backend services in application namespaces
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: wontlost
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aster-lang
+    # Allow API server communication (ingress discovery)
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow DNS resolution
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+
+---
+# Metrics Server Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metrics-server-network-policy
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: metrics-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from API server and monitoring
+    - ports:
+        - protocol: TCP
+          port: 10250
+  egress:
+    # Allow kubelet metrics collection on nodes
+    - ports:
+        - protocol: TCP
+          port: 10250
+    # Allow API server
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+
+---
+# Local Path Provisioner Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: local-path-provisioner-network-policy
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app: local-path-provisioner
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # Allow API server communication (PV/PVC management)
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns

@@ -1,0 +1,27 @@
+# Data Services Network Policies
+# Deploys NetworkPolicies for PostgreSQL and Redis
+# Must deploy after data services are created (sync-wave 4.5)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: data-services-network-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: data-services
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: apps/infrastructure/data-services-network-policies/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data-services
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

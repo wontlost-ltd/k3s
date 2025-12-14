@@ -1,0 +1,27 @@
+# Authentik Network Policies Application
+# Deploys NetworkPolicies for Authentik namespace
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik-network-policies
+  namespace: argocd
+  annotations:
+    # Deploy after Authentik is created (sync-wave 5)
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: identity
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: apps/infrastructure/authentik/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

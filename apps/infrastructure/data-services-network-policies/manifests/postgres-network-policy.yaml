@@ -1,0 +1,66 @@
+# NetworkPolicy for PostgreSQL Cluster
+# Restricts access to PostgreSQL to only authorized namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-cluster-network-policy
+  namespace: data-services
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: shared-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow PostgreSQL connections from authentik namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow PostgreSQL connections from monitoring namespace (Grafana)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow PostgreSQL connections from aster-lang namespace (policy-api)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aster-lang
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow metrics scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9187  # PostgreSQL exporter metrics
+    # Allow intra-cluster replication between PostgreSQL pods
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: shared-postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8008  # Patroni REST API
+    # Allow CNPG operator to manage cluster
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8008
