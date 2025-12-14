@@ -66,13 +66,19 @@ k3s/
 │   │   ├── argocd-config.yaml      # ArgoCD config (projects, applicationsets)
 │   │   └── kustomization.yaml      # Self-management bootstrap
 │   ├── projects/                    # Project definitions (RBAC boundaries)
-│   │   ├── aster-lang.yaml         # aster-lang.cloud project
-│   │   ├── wontlost.yaml           # wontlost.com project
-│   │   └── infrastructure.yaml     # Shared infrastructure project
+│   │   ├── infrastructure.yaml     # Shared infrastructure project
+│   │   ├── tls-management.yaml     # TLS/cert-manager project
+│   │   ├── secrets-management.yaml # External Secrets project
+│   │   ├── identity.yaml           # Authentik SSO project
+│   │   ├── aster-lang.yaml         # aster-lang.dev applications
+│   │   └── wontlost.yaml           # wontlost.com applications
 │   ├── applicationsets/             # Dynamic app generators
+│   │   ├── tls-management.yaml     # cert-manager ApplicationSet
+│   │   ├── secrets-management.yaml # Vault, ESO, bootstrap ApplicationSet
+│   │   ├── identity.yaml           # Authentik ApplicationSet
+│   │   ├── platform.yaml           # Monitoring, observability ApplicationSet
 │   │   ├── aster-lang.yaml         # Scans apps/aster-lang/*
-│   │   ├── wontlost.yaml           # Scans apps/wontlost/*
-│   │   └── infrastructure.yaml     # Scans apps/infrastructure/*
+│   │   └── wontlost.yaml           # Scans apps/wontlost/*
 │   ├── ingress.yaml                # ArgoCD UI ingress (argocd.aster-lang.cloud)
 │   ├── kustomization.yaml          # Config kustomization (projects + appsets + ingress)
 │   └── repo-secret.yaml            # Repository credentials template (DO NOT COMMIT REAL SECRETS)
@@ -83,11 +89,14 @@ k3s/
 │   │   └── policy/                  # -> Creates "aster-policy" app in "aster-policy" namespace
 │   ├── wontlost/                    # wontlost.com applications
 │   │   └── data/                    # -> Creates "wontlost-data" app in "wontlost-data" namespace
-│   └── infrastructure/              # Shared infrastructure
-│       ├── cert-manager/            # -> Creates "infra-cert-manager" app in "cert-manager" namespace
-│       ├── vault/                   # -> Creates "infra-vault" app in "vault" namespace
-│       ├── authentik/               # -> Creates "infra-authentik" app in "authentik" namespace
-│       └── external-secrets/        # -> Creates "infra-external-secrets" app in "external-secrets" namespace
+│   └── infrastructure/              # Shared infrastructure (organized by function)
+│       ├── cert-manager/            # -> Creates "tls-cert-manager" app
+│       ├── cert-manager-config/     # -> Creates "tls-cert-manager-config" app
+│       ├── vault/                   # -> Creates "secrets-vault" app
+│       ├── external-secrets/        # -> Creates "secrets-external-secrets" app
+│       ├── bootstrap/               # -> Creates "secrets-bootstrap" app (ExternalSecrets)
+│       ├── authentik/               # -> Creates "identity-authentik" app
+│       └── monitoring/              # -> Creates "monitoring" app (kube-prometheus-stack)
 └── README.md
 ```
 

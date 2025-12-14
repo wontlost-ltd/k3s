@@ -33,12 +33,14 @@ spec:
             - secretRef:
                 name: authentik-secrets
 
-        # Redis configuration (bundled)
+        # Redis configuration (bundled with auth enabled)
         redis:
           enabled: true
           architecture: standalone
           auth:
-            enabled: false
+            enabled: true
+            existingSecret: authentik-secrets
+            existingSecretPasswordKey: AUTHENTIK_REDIS__PASSWORD
           master:
             resources:
               requests:
@@ -48,9 +50,12 @@ spec:
                 memory: 256Mi
                 cpu: 250m
 
-        # Server configuration (production values)
+        # Server configuration (production HA)
         server:
-          replicas: 1
+          replicas: 2
+          pdb:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               memory: 1Gi
@@ -73,9 +78,12 @@ spec:
                 hosts:
                   - auth.aster-lang.cloud
 
-        # Worker configuration (production values)
+        # Worker configuration (production HA)
         worker:
-          replicas: 1
+          replicas: 2
+          pdb:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               memory: 512Mi

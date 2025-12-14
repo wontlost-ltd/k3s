@@ -94,10 +94,30 @@ vault write auth/kubernetes/config \
 vault secrets enable -path=secret kv-v2
 
 # Create infrastructure secrets (for ExternalSecrets)
+
+# Cloudflare API token for cert-manager DNS-01 challenge
 vault kv put secret/infrastructure/cloudflare api_token="YOUR_CLOUDFLARE_TOKEN"
+
+# Grafana admin credentials
+vault kv put secret/infrastructure/grafana \
+    admin_user="admin" \
+    admin_password="$(openssl rand -base64 24)"
+
+# Authentik credentials (all required fields)
 vault kv put secret/infrastructure/authentik \
-    secret_key="$(openssl rand -base64 32)" \
-    postgres_password="$(openssl rand -base64 24)"
+    secret_key="$(openssl rand -base64 36)" \
+    postgresql_host="postgres.wontlost-data.svc.cluster.local" \
+    postgresql_port="5432" \
+    postgresql_name="authentik" \
+    postgresql_user="authentik" \
+    postgresql_password="$(openssl rand -base64 24)" \
+    redis_password="$(openssl rand -base64 24)" \
+    bootstrap_password="$(openssl rand -base64 16)" \
+    bootstrap_email="admin@aster-lang.cloud"
+
+# ArgoCD OIDC client secret (for SSO)
+vault kv put secret/infrastructure/argocd \
+    oidc_client_secret="YOUR_AUTHENTIK_CLIENT_SECRET"
 ```
 
 ### 6. Create Policy for External Secrets

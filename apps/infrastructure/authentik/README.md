@@ -38,30 +38,36 @@ GRANT ALL PRIVILEGES ON DATABASE authentik TO authentik;
 \q
 ```
 
-### 4. Create Kubernetes Secrets
+### 4. Store Secrets in Vault (ExternalSecret Workflow)
+
+Secrets are managed via Vault and synced automatically by ExternalSecrets Operator.
 
 ```bash
-# Create secret with all required values
-kubectl create secret generic authentik-secrets -n authentik \
-  --from-literal=AUTHENTIK_SECRET_KEY="$AUTHENTIK_SECRET_KEY" \
-  --from-literal=AUTHENTIK_POSTGRESQL__HOST="postgres.wontlost-data.svc.cluster.local" \
-  --from-literal=AUTHENTIK_POSTGRESQL__PORT="5432" \
-  --from-literal=AUTHENTIK_POSTGRESQL__NAME="authentik" \
-  --from-literal=AUTHENTIK_POSTGRESQL__USER="authentik" \
-  --from-literal=AUTHENTIK_POSTGRESQL__PASSWORD="your-secure-password" \
-  --from-literal=AUTHENTIK_BOOTSTRAP_PASSWORD="admin-initial-password" \
-  --from-literal=AUTHENTIK_BOOTSTRAP_EMAIL="admin@aster-lang.cloud"
+# Store all required credentials in Vault
+vault kv put secret/infrastructure/authentik \
+  secret_key="$(openssl rand -base64 36)" \
+  postgresql_host="postgres.wontlost-data.svc.cluster.local" \
+  postgresql_port="5432" \
+  postgresql_name="authentik" \
+  postgresql_user="authentik" \
+  postgresql_password="your-secure-password" \
+  redis_password="$(openssl rand -base64 24)" \
+  bootstrap_password="admin-initial-password" \
+  bootstrap_email="admin@aster-lang.cloud"
 ```
 
-### 5. Update Application to Use Secrets
+The ExternalSecret at `apps/infrastructure/bootstrap/authentik-external-secret.yaml` automatically creates the `authentik-secrets` Kubernetes Secret from these Vault values.
 
-Update `application.yaml` to include:
+**Do NOT manually create the secret** - it will conflict with the ExternalSecret.
 
-```yaml
-# In the helm values section, add:
-envFrom:
-  - secretRef:
-      name: authentik-secrets
+### 5. Verify Secret Sync
+
+```bash
+# Check ExternalSecret status
+kubectl get externalsecret -n authentik authentik-secrets
+
+# Verify the secret was created
+kubectl get secret -n authentik authentik-secrets -o jsonpath='{.data}' | jq -r 'keys'
 ```
 
 ## Post-Installation
