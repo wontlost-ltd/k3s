@@ -73,3 +73,6 @@ spec:
     # Policy
     - group: policy
       kind: PodDisruptionBudget
+    # ArgoCD Application (for app-of-apps pattern)
+    - group: argoproj.io
+      kind: Application

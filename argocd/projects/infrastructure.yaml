@@ -111,3 +111,6 @@ spec:
     # Traefik Middleware (for auth)
     - group: traefik.io
       kind: Middleware
+    # ArgoCD Application (for app-of-apps pattern)
+    - group: argoproj.io
+      kind: Application

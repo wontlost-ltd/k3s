@@ -1,10 +1,6 @@
 # ArgoCD Ingress Configuration
 # Exposes ArgoCD UI at argocd.aster-lang.cloud
-#
-# IMPORTANT: After applying, disable TLS on ArgoCD server:
-# kubectl patch configmap argocd-cmd-params-cm -n argocd \
-#   --type merge -p '{"data":{"server.insecure":"true"}}'
-# kubectl rollout restart deployment argocd-server -n argocd
+# Note: server.insecure is configured in argocd-install.yaml Helm values
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -47,13 +43,3 @@ spec:
     customRequestHeaders:
       X-Forwarded-Proto: https
 
----
-# ConfigMap patch for insecure mode (Traefik handles TLS)
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: argocd-cmd-params-cm
-  namespace: argocd
-data:
-  # Run ArgoCD server without TLS (Traefik terminates TLS)
-  server.insecure: "true"

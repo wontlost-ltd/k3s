@@ -17,6 +17,7 @@ spec:
     chart: kube-prometheus-stack
     targetRevision: 65.1.1
     helm:
+      releaseName: prometheus
       valuesObject:
         # Prometheus configuration
         prometheus:
@@ -106,6 +107,18 @@ spec:
         grafana:
           # HA configuration - 2 replicas
           replicas: 2
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: grafana
+                    topologyKey: kubernetes.io/hostname
           # Use ExternalSecret for admin credentials from Vault
           admin:
             existingSecret: grafana-admin

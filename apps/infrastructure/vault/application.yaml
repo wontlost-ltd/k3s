@@ -58,6 +58,7 @@ spec:
 
           # PDB for Vault server
           podDisruptionBudget:
+            enabled: true
             minAvailable: 2
 
           # HA mode with Raft storage

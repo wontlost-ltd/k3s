@@ -46,9 +46,12 @@ spec:
               cpu: 500m
               memory: 512Mi
 
-        # Application controller (single replica - stateful)
+        # Application controller (HA with sharding)
         controller:
-          replicas: 1
+          replicas: 2
+          pdb:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               cpu: 250m
@@ -57,9 +60,16 @@ spec:
               cpu: 1000m
               memory: 1Gi
 
-        # Redis (2 replicas for HA)
+        # Redis HA
         redis:
+          enabled: false  # Disable standalone redis
+        redis-ha:
           enabled: true
+          haproxy:
+            enabled: true
+            replicas: 3
+          redis:
+            replicas: 3
 
         # Notifications controller
         notifications:
@@ -95,7 +105,8 @@ spec:
           cm:
             admin.enabled: "true"
           params:
-            server.insecure: "false"
+            # Run ArgoCD server without TLS (Traefik terminates TLS)
+            server.insecure: "true"
 
   destination:
     server: https://kubernetes.default.svc

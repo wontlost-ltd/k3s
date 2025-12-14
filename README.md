@@ -62,7 +62,7 @@ For detailed domain allocation, see [docs/DOMAIN_STRATEGY.md](docs/DOMAIN_STRATE
 k3s/
 ├── argocd/                          # ArgoCD configuration
 │   ├── self/                        # ArgoCD self-management
-│   │   ├── argocd-install.yaml     # ArgoCD installation (points to upstream)
+│   │   ├── argocd-install.yaml     # ArgoCD installation (Helm chart argo-cd v7.9.0)
 │   │   ├── argocd-config.yaml      # ArgoCD config (projects, applicationsets)
 │   │   └── kustomization.yaml      # Self-management bootstrap
 │   ├── projects/                    # Project definitions (RBAC boundaries)
@@ -92,12 +92,12 @@ k3s/
 │   ├── wontlost/                    # wontlost.com applications
 │   │   └── data/                    # -> Creates "wontlost-data" app in "wontlost-data" namespace
 │   └── infrastructure/              # Shared infrastructure (organized by function)
-│       ├── cert-manager/            # -> Creates "tls-cert-manager" and "tls-cert-manager-config" apps
-│       ├── reflector/               # -> Creates "tls-reflector" app (cert replication)
-│       ├── vault/                   # -> Creates "secrets-vault" app
-│       ├── external-secrets/        # -> Creates "secrets-external-secrets" app
-│       ├── bootstrap/               # -> Creates "secrets-bootstrap" app (ExternalSecrets)
-│       ├── authentik/               # -> Creates "identity-authentik" app
+│       ├── cert-manager/            # -> Creates "cert-manager" app
+│       ├── reflector/               # -> Creates "reflector" app (cert replication)
+│       ├── vault/                   # -> Creates "vault" app
+│       ├── external-secrets/        # -> Creates "external-secrets" app
+│       ├── bootstrap/               # -> Creates "bootstrap" app (ExternalSecrets)
+│       ├── authentik/               # -> Creates "authentik" app
 │       └── monitoring/              # -> Creates "monitoring" app (kube-prometheus-stack)
 └── README.md
 ```
@@ -117,7 +117,7 @@ k3s/
 │                                                             │
 │  ┌─────────────┐     manages      ┌─────────────────────┐   │
 │  │   argocd    │ ───────────────► │  ArgoCD Install     │   │
-│  │   (App)     │                  │  (upstream v3.2.1)  │   │
+│  │   (App)     │                  │  (Helm argo-cd)     │   │
 │  └─────────────┘                  └─────────────────────┘   │
 │         │                                                   │
 │         │ manages                                           │
@@ -132,8 +132,8 @@ k3s/
 │                                   ┌─────────────────────┐   │
 │                                   │  aster-policy       │   │
 │                                   │  wontlost-data      │   │
-│                                   │  infra-cert-manager │   │
-│                                   │  ...                │   │
+│                                   │  cert-manager       │   │
+│                                   │  vault, monitoring  │   │
 │                                   └─────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -144,10 +144,11 @@ k3s/
 |-----------|-----------------|-----------|
 | `apps/aster-lang/policy` | `aster-policy` | `aster-policy` |
 | `apps/wontlost/data` | `wontlost-data` | `wontlost-data` |
-| `apps/infrastructure/cert-manager` | `infra-cert-manager` | `cert-manager` |
-| `apps/infrastructure/vault` | `infra-vault` | `vault` |
-| `apps/infrastructure/authentik` | `infra-authentik` | `authentik` |
-| `apps/infrastructure/external-secrets` | `infra-external-secrets` | `external-secrets` |
+| `apps/infrastructure/cert-manager` | `cert-manager` | `cert-manager` |
+| `apps/infrastructure/vault` | `vault` | `vault` |
+| `apps/infrastructure/authentik` | `authentik` | `authentik` |
+| `apps/infrastructure/external-secrets` | `external-secrets` | `external-secrets` |
+| `apps/infrastructure/monitoring` | `monitoring` | `monitoring` |
 
 ## Prerequisites
 
@@ -239,11 +240,15 @@ kubectl delete clusterrolebinding argocd-application-controller argocd-server 2>
 
 ### Step 1: Install Fresh ArgoCD
 
+> **Note**: This installs ArgoCD from raw manifests for initial bootstrap. Once self-management
+> is enabled (Step 3), ArgoCD will manage itself via the Helm chart defined in
+> `argocd/self/argocd-install.yaml` with HA configuration.
+
 ```bash
 # Create ArgoCD namespace
 kubectl create namespace argocd
 
-# Install ArgoCD using official manifests
+# Install ArgoCD using official manifests (bootstrap only)
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 # Wait for all pods to be ready (this may take 1-2 minutes)
