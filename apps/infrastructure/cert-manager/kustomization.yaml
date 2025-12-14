@@ -1,0 +1,8 @@
+# Kustomization for cert-manager
+# Only includes Application manifests - CRDs are managed by config-application
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - application.yaml
+  - config-application.yaml

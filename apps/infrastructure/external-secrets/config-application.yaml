@@ -8,8 +8,8 @@ metadata:
   name: external-secrets-config
   namespace: argocd
   annotations:
-    # Ensure this syncs after external-secrets operator
-    argocd.argoproj.io/sync-wave: "1"
+    # Ensure this syncs after ESO controller and Vault are ready
+    argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

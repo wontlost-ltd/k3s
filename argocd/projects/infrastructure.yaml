@@ -11,8 +11,9 @@ spec:
     - 'https://traefik.github.io/charts'
     # TLS Certificates
     - 'https://charts.jetstack.io'
-    # ArgoCD
+    # ArgoCD (Helm charts + official repo for self-management)
     - 'https://argoproj.github.io/argo-helm'
+    - 'https://github.com/argoproj/argo-cd.git'
     # Secrets Management
     - 'https://helm.releases.hashicorp.com'
     - 'https://charts.external-secrets.io'

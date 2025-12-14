@@ -8,8 +8,8 @@ metadata:
   name: cert-manager-config
   namespace: argocd
   annotations:
-    # Ensure this syncs after cert-manager
-    argocd.argoproj.io/sync-wave: "1"
+    # Ensure this syncs after cert-manager controller is ready
+    argocd.argoproj.io/sync-wave: "-8"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

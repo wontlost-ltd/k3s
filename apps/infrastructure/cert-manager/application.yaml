@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: cert-manager
   namespace: argocd
+  annotations:
+    # Deploy first - other components depend on cert-manager CRDs
+    argocd.argoproj.io/sync-wave: "-10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

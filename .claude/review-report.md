@@ -1,56 +1,66 @@
 # k3s GitOps 评审报告
-日期：2025-12-14 22:39 NZST（Codex）
+日期：2025-12-14 23:07 NZST（Codex）
 
-- **总体评分**：58 / 100
-- **技术质量评估**：应用自管理和 GitOps 结构清晰，但 AppProject、ApplicationSet 与组件文件夹之间存在断层，关键基础设施无法被成功部署。
-- **安全性评估**：Vault、External Secrets、ArgoCD 多处将 TLS/密钥交互降级为明文和手动操作，缺少系统化的密钥生命周期管理。
+- **总体评分**：62 / 100
+- **技术质量评估**：App-of-Apps 链路（self → argocd-config → ApplicationSets → apps/*）设计清晰，但组件目录同时包含 Helm 应用、配置 Application 与原生 CRD，导致依赖顺序与所有权管理复杂且易出错。
+- **安全性评估**：Vault/External Secrets 在 YAML 中启用了 TLS，但 AppProject 权限放开、前置 Secret 全靠人工以及 Vault 初始化缺乏自动化，使最小权限与密钥生命周期难以落地。
 
 ## 5 层次审查
-- **数据结构层**：`argocd/self → argocd → ApplicationSets → apps/*` 的链路清晰，但 `apps/infrastructure/cert-manager` 的 Kustomize 只输出证书对象，导致 Helm Application 无法被 AppSet 捕获。
-- **特殊场景层**：Cloudflare Token、Vault 初始化、证书复制等前提完全依赖人工脚本，没有 Sync Wave 或 Health Check，遇到缺失 Secret 时 ArgoCD 会无限重试。
-- **复杂度层**：大量 “App 内再声明 Application” 的双层模式叠加手写 Kustomize，导致调试复杂且不易看出依赖顺序。
-- **破坏性变更层**：AppProject 过度收紧 `sourceRepos`，一旦新增 Helm 仓库就会被拒绝，同步中断；Vault 默认 `standalone+file`，切换到 Raft 会与现有 PVC/Ingress 不兼容。
-- **可行性层**：cert-manager/external-secrets/authentik/vault 的资源限制均远低于生产需求，且 Vault/ESO 之间是 HTTP，集群中只要有 Pod 可达 `vault` Service 就能窃取 JWT。
+- **数据结构层**：`argocd/applicationsets/infrastructure.yaml:10-33` 直接把 `apps/infrastructure/*` 目录交给 ApplicationSet，同一目录内既有二级 Application 又有 ClusterIssuer/Secret/Issuer，Argo 缺少过滤能力。
+- **特殊场景层**：Cloudflare API Token、Vault 内部 TLS、External Secrets 的 Kubernetes Auth 均依赖手工步骤（如 `apps/infrastructure/cert-manager/cluster-issuers.yaml:1-37` 的注释），没有 `dependsOn` 或自动校验，缺项就会永远 OutOfSync。
+- **复杂度层**：每个基础设施目录都在同一级别混合 `application.yaml`、`config-application.yaml` 及真实资源，AppSet 一次性 apply 后同一资源由多层 Application 同时管理，调试与回滚路径不透明。
+- **破坏性变更层**：`argocd/projects/infrastructure.yaml:8-31` 仅允许特定 source repo 却对 destination/resource 使用 `*`，新增仓库会被拒绝，同步失败；误配置又能修改全集群，缺乏最小权限。
+- **可行性层**：Vault TLS 配置与 External Secrets HTTPS 线路（`apps/infrastructure/vault/application.yaml:17-105`、`apps/infrastructure/external-secrets/vault-secretstore.yaml:18-48`）在文件层面齐备，但 Vault 初始化、Cloudflare Token、Authentik Secret 等关键路径仍需人工脚本，GitOps 难以收敛。
 
-## 详细发现（按严重度）
-1. **[Critical] AppProject 未授权外部 Helm 仓库，基础设施应用全部被拒绝**  
-   - 位置：`argocd/projects/infrastructure.yaml:8-12` 引用的仓库只有 k3s、Traefik、Jetstack、Argo Helm。`vault`、`external-secrets`、`authentik` 分别需要 `https://helm.releases.hashicorp.com`、`https://charts.external-secrets.io`、`https://charts.goauthentik.io`，目前都不在白名单。  
-   - 影响：通过 `infrastructure-apps` 生成的所有 Application 在首次 Sync 就会报 `application spec invalid: source repo <...> is not permitted`，即使值文件正确也永远无法部署。  
-   - 建议：在 AppProject 中补全所有需要的 chart repo（或在 `sourceRepos` 中添加 `'*'` 并配合严格的 Destination/ClusterResource 白名单），同时在 README 中记录添加新仓库的流程。
+## 详细发现
+### Critical
+1. **AppProject 未允许 ArgoCD 官方仓库，导致自托管 Application 无法落地**
+   - 证据：`argocd/self/argocd-install.yaml:8-23` 的 `repoURL` 指向 `https://github.com/argoproj/argo-cd.git`，而 `argocd/projects/infrastructure.yaml:8-22` 的 `sourceRepos` 中缺少该仓库。
+   - 影响：`argocd` Application 会被 controller 拒绝（"repository is not permitted"），自管理流程在第一层即失败，后续 ApplicationSet 无法生效。
+   - 建议：在基础设施 AppProject 中补充该仓库或采用通配策略，并把新增源仓库的白名单检查纳入 PR/CI。
 
-2. **[Critical] cert-manager Helm Application 未被 ApplicationSet 渲染，导致控制面永远缺失**  
-   - 位置：`argocd/applicationsets/infrastructure.yaml:10-32` 为每个组件指向 `apps/infrastructure/<name>`，而 `apps/infrastructure/cert-manager/kustomization.yaml:11-13` 只包含 `cluster-issuers.yaml` 和 `wildcard-certificates.yaml`。`application.yaml` 与 `config-application.yaml` 没有被 Kustomize 引用。  
-   - 影响：`infra-cert-manager` 应用只会下发 Certificate/ClusterIssuer CR，却没有任何资源真正安装 Jetstack Helm Chart；`cert-manager-config` Application 也不会出现。集群内没有 cert-manager 控制器，所有证书同步都会失败。  
-   - 建议：拆分目录（例如 `chart/` 与 `config/`），或在 `kustomization.yaml` 的 `resources` 中显式加入 `application.yaml` 与 `config-application.yaml`，确保 AppSet 能渲染 Helm Application；同时给配置 App 设置 `sync-wave`/`dependsOn` 以保证顺序。
+### High
+1. **ApplicationSet 直接 apply 目录，CRD/Secret 在 Helm 安装完成前即被创建**
+   - 证据：`argocd/applicationsets/infrastructure.yaml:10-33` 将 `path` 设为整个组件目录，而 `apps/infrastructure/cert-manager/` 同时包含 `cluster-issuers.yaml`、`wildcard-certificates.yaml` 与 `application.yaml`。
+   - 影响：`infra-cert-manager` 初次同步就会创建 ClusterIssuer/Certificate，此时 cert-manager 控制器和 CRD 尚不存在，报 "no matches for kind"；之后 `cert-manager-config` Application 再次管理相同资源，造成所有权冲突与重复 sync。
+   - 建议：为每个组件新增 `kustomization.yaml` 或拆分子目录，仅向 ApplicationSet 暴露 `*-application.yaml`，其余资源交由配置 Application 管理，并配合 `argocd.argoproj.io/sync-wave` / `dependsOn` 明确顺序。
 
-3. **[High] Vault 通过 Ingress 对外暴露但服务端强制禁用 TLS，机密数据在集群内部明文传输**  
-   - 位置：`apps/infrastructure/vault/application.yaml:17-114` 中 `server.standalone.config` 将 `listener "tcp" { tls_disable = 1 }`，同时 Ingress `vault.aster-lang.cloud` 直接回源 HTTP。  
-   - 影响：虽然入口由 Traefik/Let's Encrypt 终止 TLS，但集群内到 Vault Pod 的所有流量（含 Root Token、封印密钥、动态凭证）均为明文，任何能抓取 Node 网络的实体都能窃取。  
-   - 建议：开启 Vault TLS（配置 Pod 级证书/自动颁发），或至少启用 mTLS/`tls_disable = 0` 并将 Ingress 以 HTTPS 反向代理；同时考虑用 Raft HA 代替单副本 file storage，提高可用性。
+2. **缺少跨组件波次与依赖，Vault 与 External Secrets 配置在 cert-manager 可用前即被套用**
+   - 证据：`apps/infrastructure/vault/internal-tls.yaml:6-85`、`apps/infrastructure/external-secrets/vault-secretstore.yaml:12-48` 均依赖 cert-manager CRD 与 Vault TLS Secret，但 `infra-vault`、`infra-external-secrets` 与 `infra-cert-manager` 之间没有上层波次或 `dependsOn`。
+   - 影响：新集群中 Vault TLS Issuer、ClusterSecretStore 会在 cert-manager 准备好之前反复失败，整个 ApplicationSet 卡在 `Degraded` 状态，需要人工多次重试。
+   - 建议：在 ApplicationSet 模板中为各组件设置 `argocd.argoproj.io/sync-wave`（例如 cert-manager:-2、Vault TLS:-1、Vault:0、ESO:+1），并使用 Argo 2.4+ 的 `spec.syncPolicy` `dependsOn` 表达跨应用依赖。
 
-4. **[High] External Secrets 与 Vault 之间同样使用 HTTP，ServiceAccount JWT 暴露**  
-   - 位置：`apps/infrastructure/external-secrets/vault-secretstore.yaml:18-39` 指向 `http://vault.vault.svc.cluster.local:8200`，且依赖 Vault `kubernetes` auth。  
-   - 影响：ESO 控制器会携带自身 ServiceAccount JWT 调用 Vault，如果任一工作负载能够被诱导访问或嗅探该 Service，则可以窃得 Token 与 Vault session，进一步读取所有密钥。  
-   - 建议：启用 Vault TLS 并在 ClusterSecretStore 中配置 `caBundle`/`tlsConfig`；若短期无法启用 TLS，应至少启用 Vault Namespaces/Policies 限制访问范围，并通过 NetworkPolicy 保护 `vault` 服务。
+### Medium
+1. **关键前置 Secret/配置仍靠人工脚本，GitOps 无法自动达成所需状态**
+   - 证据：`apps/infrastructure/cert-manager/cluster-issuers.yaml:4-17` 需要手动创建 `cloudflare-api-token`；`apps/infrastructure/authentik/application.yaml:26-33` 要求 `authentik-secrets`；`apps/infrastructure/external-secrets/vault-secretstore.yaml:4-10` 依赖管理员先启用 Vault Kubernetes Auth。
+   - 影响：缺失任一前置条件都会让 Application 永远 `OutOfSync/Degraded`，且真实值不在 Git 中，破坏审计闭环。
+   - 建议：将这些敏感值迁移到 External Secrets/SOPS，或提供自动 bootstrap Job，并为缺失依赖场景添加 HealthCheck/警示。
 
-5. **[Medium] Wildcard 证书依赖 EmberStack Reflector，但仓库内没有同一个 GitOps 定义**  
-   - 位置：`apps/infrastructure/cert-manager/wildcard-certificates.yaml:27-95` 使用 `reflector.v1.k8s.emberstack.com/*` 注解；`apps/infrastructure/cert-manager/README.md:154-160` 才提到需要手动执行 `helm install reflector ...`。  
-   - 影响：在纯 GitOps 环境中并不会安装 Reflector，导致证书 Secret 无法同步至 `argocd/vault/authentik/...`，Ingress TLS 会持续报错。  
-   - 建议：把 Reflector 纳入基础设施 ApplicationSet，或改用 cert-manager CSI/External Secrets 等方式同步证书，避免人工步骤。
+2. **Infrastructure AppProject 权限放开到集群级，缺乏最小权限隔离**
+   - 证据：`argocd/projects/infrastructure.yaml:24-31` 将 destination namespace、clusterResourceWhitelist、namespaceResourceWhitelist 全部设置为 `*`。
+   - 影响：任意误配置的 Application 都能修改所有命名空间与集群资源，错误难以限制在局部。
+   - 建议：依据功能域拆分 AppProject（如 networking/security/platform），并限定允许的 namespace/kind，配合 Argo RBAC 提升安全性。
 
-6. **[Medium] 组件资源限制远低于官方建议，健康检查缺失**  
-   - 位置：`apps/infrastructure/cert-manager/application.yaml:22-47`、`apps/infrastructure/external-secrets/application.yaml:23-52`、`apps/infrastructure/authentik/application.yaml:48-82` 均把核心控制器限制在 64~128Mi/100m 范围。  
-   - 影响：一旦证书/Secret 数量或并发稍高，Pods 容易 OOM 或被 kubelet 限制 CPU，Argo 会频繁触发自我修复，与 GitOps sync 相互干扰。  
-   - 建议：参照各项目官方 `values.yaml` 建议，将 requests/limits 提升到至少 250Mi/500m，并为关键 Deployment 添加 `livenessProbe`/`readinessProbe`，便于 Argo 健康状态评估。
+### Low
+1. **多个核心组件资源请求偏低且监控关闭，容量规划困难**
+   - 证据：cert-manager（`apps/infrastructure/cert-manager/application.yaml:22-47`）与 external-secrets（`apps/infrastructure/external-secrets/application.yaml:23-52`）仅请求 100m/128Mi，Vault injector（`apps/infrastructure/vault/application.yaml:21-45`）上限 256Mi，metrics 亦被关闭。
+   - 影响：证书或密钥同步出现峰值时容易 OOM/Throttle，虽然 Argo 会自愈，但续期可能抖动。
+   - 建议：参考官方 sizing（≥250m/512Mi）重新设定 requests/limits，并在 Helm values 中开启 Prometheus metrics 便于监控。
 
 ## 改进建议
-- 扩展 AppProject 的 `sourceRepos` 并建立统一的 `values` 模板库，减少新增组件时的摩擦。  
-- 将 Helm 应用与后置 CRDs 拆分为两个独立目录（或显式记录在 Kustomize 中），并使用 `argocd.argoproj.io/sync-wave`/`dependsOn` 来描述顺序，避免当前的“App 套 App”黑盒。  
-- 把 Vault、External Secrets、Reflector、Cloudflare API Token 等依赖全部纳入 GitOps 仓库（Secret 通过 External Secrets / SOPS），并禁止手动 `kubectl apply` 模式。  
-- 制定 TLS 策略：控制面全部开启 Pod 内 TLS，Ingress 仅负责对外证书；对 Secret 流转链路补齐审计与 NetworkPolicy。  
-- 根据生产负载重新评估资源请求，对关键组件添加监控与告警（可在 Helm values 中开启 Prometheus metrics）。
+1. 在 `infrastructure` AppProject 补充 ArgoCD 官方 repo，并把新增 source repo 的白名单校验纳入 CI。
+2. 为 `apps/infrastructure/*` 补充 `kustomization.yaml` 或拆分子目录，仅由 ApplicationSet 下发二级 Application，使用 `argocd.argoproj.io/sync-wave` 与 `dependsOn` 描述依赖。
+3. 将 Cloudflare Token、Vault 初始化、Authentik Secret 等前置步骤 GitOps 化（External Secrets、SOPS、初始化 Job），确保集群可以自动收敛。
+4. 重新划分 AppProject 权限边界，限定目的 namespace 与允许的 kind，配合 Argo/RBAC 实现最小权限。
+5. 根据真实负载提升 cert-manager、Vault、External Secrets 的资源请求并开启 metrics，配合监控与告警完善容量规划。
 
-## Critical Issues
-- AppProject 阻止外部 Helm 仓库 → 所有基础设施应用无法同步。  
-- cert-manager Helm Application 未被任何 Application 管理 → 集群没有证书控制器。  
-- Vault/ESO 明文交互 → 凭证与密钥在集群内可被窃取。
+## Progress Since Last Review
+| Issue | Previous Status | Current Status |
+|-------|-----------------|----------------|
+| AppProject missing Helm repos | Critical | **Fixed** |
+| cert-manager Helm not managed | Critical | **Fixed** |
+| Vault/ESO plaintext traffic | Critical | **Fixed** |
+| Reflector not in GitOps | Medium | **Fixed** |
+| Resource limits too low | Medium | **Partially Fixed** |
+| ArgoCD official repo missing | Not identified | **New Critical** |
+| Sync wave dependencies | Not identified | **New High** |

@@ -7,6 +7,9 @@ kind: Application
 metadata:
   name: reflector
   namespace: argocd
+  annotations:
+    # Deploy after cert-manager, before vault
+    argocd.argoproj.io/sync-wave: "-6"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

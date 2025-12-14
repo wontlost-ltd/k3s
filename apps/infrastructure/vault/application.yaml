@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: vault
   namespace: argocd
+  annotations:
+    # Deploy after vault-config (TLS certs must be ready)
+    argocd.argoproj.io/sync-wave: "-2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
