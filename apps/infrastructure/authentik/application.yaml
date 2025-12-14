@@ -52,6 +52,9 @@ spec:
             persistence:
               enabled: true
               size: 1Gi
+            pdb:
+              enabled: true
+              minAvailable: 1
           replica:
             replicaCount: 2
             resources:
