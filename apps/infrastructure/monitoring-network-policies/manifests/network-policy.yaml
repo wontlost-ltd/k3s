@@ -229,6 +229,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: wontlost-data
+      ports:
+        - protocol: TCP
+          port: 9090  # Prometheus metrics endpoint
     # Allow Grafana to access PostgreSQL for datasources
     - to:
         - namespaceSelector:

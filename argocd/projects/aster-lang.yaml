@@ -65,6 +65,5 @@ spec:
     # External Secrets
     - group: external-secrets.io
       kind: ExternalSecret
-    # ArgoCD Application (for app-of-apps pattern)
-    - group: argoproj.io
-      kind: Application
+    # NOTE: argoproj.io/Application removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only
