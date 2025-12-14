@@ -22,6 +22,12 @@ spec:
           enabled: true
           keep: true
 
+        # HA configuration
+        replicaCount: 2
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+
         # Resource limits (production values)
         resources:
           requests:
@@ -32,6 +38,10 @@ spec:
             memory: 512Mi
 
         webhook:
+          replicaCount: 2
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               cpu: 50m
@@ -41,6 +51,10 @@ spec:
               memory: 256Mi
 
         cainjector:
+          replicaCount: 2
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               cpu: 100m

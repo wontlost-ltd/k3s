@@ -23,7 +23,9 @@ spec:
 
         injector:
           enabled: true
-          replicas: 1
+          replicas: 2
+          podDisruptionBudget:
+            minAvailable: 1
           resources:
             requests:
               memory: 128Mi
@@ -70,7 +72,7 @@ spec:
                   tls_cert_file = "/vault/tls/tls.crt"
                   tls_key_file = "/vault/tls/tls.key"
                   telemetry {
-                    unauthenticated_metrics_access = true
+                    unauthenticated_metrics_access = false
                   }
                 }
 
@@ -143,7 +145,8 @@ spec:
             hosts:
               - host: vault.aster-lang.cloud
                 paths:
-                  - /
+                  - path: /
+                    pathType: Prefix
             tls:
               - secretName: vault-ingress-tls
                 hosts:

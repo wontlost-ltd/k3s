@@ -22,6 +22,9 @@ spec:
 
         # Replicas for HA (2 for production resilience)
         replicaCount: 2
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
 
         # Resource limits (production values)
         resources:
@@ -35,6 +38,9 @@ spec:
         # Webhook configuration (2 for HA)
         webhook:
           replicaCount: 2
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               cpu: 50m
@@ -45,7 +51,10 @@ spec:
 
         # Cert controller for webhook certificates
         certController:
-          replicaCount: 1
+          replicaCount: 2
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
           resources:
             requests:
               cpu: 50m

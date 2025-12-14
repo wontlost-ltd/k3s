@@ -81,9 +81,11 @@ k3s/
 │   │   └── wontlost.yaml           # Scans apps/wontlost/*
 │   ├── ingress.yaml                # ArgoCD UI ingress (argocd.aster-lang.cloud)
 │   ├── kustomization.yaml          # Config kustomization (projects + appsets + ingress)
-│   └── repo-secret.yaml            # Repository credentials template (DO NOT COMMIT REAL SECRETS)
+│   ├── sso-config.yaml             # ArgoCD SSO configuration (Authentik OIDC)
+│   └── repo-secret.yaml.sample     # Repository credentials template (DO NOT COMMIT REAL SECRETS)
 ├── docs/                            # Documentation
-│   └── DOMAIN_STRATEGY.md          # Domain allocation strategy
+│   ├── DOMAIN_STRATEGY.md          # Domain allocation strategy
+│   └── ARGOCD_SSO_SETUP.md         # ArgoCD SSO setup guide
 ├── apps/                            # Application manifests
 │   ├── aster-lang/                  # aster-lang.cloud applications
 │   │   └── policy/                  # -> Creates "aster-policy" app in "aster-policy" namespace

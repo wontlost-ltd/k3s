@@ -21,6 +21,9 @@ spec:
     helm:
       releaseName: reflector
       values: |
+        # HA configuration
+        replicaCount: 2
+
         # Resource limits (production values)
         resources:
           requests:

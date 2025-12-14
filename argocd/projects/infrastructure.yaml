@@ -27,6 +27,9 @@ spec:
     - namespace: monitoring
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
+    # Namespace creation (for CreateNamespace=true)
+    - group: ''
+      kind: Namespace
     # ArgoCD CRDs
     - group: argoproj.io
       kind: '*'
@@ -102,3 +105,9 @@ spec:
     # Policy
     - group: policy
       kind: PodDisruptionBudget
+    # External Secrets (for monitoring auth)
+    - group: external-secrets.io
+      kind: ExternalSecret
+    # Traefik Middleware (for auth)
+    - group: traefik.io
+      kind: Middleware
