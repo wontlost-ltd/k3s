@@ -1,10 +1,11 @@
 # ArgoCD SSO Configuration
-# Configures OIDC authentication with Authentik
+# Contains ExternalSecret for OIDC credentials
+# Note: OIDC config and RBAC are managed in argocd/self/argocd-install.yaml Helm values
 #
 # PREREQUISITES:
 # 1. Authentik is running and accessible
 # 2. OAuth2/OIDC Provider created in Authentik (see docs/ARGOCD_SSO_SETUP.md)
-# 3. Client ID and Secret stored in Vault
+# 3. Client ID and Secret stored in Vault at infrastructure/argocd
 
 ---
 # ArgoCD OIDC Secret (populated by ExternalSecret)
@@ -26,67 +27,3 @@ spec:
       remoteRef:
         key: infrastructure/argocd
         property: oidc_client_secret
-
----
-# ArgoCD ConfigMap for OIDC
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: argocd-cm
-  namespace: argocd
-  labels:
-    app.kubernetes.io/name: argocd-cm
-    app.kubernetes.io/part-of: argocd
-data:
-  # OIDC Configuration
-  url: https://argocd.aster-lang.cloud
-  oidc.config: |
-    name: Authentik
-    issuer: https://auth.aster-lang.cloud/application/o/argocd/
-    clientID: argocd
-    clientSecret: $argocd-oidc-secret:oidc.authentik.clientSecret
-    requestedScopes:
-      - openid
-      - profile
-      - email
-      - groups
-    # Map Authentik groups to ArgoCD roles
-    # Authentik groups should be named: argocd-admins, argocd-readonly
-
-  # Disable admin account when OIDC is configured (security best practice)
-  admin.enabled: "false"
-
----
-# ArgoCD RBAC ConfigMap
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: argocd-rbac-cm
-  namespace: argocd
-  labels:
-    app.kubernetes.io/name: argocd-rbac-cm
-    app.kubernetes.io/part-of: argocd
-data:
-  # Map Authentik groups to ArgoCD roles
-  policy.csv: |
-    # Admins group gets full access
-    g, argocd-admins, role:admin
-
-    # Readonly group gets read-only access
-    g, argocd-readonly, role:readonly
-
-    # Default policy for authenticated users
-    p, role:readonly, applications, get, */*, allow
-    p, role:readonly, certificates, get, *, allow
-    p, role:readonly, clusters, get, *, allow
-    p, role:readonly, repositories, get, *, allow
-    p, role:readonly, projects, get, *, allow
-    p, role:readonly, accounts, get, *, allow
-    p, role:readonly, gpgkeys, get, *, allow
-    p, role:readonly, logs, get, */*, allow
-
-  # Default role for users (deny all)
-  policy.default: role:readonly
-
-  # OIDC scopes to request
-  scopes: "[groups, email]"

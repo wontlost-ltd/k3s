@@ -123,12 +123,12 @@ Infrastructure components deploy in this order via sync-waves:
 |------|-----------|-------------|
 | -10 | cert-manager | TLS certificate management |
 | -6 | reflector | Secret/ConfigMap replication |
-| -5 | external-secrets | External Secrets Operator |
 | -4 | vault-config | Vault internal TLS certificates |
-| -3 | eso-config | ClusterSecretStore for Vault |
 | -2 | vault | HashiCorp Vault (HA with Raft) |
-| 0 | authentik | SSO/Identity Provider |
+| 0 | external-secrets | External Secrets Operator |
+| 2 | eso-config | ClusterSecretStore for Vault |
 | 3 | bootstrap | ExternalSecrets for all namespaces |
+| 4 | authentik | SSO/Identity Provider |
 | 5 | monitoring | Prometheus, Grafana, Alertmanager |
 
 ### Self-Management Architecture

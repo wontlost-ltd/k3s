@@ -33,10 +33,10 @@ spec:
             - secretRef:
                 name: authentik-secrets
 
-        # Redis configuration (bundled with auth enabled)
+        # Redis configuration (HA with replication)
         redis:
           enabled: true
-          architecture: standalone
+          architecture: replication
           auth:
             enabled: true
             existingSecret: authentik-secrets
@@ -49,6 +49,24 @@ spec:
               limits:
                 memory: 256Mi
                 cpu: 250m
+            persistence:
+              enabled: true
+              size: 1Gi
+          replica:
+            replicaCount: 2
+            resources:
+              requests:
+                memory: 128Mi
+                cpu: 100m
+              limits:
+                memory: 256Mi
+                cpu: 250m
+            persistence:
+              enabled: true
+              size: 1Gi
+            pdb:
+              enabled: true
+              minAvailable: 1
 
         # Server configuration (production HA)
         server:
