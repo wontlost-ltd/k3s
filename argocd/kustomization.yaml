@@ -8,15 +8,19 @@ resources:
   - projects/tls-management.yaml
   - projects/secrets-management.yaml
   - projects/identity.yaml
+  - projects/data-services.yaml
   - projects/aster-lang.yaml
   - projects/wontlost.yaml
   # ApplicationSets - organized by function
   - applicationsets/tls-management.yaml
   - applicationsets/secrets-management.yaml
   - applicationsets/identity.yaml
+  - applicationsets/data-services.yaml
   - applicationsets/platform.yaml
   - applicationsets/aster-lang.yaml
   - applicationsets/wontlost.yaml
+  # Standalone Applications (special sync policies)
+  - ../apps/infrastructure/kube-system/application.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
   # SSO configuration (enabled after Authentik is ready)

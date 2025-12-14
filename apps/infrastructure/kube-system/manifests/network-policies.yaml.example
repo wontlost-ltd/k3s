@@ -1,0 +1,63 @@
+# Example: Network Policies for kube-system
+# Rename to network-policies.yaml and add to kustomization.yaml resources to apply
+#
+# WARNING: Test thoroughly before applying - may break cluster networking
+---
+# Restrict CoreDNS to only accept DNS queries from cluster pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coredns-network-policy
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: kube-dns
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow DNS from all pods in cluster
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      from:
+        - namespaceSelector: {}
+    # Allow metrics scraping from monitoring namespace
+    - ports:
+        - protocol: TCP
+          port: 9153
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+
+---
+# Restrict Traefik ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traefik-network-policy
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow HTTP/HTTPS from anywhere (ingress controller)
+    - ports:
+        - protocol: TCP
+          port: 8000  # web
+        - protocol: TCP
+          port: 8443  # websecure
+    # Allow metrics from monitoring namespace
+    - ports:
+        - protocol: TCP
+          port: 9100
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring

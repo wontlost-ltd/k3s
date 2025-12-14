@@ -1,0 +1,186 @@
+# Shared PostgreSQL Cluster
+# CloudNativePG managed PostgreSQL cluster for all applications
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: shared-postgres
+  namespace: data-services
+spec:
+  # HA configuration - 3 instances
+  instances: 3
+
+  # PostgreSQL version
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+
+  # Primary update strategy
+  primaryUpdateStrategy: unsupervised
+
+  # PostgreSQL configuration
+  postgresql:
+    parameters:
+      # Connection settings
+      max_connections: "200"
+      shared_buffers: "256MB"
+      effective_cache_size: "768MB"
+      maintenance_work_mem: "128MB"
+      checkpoint_completion_target: "0.9"
+      wal_buffers: "16MB"
+      default_statistics_target: "100"
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
+      work_mem: "6553kB"
+      huge_pages: "off"
+      min_wal_size: "1GB"
+      max_wal_size: "4GB"
+      max_worker_processes: "4"
+      max_parallel_workers_per_gather: "2"
+      max_parallel_workers: "4"
+      max_parallel_maintenance_workers: "2"
+      # Logging
+      log_statement: "ddl"
+      log_min_duration_statement: "1000"
+    pg_hba:
+      # Allow connections from data-services namespace pods
+      # Note: In production, consider using NetworkPolicy for additional security
+      - host all all 10.0.0.0/8 scram-sha-256
+
+  # Bootstrap configuration
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: postgres
+      secret:
+        name: postgres-superuser-credentials
+      postInitApplicationSQL:
+        # Create application databases
+        - CREATE DATABASE authentik;
+        - CREATE DATABASE grafana;
+        - CREATE DATABASE policy_api;
+      # Post-init template SQL runs after managed roles are created
+      postInitTemplateSQL:
+        # Grant database ownership to application users
+        # Note: Users are created by managed.roles before this runs
+        - ALTER DATABASE authentik OWNER TO authentik_user;
+        - ALTER DATABASE grafana OWNER TO grafana_user;
+        - ALTER DATABASE policy_api OWNER TO policy_api_user;
+        # Grant full privileges on databases
+        - GRANT ALL PRIVILEGES ON DATABASE authentik TO authentik_user;
+        - GRANT ALL PRIVILEGES ON DATABASE grafana TO grafana_user;
+        - GRANT ALL PRIVILEGES ON DATABASE policy_api TO policy_api_user;
+
+  # Managed credentials - CloudNativePG will manage these users
+  # Each user is granted ownership of their respective database via postInitTemplateSQL
+  managed:
+    roles:
+      - name: authentik_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        connectionLimit: 50
+        passwordSecret:
+          name: authentik-postgres-credentials
+      - name: grafana_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        connectionLimit: 50
+        passwordSecret:
+          name: grafana-postgres-credentials
+      - name: policy_api_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        connectionLimit: 50
+        passwordSecret:
+          name: policy-api-postgres-credentials
+
+  # Superuser secret
+  superuserSecret:
+    name: postgres-superuser-credentials
+
+  # Storage configuration
+  storage:
+    size: 20Gi
+    storageClass: local-path
+
+  # Separate WAL storage for better performance (optional but recommended)
+  # walStorage:
+  #   size: 5Gi
+  #   storageClass: local-path
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  # Affinity - spread across nodes (required for true HA)
+  affinity:
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+
+  # Monitoring
+  monitoring:
+    enablePodMonitor: true
+    podMonitorMetricRelabelings:
+      - sourceLabels: [__name__]
+        regex: "cnpg_.*"
+        action: keep
+    podMonitorRelabelings:
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: instance
+
+  # Backup configuration
+  # IMPORTANT: Configure one of the following backup methods for production:
+  #
+  # Option 1: Object Store Backup (recommended for production)
+  # Requires S3-compatible storage (AWS S3, MinIO, etc.) and backup credentials secret
+  # backup:
+  #   barmanObjectStore:
+  #     destinationPath: s3://postgres-backups/shared-postgres/
+  #     endpointURL: https://s3.amazonaws.com  # or MinIO endpoint
+  #     s3Credentials:
+  #       accessKeyId:
+  #         name: postgres-backup-credentials
+  #         key: ACCESS_KEY_ID
+  #       secretAccessKey:
+  #         name: postgres-backup-credentials
+  #         key: SECRET_ACCESS_KEY
+  #     wal:
+  #       compression: gzip
+  #     data:
+  #       compression: gzip
+  #   retentionPolicy: "30d"
+  #
+  # Option 2: Volume Snapshot Backup (requires CSI snapshot support)
+  # Note: local-path-provisioner does NOT support snapshots
+  # Use this only with storage classes that support CSI snapshots (e.g., Longhorn, Rook-Ceph)
+  # backup:
+  #   volumeSnapshot:
+  #     className: <your-snapshot-class>
+  #     snapshotOwnerReference: cluster
+
+---
+# PodDisruptionBudget for the cluster
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shared-postgres-pdb
+  namespace: data-services
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      cnpg.io/cluster: shared-postgres

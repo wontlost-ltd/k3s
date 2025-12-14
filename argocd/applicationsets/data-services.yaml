@@ -1,0 +1,54 @@
+# Data Services ApplicationSet
+# Manages shared PostgreSQL (CloudNativePG) and Redis infrastructure
+# Dependency order: CNPG operator (-8) → bootstrap secrets (3) → postgres/redis (4) → apps (5)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: data-services-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          # CloudNativePG operator - must deploy first
+          - name: cloudnative-pg
+            namespace: cnpg-system
+            syncWave: "-8"
+          # PostgreSQL cluster - after operator and bootstrap secrets
+          - name: postgres-cluster
+            namespace: data-services
+            syncWave: "4"
+          # Shared Redis cluster - after bootstrap secrets
+          - name: shared-redis
+            namespace: data-services
+            syncWave: "4"
+  template:
+    metadata:
+      name: 'data-services-{{ .name }}'
+      namespace: argocd
+      annotations:
+        # Sync-wave controls deployment order across all ArgoCD Applications
+        argocd.argoproj.io/sync-wave: '{{ .syncWave }}'
+      labels:
+        tier: data-services
+        app.kubernetes.io/part-of: data-services
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: data-services
+      source:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        targetRevision: main
+        path: 'apps/infrastructure/{{ .name }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .namespace }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

@@ -1,0 +1,39 @@
+# Example: Traefik Security Hardening Patch
+# Rename to traefik-security-patch.yaml and uncomment in kustomization.yaml to apply
+#
+# This patch applies security best practices to the K3s-managed Traefik deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: traefik
+          # Security context hardening
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          # Resource limits (adjust based on your traffic)
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Additional security args
+          args:
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+            # Uncomment to enable access logs
+            # - --accesslog=true
+            # - --accesslog.format=json

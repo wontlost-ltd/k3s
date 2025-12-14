@@ -1,54 +1,34 @@
-# Infrastructure Project
-# Core ArgoCD self-management and shared platform components
+# Data Services Project
+# Manages shared PostgreSQL and Redis infrastructure
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: infrastructure
+  name: data-services
   namespace: argocd
 spec:
-  description: "ArgoCD self-management and platform orchestration"
+  description: "Shared data layer - PostgreSQL (CloudNativePG) and Redis"
   sourceRepos:
     - 'https://github.com/wontlost-ltd/k3s.git'
-    # ArgoCD official repo for self-management
-    - 'https://github.com/argoproj/argo-cd.git'
-    - 'https://argoproj.github.io/argo-helm'
-    # Ingress
-    - 'https://traefik.github.io/charts'
-    # Monitoring
-    - 'https://prometheus-community.github.io/helm-charts'
+    # CloudNativePG operator
+    - 'https://cloudnative-pg.github.io/charts'
+    # Bitnami Redis
+    - 'https://charts.bitnami.com/bitnami'
   destinations:
-    # ArgoCD namespace for self-management
+    # CloudNativePG operator namespace
+    - namespace: cnpg-system
+      server: https://kubernetes.default.svc
+    # Shared data services namespace
+    - namespace: data-services
+      server: https://kubernetes.default.svc
+    # ArgoCD namespace for Application resources
     - namespace: argocd
       server: https://kubernetes.default.svc
-    # Traefik namespace
-    - namespace: traefik
-      server: https://kubernetes.default.svc
-    # Monitoring namespace
-    - namespace: monitoring
-      server: https://kubernetes.default.svc
-    # kube-system for K3s system components (Traefik, CoreDNS, etc.)
-    # WARNING: Use prune: false on Applications targeting this namespace
-    - namespace: kube-system
-      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
-    # Namespace creation (for CreateNamespace=true)
+    # Namespace creation
     - group: ''
       kind: Namespace
-    # ArgoCD CRDs
-    - group: argoproj.io
-      kind: '*'
-    # Prometheus Operator CRDs
-    - group: monitoring.coreos.com
-      kind: '*'
-    # Ingress resources
-    - group: networking.k8s.io
-      kind: IngressClass
-    - group: networking.k8s.io
-      kind: Ingress
-    # Traefik CRDs
-    - group: traefik.io
-      kind: '*'
-    - group: traefik.containo.us
+    # CloudNativePG CRDs
+    - group: postgresql.cnpg.io
       kind: '*'
     # Webhook configurations
     - group: admissionregistration.k8s.io
@@ -63,7 +43,6 @@ spec:
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
-  # Explicit namespaced resource allowlist for security
   namespaceResourceWhitelist:
     # Core workloads
     - group: ''
@@ -93,9 +72,6 @@ spec:
       kind: Ingress
     - group: networking.k8s.io
       kind: NetworkPolicy
-    # Autoscaling
-    - group: autoscaling
-      kind: HorizontalPodAutoscaler
     # RBAC (namespaced)
     - group: rbac.authorization.k8s.io
       kind: Role
@@ -106,15 +82,23 @@ spec:
       kind: ServiceMonitor
     - group: monitoring.coreos.com
       kind: PodMonitor
+    - group: monitoring.coreos.com
+      kind: PrometheusRule
     # Policy
     - group: policy
       kind: PodDisruptionBudget
-    # External Secrets (for monitoring auth)
+    # CloudNativePG resources
+    - group: postgresql.cnpg.io
+      kind: Cluster
+    - group: postgresql.cnpg.io
+      kind: Backup
+    - group: postgresql.cnpg.io
+      kind: ScheduledBackup
+    - group: postgresql.cnpg.io
+      kind: Pooler
+    # External Secrets
     - group: external-secrets.io
       kind: ExternalSecret
-    # Traefik Middleware (for auth)
-    - group: traefik.io
-      kind: Middleware
-    # ArgoCD Application (for app-of-apps pattern)
+    # ArgoCD Application (for app-of-apps)
     - group: argoproj.io
       kind: Application

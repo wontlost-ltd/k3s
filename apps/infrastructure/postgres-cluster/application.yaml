@@ -1,0 +1,28 @@
+# Shared PostgreSQL Cluster Application
+# Deploys the CloudNativePG cluster configuration
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres-cluster
+  namespace: argocd
+  annotations:
+    # Deploy after CNPG operator and bootstrap (needs credentials ready first)
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: data-services
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    path: apps/infrastructure/postgres-cluster/manifests
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data-services
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

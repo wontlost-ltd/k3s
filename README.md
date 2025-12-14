@@ -17,6 +17,7 @@ This repository manages Kubernetes resources for the K3s cluster using ArgoCD wi
 - [Daily Operations](#daily-operations)
 - [GitHub Actions CI/CD](#github-actions-cicd)
 - [Infrastructure Components](#infrastructure-components)
+  - [Shared Data Services](#shared-data-services)
   - [cert-manager & TLS](#cert-manager--tls)
   - [HashiCorp Vault](#hashicorp-vault)
   - [External Secrets Operator](#external-secrets-operator)
@@ -76,6 +77,7 @@ k3s/
 │   │   ├── tls-management.yaml     # cert-manager ApplicationSet
 │   │   ├── secrets-management.yaml # Vault, ESO, bootstrap ApplicationSet
 │   │   ├── identity.yaml           # Authentik ApplicationSet
+│   │   ├── data-services.yaml      # Shared PostgreSQL/Redis ApplicationSet
 │   │   ├── platform.yaml           # Monitoring, observability ApplicationSet
 │   │   ├── aster-lang.yaml         # Scans apps/aster-lang/*
 │   │   └── wontlost.yaml           # Scans apps/wontlost/*
@@ -103,7 +105,11 @@ k3s/
 │       │   ├── config-application.yaml  # ClusterSecretStore (sync-wave: -3)
 │       │   └── vault-secretstore.yaml  # Vault backend config
 │       ├── bootstrap/               # -> Creates "bootstrap" app (ExternalSecrets)
-│       ├── authentik/               # -> Creates "authentik" app
+│       ├── cloudnative-pg/          # -> Creates "cloudnative-pg" app (PostgreSQL operator)
+│       ├── postgres-cluster/        # -> Creates "postgres-cluster" app (shared PostgreSQL)
+│       │   └── manifests/          # CloudNativePG Cluster CR
+│       ├── shared-redis/            # -> Creates "shared-redis" app (Bitnami Redis HA)
+│       ├── authentik/               # -> Creates "authentik" app (uses shared data layer)
 │       └── monitoring/              # -> Creates "monitoring" app (kube-prometheus-stack)
 └── README.md
 ```
@@ -122,14 +128,17 @@ Infrastructure components deploy in this order via sync-waves:
 | Wave | Component | Description |
 |------|-----------|-------------|
 | -10 | cert-manager | TLS certificate management |
+| -8 | cloudnative-pg | CloudNativePG operator (PostgreSQL operator) |
 | -6 | reflector | Secret/ConfigMap replication |
 | -4 | vault-config | Vault internal TLS certificates |
 | -2 | vault | HashiCorp Vault (HA with Raft) |
 | 0 | external-secrets | External Secrets Operator |
 | 2 | eso-config | ClusterSecretStore for Vault |
 | 3 | bootstrap | ExternalSecrets for all namespaces |
-| 4 | authentik | SSO/Identity Provider |
-| 5 | monitoring | Prometheus, Grafana, Alertmanager |
+| 4 | postgres-cluster | Shared PostgreSQL cluster (3 instances HA) |
+| 4 | shared-redis | Shared Redis with Sentinel (HA) |
+| 5 | authentik | SSO/Identity Provider (uses shared data layer) |
+| 6 | monitoring | Prometheus, Grafana, Alertmanager |
 
 ### Self-Management Architecture
 
@@ -172,6 +181,9 @@ Infrastructure components deploy in this order via sync-waves:
 | `apps/infrastructure/authentik` | `authentik` | `authentik` |
 | `apps/infrastructure/external-secrets` | `external-secrets` | `external-secrets` |
 | `apps/infrastructure/external-secrets` (config) | `eso-config` | `external-secrets` |
+| `apps/infrastructure/cloudnative-pg` | `cloudnative-pg` | `cnpg-system` |
+| `apps/infrastructure/postgres-cluster` | `postgres-cluster` | `data-services` |
+| `apps/infrastructure/shared-redis` | `shared-redis` | `data-services` |
 | `apps/infrastructure/monitoring` | `monitoring` | `monitoring` |
 
 ## Prerequisites
@@ -1108,6 +1120,134 @@ jobs:
 
 This section describes the shared infrastructure services deployed via ArgoCD.
 
+### Shared Data Services
+
+The cluster provides a shared data layer using CloudNativePG for PostgreSQL and Bitnami Redis for caching/sessions.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Shared Data Layer (data-services namespace)       │
+│                                                                          │
+│  ┌───────────────────────────────┐    ┌───────────────────────────────┐ │
+│  │     CloudNativePG Cluster     │    │       Redis Sentinel HA       │ │
+│  │    (shared-postgres)          │    │      (shared-redis)           │ │
+│  │                               │    │                               │ │
+│  │  ┌─────────┐ ┌─────────┐     │    │  ┌────────┐  ┌─────────────┐  │ │
+│  │  │ Primary │ │Replica 1│     │    │  │ Master │  │ Sentinel x3 │  │ │
+│  │  └─────────┘ └─────────┘     │    │  └────────┘  └─────────────┘  │ │
+│  │              ┌─────────┐     │    │  ┌──────────┐ ┌──────────┐    │ │
+│  │              │Replica 2│     │    │  │ Replica 1│ │ Replica 2│    │ │
+│  │              └─────────┘     │    │  └──────────┘ └──────────┘    │ │
+│  │                               │    │                               │ │
+│  │  Databases:                   │    │  Features:                    │ │
+│  │  - authentik                  │    │  - Password auth              │ │
+│  │  - grafana                    │    │  - Automatic failover         │ │
+│  │  - policy_api                 │    │  - Persistence enabled        │ │
+│  └───────────────────────────────┘    └───────────────────────────────┘ │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+          │                                       │
+          ▼                                       ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Applications                                   │
+│                                                                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+│  │  Authentik  │  │   Grafana   │  │ Policy API  │  │  Future Apps │    │
+│  │  (Identity) │  │(Monitoring) │  │   (API)     │  │              │    │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Components
+
+| Component | Technology | HA Configuration |
+|-----------|------------|------------------|
+| PostgreSQL | CloudNativePG | 3 instances (1 primary + 2 replicas) |
+| Redis | Bitnami Redis | Master + 2 replicas + Sentinel |
+
+#### Vault Secrets Configuration
+
+Before deploying, configure the following secrets in Vault:
+
+```bash
+# PostgreSQL superuser credentials
+vault kv put secret/data-services/postgres \
+    superuser_username="postgres" \
+    superuser_password="<secure-password>" \
+    host="shared-postgres-rw.data-services.svc.cluster.local" \
+    port="5432"
+
+# Authentik database credentials
+vault kv put secret/data-services/authentik-db \
+    database="authentik" \
+    username="authentik_user" \
+    password="<secure-password>"
+
+# Grafana database credentials
+vault kv put secret/data-services/grafana-db \
+    database="grafana" \
+    username="grafana_user" \
+    password="<secure-password>"
+
+# Policy API database credentials
+vault kv put secret/data-services/policy-api-db \
+    database="policy_api" \
+    username="policy_api_user" \
+    password="<secure-password>"
+
+# Redis credentials
+vault kv put secret/data-services/redis \
+    password="<secure-password>" \
+    host="shared-redis-master.data-services.svc.cluster.local" \
+    port="6379"
+```
+
+#### Connecting Applications
+
+Applications connect to the shared data layer via:
+
+**PostgreSQL:**
+```yaml
+env:
+  - name: DATABASE_HOST
+    value: shared-postgres-rw.data-services.svc.cluster.local
+  - name: DATABASE_PORT
+    value: "5432"
+  - name: DATABASE_NAME
+    valueFrom:
+      secretKeyRef:
+        name: my-app-postgres-credentials
+        key: database
+```
+
+**Redis:**
+```yaml
+env:
+  - name: REDIS_HOST
+    value: shared-redis-master.data-services.svc.cluster.local
+  - name: REDIS_PORT
+    value: "6379"  # Redis master port (Sentinel handles failover automatically)
+```
+
+#### Verify Data Services
+
+```bash
+# Check CloudNativePG operator
+kubectl get pods -n cnpg-system
+
+# Check PostgreSQL cluster
+kubectl get clusters -n data-services
+kubectl get pods -n data-services -l cnpg.io/cluster=shared-postgres
+
+# Check Redis cluster
+kubectl get pods -n data-services -l app.kubernetes.io/name=redis
+
+# Check cluster status
+kubectl cnpg status shared-postgres -n data-services
+```
+
 ### cert-manager & TLS
 
 cert-manager provides automatic TLS certificate management using Let's Encrypt with Cloudflare DNS-01 challenge.
@@ -1384,9 +1524,26 @@ apps/infrastructure/
 │   ├── vault-secretstore.yaml   # Vault backend connection
 │   ├── examples/                # ExternalSecret templates
 │   └── README.md
+├── bootstrap/
+│   ├── kustomization.yaml       # ExternalSecrets for all apps
+│   ├── postgres-external-secret.yaml  # PostgreSQL credentials
+│   ├── redis-external-secret.yaml     # Redis credentials
+│   └── authentik-external-secret.yaml # Authentik secrets
+├── cloudnative-pg/
+│   ├── application.yaml         # CloudNativePG operator Helm chart
+│   └── kustomization.yaml
+├── postgres-cluster/
+│   ├── application.yaml         # PostgreSQL cluster ArgoCD app
+│   ├── kustomization.yaml
+│   └── manifests/
+│       ├── cluster.yaml         # CloudNativePG Cluster CR (3 instances)
+│       └── kustomization.yaml
+├── shared-redis/
+│   ├── application.yaml         # Bitnami Redis Helm chart (Sentinel HA)
+│   └── kustomization.yaml
 └── authentik/
-    ├── application.yaml         # Authentik Helm chart
-    ├── secrets.yaml.template    # Secrets template (use ESO instead)
+    ├── application.yaml         # Authentik Helm chart (uses shared data layer)
+    ├── kustomization.yaml
     └── README.md
 ```
 

@@ -1,11 +1,13 @@
+# Authentik SSO/Identity Provider
+# Uses shared PostgreSQL and Redis data layer
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: authentik
   namespace: argocd
   annotations:
-    # Deploy last (depends on external-secrets for secret injection)
-    argocd.argoproj.io/sync-wave: "4"
+    # Deploy after shared data services are ready (PostgreSQL at wave 4, Redis at wave 4)
+    argocd.argoproj.io/sync-wave: "5"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -16,60 +18,32 @@ spec:
     targetRevision: 2025.2.1
     helm:
       releaseName: authentik
-      values: |
+      valuesObject:
         # Authentik configuration
         authentik:
           error_reporting:
             enabled: false
 
-        # PostgreSQL - using external PostgreSQL
+        # Disable bundled PostgreSQL - using shared cluster
         postgresql:
           enabled: false
 
-        # Load configuration from secret
-        # Create secret first: kubectl apply -f secrets.yaml.template (with real values)
+        # Disable bundled Redis - using shared cluster
+        redis:
+          enabled: false
+
+        # Load configuration from secret (includes shared DB/Redis connection)
         global:
           envFrom:
             - secretRef:
                 name: authentik-secrets
-
-        # Redis configuration (HA with replication)
-        redis:
-          enabled: true
-          architecture: replication
-          auth:
-            enabled: true
-            existingSecret: authentik-secrets
-            existingSecretPasswordKey: AUTHENTIK_REDIS__PASSWORD
-          master:
-            resources:
-              requests:
-                memory: 128Mi
-                cpu: 100m
-              limits:
-                memory: 256Mi
-                cpu: 250m
-            persistence:
-              enabled: true
-              size: 1Gi
-            pdb:
-              enabled: true
-              minAvailable: 1
-          replica:
-            replicaCount: 2
-            resources:
-              requests:
-                memory: 128Mi
-                cpu: 100m
-              limits:
-                memory: 256Mi
-                cpu: 250m
-            persistence:
-              enabled: true
-              size: 1Gi
-            pdb:
-              enabled: true
-              minAvailable: 1
+          env:
+            # Redis host pointing to shared Redis master (Sentinel handles failover)
+            - name: AUTHENTIK_REDIS__HOST
+              value: shared-redis-master.data-services.svc.cluster.local
+            # Redis port (default Redis port, not Sentinel)
+            - name: AUTHENTIK_REDIS__PORT
+              value: "6379"
 
         # Server configuration (production HA)
         server:

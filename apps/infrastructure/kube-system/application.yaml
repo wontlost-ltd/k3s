@@ -1,0 +1,42 @@
+# kube-system Management Application
+# For applying security patches and configuration to K3s system components
+# WARNING: prune is disabled to prevent deletion of K3s-managed resources
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-system-config
+  namespace: argocd
+  annotations:
+    # Deploy early - system components should be patched before apps
+    argocd.argoproj.io/sync-wave: "-10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: apps/infrastructure/kube-system/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: false  # CRITICAL: Never delete K3s-managed resources
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true  # Required for patching existing resources
+      - RespectIgnoreDifferences=true
+  # Ignore fields managed by K3s/Helm
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: traefik
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Service
+      name: traefik
+      jsonPointers:
+        - /spec/clusterIP
+        - /spec/clusterIPs

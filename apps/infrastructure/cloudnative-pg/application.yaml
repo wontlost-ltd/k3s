@@ -1,0 +1,67 @@
+# CloudNativePG Operator
+# Kubernetes-native PostgreSQL operator for managing PostgreSQL clusters
+# https://cloudnative-pg.io/
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    # Deploy early - other components depend on PostgreSQL
+    argocd.argoproj.io/sync-wave: "-8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: data-services
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.23.0
+    helm:
+      releaseName: cloudnative-pg
+      valuesObject:
+        # HA configuration for the operator itself
+        replicaCount: 2
+
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+        # Monitoring
+        monitoring:
+          podMonitorEnabled: true
+          podMonitorAdditionalLabels:
+            release: prometheus
+
+        # Webhook configuration
+        webhook:
+          mutating:
+            create: true
+          validating:
+            create: true
+
+        # RBAC
+        rbac:
+          create: true
+
+        serviceAccount:
+          create: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
