@@ -12,3 +12,4 @@ resources:
   - ingress.yaml
   - pdb.yaml
   - network-policy.yaml
+  - external-secret.yaml

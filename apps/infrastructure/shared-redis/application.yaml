@@ -44,6 +44,20 @@ spec:
           pdb:
             enabled: true
             minAvailable: 1
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           # Anti-affinity to spread master away from replicas
           affinity:
             podAntiAffinity:
@@ -71,6 +85,20 @@ spec:
           pdb:
             enabled: true
             minAvailable: 1
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           affinity:
             podAntiAffinity:
               preferredDuringSchedulingIgnoredDuringExecution:
@@ -92,6 +120,15 @@ spec:
             limits:
               memory: 128Mi
               cpu: 100m
+          # Security hardening (inherited from master/replica but explicit)
+          containerSecurityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # Metrics
         metrics:

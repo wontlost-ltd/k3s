@@ -27,6 +27,22 @@ spec:
             podDisruptionBudget:
               enabled: true
               minAvailable: 1
+            # Security hardening
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - name: prometheus
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop:
+                      - ALL
             # Resource limits
             resources:
               requests:
@@ -73,6 +89,22 @@ spec:
             podDisruptionBudget:
               enabled: true
               minAvailable: 1
+            # Security hardening
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - name: alertmanager
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop:
+                      - ALL
             resources:
               requests:
                 memory: 128Mi
@@ -110,6 +142,20 @@ spec:
           podDisruptionBudget:
             enabled: true
             minAvailable: 1
+          # Security hardening
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 472
+            runAsGroup: 472
+            fsGroup: 472
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           affinity:
             podAntiAffinity:
               preferredDuringSchedulingIgnoredDuringExecution:

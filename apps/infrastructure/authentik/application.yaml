@@ -58,6 +58,20 @@ spec:
             limits:
               memory: 2Gi
               cpu: 1000m
+          # Security hardening
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
           ingress:
             enabled: true
@@ -86,6 +100,20 @@ spec:
             limits:
               memory: 1Gi
               cpu: 500m
+          # Security hardening
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # Service account
         serviceAccount:
