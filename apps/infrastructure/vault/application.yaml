@@ -56,6 +56,10 @@ spec:
           standalone:
             enabled: false
 
+          # PDB for Vault server
+          podDisruptionBudget:
+            minAvailable: 2
+
           # HA mode with Raft storage
           ha:
             enabled: true

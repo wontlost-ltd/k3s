@@ -8,9 +8,95 @@ metadata:
 spec:
   project: infrastructure
   source:
-    repoURL: https://github.com/argoproj/argo-cd.git
-    targetRevision: v3.2.1  # Pin to specific version
-    path: manifests/cluster-install
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-cd
+    targetRevision: 7.9.0
+    helm:
+      releaseName: argocd
+      valuesObject:
+        # Global settings
+        global:
+          domain: argocd.aster-lang.cloud
+
+        # Server configuration (2 replicas for HA)
+        server:
+          replicas: 2
+          pdb:
+            enabled: true
+            minAvailable: 1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+        # Repo server (2 replicas for HA)
+        repoServer:
+          replicas: 2
+          pdb:
+            enabled: true
+            minAvailable: 1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+        # Application controller (single replica - stateful)
+        controller:
+          replicas: 1
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+        # Redis (2 replicas for HA)
+        redis:
+          enabled: true
+
+        # Notifications controller
+        notifications:
+          enabled: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+        # ApplicationSet controller
+        applicationSet:
+          replicas: 2
+          pdb:
+            enabled: true
+            minAvailable: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+        # Dex (OIDC)
+        dex:
+          enabled: false  # Using Authentik instead
+
+        # Configs
+        configs:
+          cm:
+            admin.enabled: "true"
+          params:
+            server.insecure: "false"
+
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

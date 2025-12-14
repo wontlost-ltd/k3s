@@ -23,6 +23,9 @@ spec:
       values: |
         # HA configuration
         replicaCount: 2
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
 
         # Resource limits (production values)
         resources:
