@@ -94,8 +94,14 @@ k3s/
 │   └── infrastructure/              # Shared infrastructure (organized by function)
 │       ├── cert-manager/            # -> Creates "cert-manager" app
 │       ├── reflector/               # -> Creates "reflector" app (cert replication)
-│       ├── vault/                   # -> Creates "vault" app
-│       ├── external-secrets/        # -> Creates "external-secrets" app
+│       ├── vault/                   # -> Creates "vault" and "vault-config" apps
+│       │   ├── application.yaml    # Vault Helm chart
+│       │   ├── config-application.yaml  # Internal TLS certs (sync-wave: -4)
+│       │   └── internal-tls.yaml   # cert-manager Certificate
+│       ├── external-secrets/        # -> Creates "external-secrets" and "eso-config" apps
+│       │   ├── application.yaml    # ESO Helm chart
+│       │   ├── config-application.yaml  # ClusterSecretStore (sync-wave: -3)
+│       │   └── vault-secretstore.yaml  # Vault backend config
 │       ├── bootstrap/               # -> Creates "bootstrap" app (ExternalSecrets)
 │       ├── authentik/               # -> Creates "authentik" app
 │       └── monitoring/              # -> Creates "monitoring" app (kube-prometheus-stack)
@@ -108,6 +114,22 @@ k3s/
 2. **Projects** define security boundaries and allowed source repos/destinations
 3. **ApplicationSets** scan `apps/<project>/*` directories and auto-create ArgoCD Applications
 4. Adding a new app is as simple as creating a new folder under `apps/<project>/`
+
+### Sync-Wave Order (Infrastructure Dependencies)
+
+Infrastructure components deploy in this order via sync-waves:
+
+| Wave | Component | Description |
+|------|-----------|-------------|
+| -10 | cert-manager | TLS certificate management |
+| -6 | reflector | Secret/ConfigMap replication |
+| -5 | external-secrets | External Secrets Operator |
+| -4 | vault-config | Vault internal TLS certificates |
+| -3 | eso-config | ClusterSecretStore for Vault |
+| -2 | vault | HashiCorp Vault (HA with Raft) |
+| 0 | authentik | SSO/Identity Provider |
+| 3 | bootstrap | ExternalSecrets for all namespaces |
+| 5 | monitoring | Prometheus, Grafana, Alertmanager |
 
 ### Self-Management Architecture
 
@@ -146,8 +168,10 @@ k3s/
 | `apps/wontlost/data` | `wontlost-data` | `wontlost-data` |
 | `apps/infrastructure/cert-manager` | `cert-manager` | `cert-manager` |
 | `apps/infrastructure/vault` | `vault` | `vault` |
+| `apps/infrastructure/vault` (config) | `vault-config` | `vault` |
 | `apps/infrastructure/authentik` | `authentik` | `authentik` |
 | `apps/infrastructure/external-secrets` | `external-secrets` | `external-secrets` |
+| `apps/infrastructure/external-secrets` (config) | `eso-config` | `external-secrets` |
 | `apps/infrastructure/monitoring` | `monitoring` | `monitoring` |
 
 ## Prerequisites

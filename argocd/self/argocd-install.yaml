@@ -103,7 +103,9 @@ spec:
         # Configs
         configs:
           cm:
-            admin.enabled: "true"
+            # admin.enabled is set to "false" in sso-config.yaml when OIDC is configured
+            # During initial setup (before SSO), admin is needed for bootstrap
+            {}
           params:
             # Run ArgoCD server without TLS (Traefik terminates TLS)
             server.insecure: "true"

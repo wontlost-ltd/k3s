@@ -53,8 +53,8 @@ data:
     # Map Authentik groups to ArgoCD roles
     # Authentik groups should be named: argocd-admins, argocd-readonly
 
-  # Disable admin account after OIDC is configured (optional)
-  # admin.enabled: "false"
+  # Disable admin account when OIDC is configured (security best practice)
+  admin.enabled: "false"
 
 ---
 # ArgoCD RBAC ConfigMap

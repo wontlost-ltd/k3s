@@ -65,3 +65,6 @@ spec:
     # External Secrets
     - group: external-secrets.io
       kind: ExternalSecret
+    # ArgoCD Application (for app-of-apps pattern)
+    - group: argoproj.io
+      kind: Application
