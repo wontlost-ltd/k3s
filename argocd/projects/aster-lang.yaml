@@ -59,3 +59,9 @@ spec:
     # Policy
     - group: policy
       kind: PodDisruptionBudget
+    # Autoscaling
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    # External Secrets
+    - group: external-secrets.io
+      kind: ExternalSecret

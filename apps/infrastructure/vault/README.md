@@ -121,6 +121,55 @@ vault write auth/kubernetes/role/external-secrets \
     ttl=24h
 ```
 
+## Readiness Verification for Dependencies
+
+Before External Secrets Operator can pull secrets from Vault, verify that Vault is properly initialized and unsealed.
+
+### Quick Health Check
+
+```bash
+# Check all Vault pods are ready
+kubectl get pods -n vault -l app.kubernetes.io/name=vault
+
+# Verify Vault is unsealed (should show "Sealed: false")
+kubectl exec -n vault vault-0 -- vault status | grep -E "^(Initialized|Sealed)"
+
+# Expected output:
+# Initialized     true
+# Sealed          false
+```
+
+### Verify ClusterSecretStore Connection
+
+```bash
+# Check if ESO can connect to Vault
+kubectl get clustersecretstore vault-backend -o jsonpath='{.status.conditions[0]}' | jq
+
+# Expected output should show "Ready" status
+```
+
+### Verify ExternalSecrets are Syncing
+
+```bash
+# List all ExternalSecrets and their sync status
+kubectl get externalsecrets --all-namespaces
+
+# Check a specific ExternalSecret
+kubectl get externalsecret -n cert-manager cloudflare-api-token -o jsonpath='{.status.conditions[*].type}'
+```
+
+### Pre-flight Checklist
+
+Before deploying applications that depend on ExternalSecrets:
+
+1. **Vault Initialized**: `vault operator init` has been run
+2. **Vault Unsealed**: All 3 nodes show `Sealed: false`
+3. **Raft Cluster Healthy**: `vault operator raft list-peers` shows 3 peers
+4. **Kubernetes Auth Enabled**: `vault auth list` shows `kubernetes/`
+5. **KV Engine Enabled**: `vault secrets list` shows `secret/`
+6. **ESO Policy Created**: `vault policy list` shows `external-secrets`
+7. **ClusterSecretStore Ready**: `kubectl get clustersecretstore` shows Ready
+
 ## Auto-Unseal Options
 
 For production environments, configure auto-unseal to avoid manual intervention:
