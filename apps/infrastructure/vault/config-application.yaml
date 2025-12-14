@@ -8,7 +8,8 @@ metadata:
   name: vault-config
   namespace: argocd
   annotations:
-    # Sync after cert-manager ClusterIssuers are ready (creates TLS certs)
+    # Sync after cert-manager is installed (wave -10) but before vault (wave -2)
+    # Uses cert-manager CRDs (Issuer, Certificate) for internal TLS
     argocd.argoproj.io/sync-wave: "-4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io

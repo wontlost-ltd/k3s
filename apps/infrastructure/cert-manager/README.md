@@ -29,18 +29,23 @@ cert-manager automates TLS certificate management using Let's Encrypt with Cloud
    - **Zone Resources**: Include → All zones (or select specific zones)
 4. Copy the generated token
 
-### 2. Create Kubernetes Secret
+### 2. Store Token in Vault (Automated Secret Management)
+
+The Cloudflare API token is automatically synced from Vault to Kubernetes via ExternalSecrets.
 
 ```bash
-# Create cert-manager namespace if not exists
-kubectl create namespace cert-manager
+# Store the token in Vault
+vault kv put secret/infrastructure/cloudflare api_token=YOUR_CLOUDFLARE_API_TOKEN
 
-# Create Cloudflare API token secret
-kubectl create secret generic cloudflare-api-token \
-  --from-literal=api-token=YOUR_CLOUDFLARE_API_TOKEN \
-  -n cert-manager
+# Verify the secret in Vault
+vault kv get secret/infrastructure/cloudflare
+```
 
-# Verify secret
+The ExternalSecret in `apps/infrastructure/bootstrap/cloudflare-external-secret.yaml` will automatically create the `cloudflare-api-token` secret in the `cert-manager` namespace.
+
+```bash
+# Verify the secret was created by ExternalSecret
+kubectl get externalsecret cloudflare-api-token -n cert-manager
 kubectl get secret cloudflare-api-token -n cert-manager
 ```
 
