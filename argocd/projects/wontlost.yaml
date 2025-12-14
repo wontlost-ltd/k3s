@@ -6,12 +6,12 @@ metadata:
 spec:
   description: "wontlost.com domain applications"
   sourceRepos:
+    # Only allow specific repositories (no wildcards for security)
     - 'https://github.com/wontlost-ltd/k3s.git'
-    - 'https://github.com/wontlost-ltd/*'
+    - 'https://github.com/wontlost-ltd/data-service.git'
   destinations:
+    # Only allow wontlost-* namespaces (no default namespace)
     - namespace: 'wontlost-*'
-      server: https://kubernetes.default.svc
-    - namespace: 'default'
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''

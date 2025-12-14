@@ -6,12 +6,12 @@ metadata:
 spec:
   description: "aster-lang.cloud and aster-lang.dev domain applications"
   sourceRepos:
+    # Only allow specific repositories (no wildcards for security)
     - 'https://github.com/wontlost-ltd/k3s.git'
-    - 'https://github.com/aster-cloud/*'
+    - 'https://github.com/aster-cloud/policy-api.git'
   destinations:
+    # Only allow aster-* namespaces (no default namespace)
     - namespace: 'aster-*'
-      server: https://kubernetes.default.svc
-    - namespace: 'default'
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''

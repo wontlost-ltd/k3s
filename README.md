@@ -43,7 +43,7 @@ This cluster manages four domains with distinct purposes:
 | ArgoCD | `https://argocd.aster-lang.cloud` | Active |
 | Authentik (SSO) | `https://auth.aster-lang.cloud` | Active |
 | Vault | `https://vault.aster-lang.cloud` | Active |
-| Policy API | `https://api.aster-lang.dev` | Planned |
+| Policy API | `https://policy.aster-lang.dev` | Active |
 
 ### TLS Certificates
 

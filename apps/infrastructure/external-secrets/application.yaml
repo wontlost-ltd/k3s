@@ -20,8 +20,8 @@ spec:
         # Install CRDs
         installCRDs: true
 
-        # Replicas for HA (optional, 1 is fine for small clusters)
-        replicaCount: 1
+        # Replicas for HA (2 for production resilience)
+        replicaCount: 2
 
         # Resource limits (production values)
         resources:
@@ -32,9 +32,9 @@ spec:
             cpu: 500m
             memory: 512Mi
 
-        # Webhook configuration
+        # Webhook configuration (2 for HA)
         webhook:
-          replicaCount: 1
+          replicaCount: 2
           resources:
             requests:
               cpu: 50m

@@ -59,13 +59,25 @@ vault kv put secret/infrastructure/argocd \
   oidc_client_secret="YOUR_CLIENT_SECRET_FROM_AUTHENTIK"
 ```
 
-## Step 5: Apply SSO Configuration
+## Step 5: SSO Configuration via GitOps
+
+The SSO configuration is managed via GitOps and included in `argocd/kustomization.yaml`:
+
+```yaml
+resources:
+  - sso-config.yaml  # Enabled by default
+```
+
+The ExternalSecret in `argocd/sso-config.yaml` automatically pulls the OIDC client secret from Vault.
+
+To apply changes, simply commit and push - ArgoCD will auto-sync:
 
 ```bash
-# Apply the SSO configuration
-kubectl apply -f argocd/sso-config.yaml
+git add argocd/sso-config.yaml
+git commit -m "Update SSO configuration"
+git push
 
-# Restart ArgoCD server to pick up changes
+# If immediate restart is needed:
 kubectl rollout restart deployment argocd-server -n argocd
 ```
 

@@ -19,7 +19,7 @@ resources:
   - applicationsets/wontlost.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
-  # SSO configuration (apply after Authentik is ready)
-  # - sso-config.yaml
+  # SSO configuration (enabled after Authentik is ready)
+  - sso-config.yaml
   # Repository credentials (apply separately with secrets)
   # - repo-secret.yaml.sample

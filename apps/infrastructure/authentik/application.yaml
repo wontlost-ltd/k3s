@@ -88,6 +88,15 @@ spec:
         serviceAccount:
           create: true
 
+        # Prometheus metrics
+        prometheus:
+          serviceMonitor:
+            enabled: true
+            labels:
+              release: prometheus
+          rules:
+            enabled: false
+
   destination:
     server: https://kubernetes.default.svc
     namespace: authentik
