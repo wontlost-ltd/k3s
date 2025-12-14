@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infrastructure
+  namespace: argocd
+spec:
+  description: "Shared infrastructure components"
+  sourceRepos:
+    - 'https://github.com/wontlost-ltd/k3s.git'
+    # Ingress & Load Balancing
+    - 'https://traefik.github.io/charts'
+    # TLS Certificates
+    - 'https://charts.jetstack.io'
+    # ArgoCD
+    - 'https://argoproj.github.io/argo-helm'
+    # Secrets Management
+    - 'https://helm.releases.hashicorp.com'
+    - 'https://charts.external-secrets.io'
+    # Identity Provider
+    - 'https://charts.goauthentik.io'
+    # Secret Replication
+    - 'https://emberstack.github.io/helm-charts'
+  destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

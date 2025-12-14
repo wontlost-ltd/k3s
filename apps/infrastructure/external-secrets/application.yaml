@@ -1,0 +1,73 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://charts.external-secrets.io
+    chart: external-secrets
+    targetRevision: 0.12.1
+    helm:
+      releaseName: external-secrets
+      values: |
+        # Install CRDs
+        installCRDs: true
+
+        # Replicas for HA (optional, 1 is fine for small clusters)
+        replicaCount: 1
+
+        # Resource limits (production values)
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+        # Webhook configuration
+        webhook:
+          replicaCount: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+        # Cert controller for webhook certificates
+        certController:
+          replicaCount: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+        # Service account
+        serviceAccount:
+          create: true
+          name: external-secrets
+
+        # Metrics (optional)
+        metrics:
+          service:
+            enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

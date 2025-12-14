@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: infrastructure-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        revision: main
+        directories:
+          - path: apps/infrastructure/*
+  template:
+    metadata:
+      name: 'infra-{{ .path.basename }}'
+      namespace: argocd
+      labels:
+        tier: infrastructure
+        app.kubernetes.io/part-of: infrastructure
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: infrastructure
+      source:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        targetRevision: main
+        path: '{{ .path.path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

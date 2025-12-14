@@ -1,0 +1,118 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    targetRevision: 0.30.0
+    helm:
+      releaseName: vault
+      values: |
+        global:
+          enabled: true
+          tlsDisable: false
+
+        injector:
+          enabled: true
+          replicas: 1
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+
+        server:
+          enabled: true
+          image:
+            repository: hashicorp/vault
+            tag: "1.19.0"
+
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: 1000m
+
+          # Development mode (for testing - uses in-memory storage)
+          dev:
+            enabled: false
+
+          # Standalone mode with file storage
+          standalone:
+            enabled: true
+            config: |
+              ui = true
+
+              listener "tcp" {
+                address = "[::]:8200"
+                cluster_address = "[::]:8201"
+                tls_cert_file = "/vault/tls/tls.crt"
+                tls_key_file = "/vault/tls/tls.key"
+              }
+
+              storage "file" {
+                path = "/vault/data"
+              }
+
+          # Mount TLS certificate from cert-manager
+          volumes:
+            - name: vault-tls-internal
+              secret:
+                secretName: vault-internal-tls
+
+          volumeMounts:
+            - name: vault-tls-internal
+              mountPath: /vault/tls
+              readOnly: true
+
+          dataStorage:
+            enabled: true
+            size: 10Gi
+            storageClass: null
+
+          auditStorage:
+            enabled: true
+            size: 5Gi
+            storageClass: null
+
+          # External ingress (uses Let's Encrypt wildcard cert)
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+            hosts:
+              - host: vault.aster-lang.cloud
+                paths:
+                  - /
+            tls:
+              - secretName: vault-ingress-tls
+                hosts:
+                  - vault.aster-lang.cloud
+
+        ui:
+          enabled: true
+          serviceType: ClusterIP
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

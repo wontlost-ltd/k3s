@@ -1,0 +1,32 @@
+# cert-manager Configuration Application
+# Deploys ClusterIssuers and Certificates AFTER cert-manager is installed
+# Uses sync wave to ensure proper ordering
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    # Ensure this syncs after cert-manager
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: apps/infrastructure/cert-manager
+    # Only include ClusterIssuers and Certificates, not the Applications
+    directory:
+      include: '{cluster-issuers.yaml,wildcard-certificates.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: aster-lang-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        revision: main
+        directories:
+          - path: apps/aster-lang/*
+  template:
+    metadata:
+      name: 'aster-{{ .path.basename }}'
+      namespace: argocd
+      labels:
+        domain: aster-lang.cloud
+        app.kubernetes.io/part-of: aster-lang
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: aster-lang
+      source:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        targetRevision: main
+        path: '{{ .path.path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'aster-{{ .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

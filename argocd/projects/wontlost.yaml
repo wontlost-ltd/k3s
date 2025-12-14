@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: wontlost
+  namespace: argocd
+spec:
+  description: "wontlost.com domain applications"
+  sourceRepos:
+    - 'https://github.com/wontlost-ltd/k3s.git'
+    - 'https://github.com/wontlost-ltd/*'
+  destinations:
+    - namespace: 'wontlost-*'
+      server: https://kubernetes.default.svc
+    - namespace: 'default'
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'networking.k8s.io'
+      kind: Ingress

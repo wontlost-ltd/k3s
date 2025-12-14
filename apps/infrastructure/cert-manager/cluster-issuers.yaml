@@ -1,0 +1,55 @@
+# ClusterIssuers for Let's Encrypt with Cloudflare DNS-01 challenge
+# These are cluster-wide issuers that can be used by any namespace
+#
+# PREREQUISITE: Create the cloudflare-api-token secret first!
+# kubectl create secret generic cloudflare-api-token \
+#   --from-literal=api-token=YOUR_CLOUDFLARE_API_TOKEN \
+#   -n cert-manager
+
+---
+# Production issuer - use for real certificates
+# Rate limits: 50 certificates per domain per week
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Production ACME server
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Email for certificate expiry notifications
+    email: admin@aster-lang.cloud
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      # DNS-01 challenge using Cloudflare
+      # Supports wildcard certificates
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+        # Match all domains (can be restricted with selector)
+        selector: {}
+
+---
+# Staging issuer - use for testing
+# No rate limits, but certificates are not trusted
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # Staging ACME server (for testing)
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: admin@aster-lang.cloud
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+        selector: {}

@@ -1,0 +1,85 @@
+# Internal TLS Certificate for Vault
+# Uses a self-signed CA for cluster-internal communication
+# This ensures all traffic to Vault (including from ESO) is encrypted
+
+---
+# Self-signed Issuer for Vault internal CA
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: vault-selfsigned-issuer
+  namespace: vault
+spec:
+  selfSigned: {}
+
+---
+# Vault Internal CA Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vault-internal-ca
+  namespace: vault
+spec:
+  isCA: true
+  commonName: vault-internal-ca
+  secretName: vault-internal-ca
+  duration: 87600h # 10 years
+  renewBefore: 8760h # 1 year
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: vault-selfsigned-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# CA Issuer using the internal CA
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: vault-internal-ca-issuer
+  namespace: vault
+spec:
+  ca:
+    secretName: vault-internal-ca
+
+---
+# Vault Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vault-internal-tls
+  namespace: vault
+spec:
+  secretName: vault-internal-tls
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  subject:
+    organizations:
+      - wontlost-ltd
+  commonName: vault.vault.svc.cluster.local
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - vault
+    - vault.vault
+    - vault.vault.svc
+    - vault.vault.svc.cluster.local
+    - vault-internal
+    - "*.vault-internal"
+    - "*.vault-internal.vault.svc.cluster.local"
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: vault-internal-ca-issuer
+    kind: Issuer
+    group: cert-manager.io

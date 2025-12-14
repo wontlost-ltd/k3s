@@ -1,0 +1,95 @@
+# Wildcard Certificates for all domains
+# These certificates are created in cert-manager namespace
+# and can be copied to other namespaces using cert-manager's secretTemplate
+# or manually using kubectl/scripts
+#
+# NOTE: Wildcard certificates require DNS-01 challenge (configured in ClusterIssuer)
+
+---
+# aster-lang.cloud - Infrastructure services
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: aster-lang-cloud-wildcard
+  namespace: cert-manager
+spec:
+  secretName: aster-lang-cloud-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.aster-lang.cloud"
+  dnsNames:
+    - "aster-lang.cloud"
+    - "*.aster-lang.cloud"
+  # Copy secret to other namespaces (requires cert-manager v1.14+)
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "argocd,vault,authentik"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+
+---
+# aster-lang.dev - Developer services
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: aster-lang-dev-wildcard
+  namespace: cert-manager
+spec:
+  secretName: aster-lang-dev-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.aster-lang.dev"
+  dnsNames:
+    - "aster-lang.dev"
+    - "*.aster-lang.dev"
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "aster-policy"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+
+---
+# wontlost.com - Company/Personal
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wontlost-com-wildcard
+  namespace: cert-manager
+spec:
+  secretName: wontlost-com-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.wontlost.com"
+  dnsNames:
+    - "wontlost.com"
+    - "*.wontlost.com"
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "wontlost-data"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+
+---
+# ezymeta.com - Product/Service
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ezymeta-com-wildcard
+  namespace: cert-manager
+spec:
+  secretName: ezymeta-com-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.ezymeta.com"
+  dnsNames:
+    - "ezymeta.com"
+    - "*.ezymeta.com"
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "ezymeta"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"

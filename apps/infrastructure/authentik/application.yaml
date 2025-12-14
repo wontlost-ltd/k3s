@@ -1,0 +1,97 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://charts.goauthentik.io
+    chart: authentik
+    targetRevision: 2025.2.1
+    helm:
+      releaseName: authentik
+      values: |
+        # Authentik configuration
+        authentik:
+          error_reporting:
+            enabled: false
+
+        # PostgreSQL - using external PostgreSQL
+        postgresql:
+          enabled: false
+
+        # Load configuration from secret
+        # Create secret first: kubectl apply -f secrets.yaml.template (with real values)
+        global:
+          envFrom:
+            - secretRef:
+                name: authentik-secrets
+
+        # Redis configuration (bundled)
+        redis:
+          enabled: true
+          architecture: standalone
+          auth:
+            enabled: false
+          master:
+            resources:
+              requests:
+                memory: 128Mi
+                cpu: 100m
+              limits:
+                memory: 256Mi
+                cpu: 250m
+
+        # Server configuration (production values)
+        server:
+          replicas: 1
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 250m
+            limits:
+              memory: 2Gi
+              cpu: 1000m
+
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+            hosts:
+              - auth.aster-lang.cloud
+            tls:
+              - secretName: authentik-tls
+                hosts:
+                  - auth.aster-lang.cloud
+
+        # Worker configuration (production values)
+        worker:
+          replicas: 1
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 100m
+            limits:
+              memory: 1Gi
+              cpu: 500m
+
+        # Service account
+        serviceAccount:
+          create: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

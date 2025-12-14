@@ -1,0 +1,58 @@
+# Operations Log
+
+## 2025-12-14 Codex
+
+- 22:33 NZST | sequential-thinking | params: 概要分析仓库审查任务 | output: 明确需执行 k3s GitOps 全面评审
+- 22:33 NZST | shell ls -la | listed repo根目录确认主要子目录
+- 22:33 NZST | shell ls docs | 查看 docs 结构确认已有文档
+- 22:34 NZST | shell ls .claude | 验证上下文目录不存在（No such file or directory）
+- 22:34 NZST | shell find . -maxdepth 2 -type d | 快速扫描目录层级
+- 22:34 NZST | shell TZ="Pacific/Auckland" date "+%Y-%m-%d %H:%M" | 获取NZST时间 2025-12-14 22:33
+- 22:34 NZST | shell mkdir -p .claude | 创建上下文与报告目录
+- 22:35 NZST | shell ls argocd | 浏览 argocd 目录内容
+- 22:35 NZST | shell cat argocd/kustomization.yaml | 查看 ArgoCD kustomization 配置
+- 22:36 NZST | shell ls argocd/projects | 枚举 ArgoCD 项目定义文件
+- 22:36 NZST | shell cat argocd/projects/infrastructure.yaml | 阅读基础设施 AppProject
+- 22:37 NZST | shell ls argocd/self | 查看 self management 目录文件
+- 22:37 NZST | shell cat argocd/self/kustomization.yaml | 查看 self kustomize 配置
+- 22:38 NZST | shell cat argocd/self/argocd-install.yaml | 审阅 ArgoCD 安装 Application 定义
+- 22:38 NZST | shell cat argocd/self/argocd-config.yaml | 审阅 ArgoCD 配置 Application
+- 22:39 NZST | shell ls argocd/applicationsets | 枚举 ApplicationSet 定义
+- 22:39 NZST | shell cat argocd/applicationsets/infrastructure.yaml | 阅读基础设施 ApplicationSet 模板
+- 22:40 NZST | shell ls apps/infrastructure | 列出基础设施组件目录
+- 22:40 NZST | shell ls apps/infrastructure/cert-manager | 浏览 cert-manager 目录
+- 22:41 NZST | shell cat apps/infrastructure/cert-manager/application.yaml | 审阅 cert-manager Helm Application 配置
+- 22:41 NZST | shell cat apps/infrastructure/cert-manager/config-application.yaml | 查看 cert-manager 配置 Application
+- 22:42 NZST | shell cat apps/infrastructure/cert-manager/kustomization.yaml | 查看 cert-manager kustomization
+- 22:42 NZST | shell cat apps/infrastructure/cert-manager/cluster-issuers.yaml | 查看 ClusterIssuer 定义
+- 22:43 NZST | shell cat apps/infrastructure/cert-manager/wildcard-certificates.yaml | 查看 wildcard 证书配置
+- 22:43 NZST | shell ls apps/infrastructure/vault | 浏览 vault 应用
+- 22:44 NZST | shell cat apps/infrastructure/vault/application.yaml | 审阅 Vault Helm 应用
+- 22:44 NZST | shell ls apps/infrastructure/external-secrets | 浏览 external-secrets 目录
+- 22:45 NZST | shell cat apps/infrastructure/external-secrets/application.yaml | 审阅 external-secrets Helm 应用
+- 22:45 NZST | shell cat apps/infrastructure/external-secrets/config-application.yaml | 查看 external-secrets 配置 Application
+- 22:46 NZST | shell cat apps/infrastructure/external-secrets/vault-secretstore.yaml | 审阅 ClusterSecretStore 配置
+- 22:46 NZST | shell ls apps/infrastructure/external-secrets/examples | 查看 external-secret 示例
+- 22:47 NZST | shell ls apps/infrastructure/authentik | 浏览 authentik 应用目录
+- 22:47 NZST | shell cat apps/infrastructure/authentik/application.yaml | 审阅 authentik Helm 应用
+- 22:48 NZST | shell cat argocd/ingress.yaml | 审阅 ArgoCD ingress/中间件配置
+- 22:48 NZST | shell rg -n "ApplicationSet" README.md | 搜索 README 中 ApplicationSet 描述
+- 22:49 NZST | shell sed -n '300,400p' README.md | 阅读 README 自管理说明片段
+- 22:49 NZST | shell sed -n '70,160p' README.md | 阅读仓库结构与架构描述
+- 22:50 NZST | shell nl -ba apps/infrastructure/cert-manager/kustomization.yaml | 获取行号便于引用
+- 22:50 NZST | shell nl -ba apps/infrastructure/cert-manager/application.yaml | 记录 cert-manager 应用行号
+- 22:51 NZST | shell nl -ba apps/infrastructure/external-secrets/application.yaml | 记录 external-secrets 应用行号
+- 22:51 NZST | shell nl -ba apps/infrastructure/vault/application.yaml | 记录 Vault 应用行号
+- 22:52 NZST | shell nl -ba argocd/applicationsets/infrastructure.yaml | 记录 Infrastructure ApplicationSet 行号
+- 22:52 NZST | shell nl -ba argocd/self/argocd-install.yaml | 记录 ArgoCD 安装 Application 行号
+- 22:53 NZST | shell nl -ba argocd/self/argocd-config.yaml | 记录 ArgoCD 配置 Application 行号
+- 22:53 NZST | shell nl -ba argocd/ingress.yaml | 记录 ArgoCD ingress 行号
+- 22:54 NZST | shell nl -ba apps/infrastructure/external-secrets/vault-secretstore.yaml | 记录 Vault SecretStore 行号
+- 22:54 NZST | shell nl -ba argocd/projects/infrastructure.yaml | 记录 AppProject 行号
+- 22:55 NZST | shell nl -ba apps/infrastructure/cert-manager/config-application.yaml | 记录 cert-manager config Application 行号
+- 22:55 NZST | shell nl -ba apps/infrastructure/external-secrets/config-application.yaml | 记录 external-secrets config Application 行号
+- 22:56 NZST | shell nl -ba apps/infrastructure/authentik/application.yaml | 记录 authentik 应用行号
+- 22:57 NZST | shell TZ="Pacific/Auckland" date "+%Y-%m-%d %H:%M" | 刷新当前日期时间 2025-12-14 22:39
+- 22:58 NZST | shell rg -n "emberstack" -n | 搜索 reflector 依赖引用
+- 22:59 NZST | shell cat > .claude/review-report.md | 生成评审报告
+- 23:00 NZST | shell cat .claude/review-report.md | 校验评审报告内容

@@ -1,0 +1,31 @@
+# External Secrets Configuration Application
+# Deploys ClusterSecretStore AFTER external-secrets operator is installed
+# Uses sync wave to ensure proper ordering
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets-config
+  namespace: argocd
+  annotations:
+    # Ensure this syncs after external-secrets operator
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: apps/infrastructure/external-secrets
+    directory:
+      # Only include the secretstore config, not the helm application
+      include: 'vault-secretstore.yaml'
+  destination:
+    server: https://kubernetes.default.svc
+    # ClusterSecretStore is cluster-scoped, namespace doesn't matter
+    namespace: external-secrets
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

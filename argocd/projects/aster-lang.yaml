@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: aster-lang
+  namespace: argocd
+spec:
+  description: "aster-lang.cloud domain applications"
+  sourceRepos:
+    - 'https://github.com/wontlost-ltd/k3s.git'
+    - 'https://github.com/aster-cloud/*'
+  destinations:
+    - namespace: 'aster-*'
+      server: https://kubernetes.default.svc
+    - namespace: 'default'
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'networking.k8s.io'
+      kind: Ingress
+    - group: 'cert-manager.io'
+      kind: '*'

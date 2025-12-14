@@ -1,0 +1,31 @@
+# Vault Configuration Application
+# Deploys internal TLS certificates BEFORE vault helm chart
+# Uses sync wave to ensure proper ordering
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-config
+  namespace: argocd
+  annotations:
+    # Sync this BEFORE the main vault application
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: apps/infrastructure/vault
+    directory:
+      include: 'internal-tls.yaml'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

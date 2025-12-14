@@ -1,0 +1,52 @@
+# EmberStack Reflector
+# Automatically replicates secrets and configmaps across namespaces
+# Used for wildcard TLS certificates and shared configuration
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reflector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://emberstack.github.io/helm-charts
+    chart: reflector
+    targetRevision: 9.1.44
+    helm:
+      releaseName: reflector
+      values: |
+        # Resource limits (production values)
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+        # Configuration
+        configuration:
+          logging:
+            minimumLevel: Information
+
+        # RBAC
+        rbac:
+          enabled: true
+
+        # Service account
+        serviceAccount:
+          create: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reflector
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

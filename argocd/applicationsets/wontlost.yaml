@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: wontlost-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        revision: main
+        directories:
+          - path: apps/wontlost/*
+  template:
+    metadata:
+      name: 'wontlost-{{ .path.basename }}'
+      namespace: argocd
+      labels:
+        domain: wontlost.com
+        app.kubernetes.io/part-of: wontlost
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: wontlost
+      source:
+        repoURL: https://github.com/wontlost-ltd/k3s.git
+        targetRevision: main
+        path: '{{ .path.path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'wontlost-{{ .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

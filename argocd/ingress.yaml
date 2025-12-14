@@ -1,0 +1,59 @@
+# ArgoCD Ingress Configuration
+# Exposes ArgoCD UI at argocd.aster-lang.cloud
+#
+# IMPORTANT: After applying, disable TLS on ArgoCD server:
+# kubectl patch configmap argocd-cmd-params-cm -n argocd \
+#   --type merge -p '{"data":{"server.insecure":"true"}}'
+# kubectl rollout restart deployment argocd-server -n argocd
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Required for ArgoCD gRPC
+    traefik.ingress.kubernetes.io/router.middlewares: argocd-argocd-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: argocd.aster-lang.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - argocd.aster-lang.cloud
+      secretName: argocd-tls
+
+---
+# Middleware for ArgoCD headers (needed for gRPC)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: argocd-headers
+  namespace: argocd
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: https
+
+---
+# ConfigMap patch for insecure mode (Traefik handles TLS)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+data:
+  # Run ArgoCD server without TLS (Traefik terminates TLS)
+  server.insecure: "true"
