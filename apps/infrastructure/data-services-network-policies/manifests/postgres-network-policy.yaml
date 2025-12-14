@@ -28,11 +28,19 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
-    # Allow PostgreSQL connections from aster-lang namespace (policy-api)
+    # Allow PostgreSQL connections from aster-policy namespace (policy-api)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: aster-lang
+              kubernetes.io/metadata.name: aster-policy
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow PostgreSQL connections from wontlost-data namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: wontlost-data
       ports:
         - protocol: TCP
           port: 5432

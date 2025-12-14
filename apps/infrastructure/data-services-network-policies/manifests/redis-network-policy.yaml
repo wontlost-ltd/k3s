@@ -20,11 +20,19 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
-    # Allow Redis connections from aster-lang namespace (policy-api caching)
+    # Allow Redis connections from aster-policy namespace (policy-api caching)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: aster-lang
+              kubernetes.io/metadata.name: aster-policy
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow Redis connections from wontlost-data namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: wontlost-data
       ports:
         - protocol: TCP
           port: 6379
@@ -35,7 +43,10 @@ spec:
               kubernetes.io/metadata.name: authentik
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: aster-lang
+              kubernetes.io/metadata.name: aster-policy
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: wontlost-data
       ports:
         - protocol: TCP
           port: 26379

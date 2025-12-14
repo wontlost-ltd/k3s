@@ -108,10 +108,10 @@ spec:
               kubernetes.io/metadata.name: vault
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: wontlost
+              kubernetes.io/metadata.name: wontlost-data
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: aster-lang
+              kubernetes.io/metadata.name: aster-policy
     # Allow API server communication (ingress discovery)
     - ports:
         - protocol: TCP
