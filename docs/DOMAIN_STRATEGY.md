@@ -19,12 +19,12 @@ Internal/DevOps services - consider restricting access via Authentik.
 
 | Subdomain | Service | Status |
 |-----------|---------|--------|
-| `auth.aster-lang.cloud` | Authentik (SSO/IdP) | Planned |
-| `vault.aster-lang.cloud` | HashiCorp Vault | Planned |
-| `argocd.aster-lang.cloud` | ArgoCD Dashboard | Planned |
-| `grafana.aster-lang.cloud` | Grafana Monitoring | Future |
-| `prometheus.aster-lang.cloud` | Prometheus Metrics | Future |
-| `alertmanager.aster-lang.cloud` | Alert Manager | Future |
+| `auth.aster-lang.cloud` | Authentik (SSO/IdP) | Active |
+| `vault.aster-lang.cloud` | HashiCorp Vault | Active |
+| `argocd.aster-lang.cloud` | ArgoCD Dashboard | Active |
+| `grafana.aster-lang.cloud` | Grafana Monitoring | Active |
+| `prometheus.aster-lang.cloud` | Prometheus Metrics | Active |
+| `alertmanager.aster-lang.cloud` | Alert Manager | Active |
 | `traefik.aster-lang.cloud` | Traefik Dashboard | Future |
 | `longhorn.aster-lang.cloud` | Longhorn Storage UI | Future |
 
@@ -34,7 +34,7 @@ Public-facing developer resources.
 
 | Subdomain | Service | Status |
 |-----------|---------|--------|
-| `api.aster-lang.dev` | Policy API (Production) | Planned |
+| `policy.aster-lang.dev` | Policy API (Production) | Active |
 | `staging-api.aster-lang.dev` | Policy API (Staging) | Future |
 | `docs.aster-lang.dev` | Documentation | Future |
 | `playground.aster-lang.dev` | Online Playground | Future |
@@ -47,6 +47,7 @@ Company/personal brand presence.
 | Subdomain | Service | Status |
 |-----------|---------|--------|
 | `wontlost.com` / `www.wontlost.com` | Main Website | Future |
+| `data.wontlost.com` | Data Service | Active |
 | `app.wontlost.com` | Web Application | Future |
 | `status.wontlost.com` | Status Page | Future |
 

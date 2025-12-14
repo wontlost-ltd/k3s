@@ -90,8 +90,8 @@ k3s/
 │   ├── wontlost/                    # wontlost.com applications
 │   │   └── data/                    # -> Creates "wontlost-data" app in "wontlost-data" namespace
 │   └── infrastructure/              # Shared infrastructure (organized by function)
-│       ├── cert-manager/            # -> Creates "tls-cert-manager" app
-│       ├── cert-manager-config/     # -> Creates "tls-cert-manager-config" app
+│       ├── cert-manager/            # -> Creates "tls-cert-manager" and "tls-cert-manager-config" apps
+│       ├── reflector/               # -> Creates "tls-reflector" app (cert replication)
 │       ├── vault/                   # -> Creates "secrets-vault" app
 │       ├── external-secrets/        # -> Creates "secrets-external-secrets" app
 │       ├── bootstrap/               # -> Creates "secrets-bootstrap" app (ExternalSecrets)

@@ -118,6 +118,11 @@ vault kv put secret/infrastructure/authentik \
 # ArgoCD OIDC client secret (for SSO)
 vault kv put secret/infrastructure/argocd \
     oidc_client_secret="YOUR_AUTHENTIK_CLIENT_SECRET"
+
+# Monitoring basic auth (htpasswd format for Traefik)
+# Generate with: htpasswd -nb admin yourpassword
+vault kv put secret/infrastructure/monitoring \
+    basic_auth_users="admin:\$apr1\$xxxxx\$xxxxx"
 ```
 
 ### 6. Create Policy for External Secrets

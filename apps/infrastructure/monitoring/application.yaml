@@ -21,6 +21,8 @@ spec:
         # Prometheus configuration
         prometheus:
           prometheusSpec:
+            # HA configuration - 2 replicas
+            replicas: 2
             # Resource limits
             resources:
               requests:
@@ -50,6 +52,8 @@ spec:
               cert-manager.io/cluster-issuer: letsencrypt-prod
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
+              # Basic auth protection (create secret: htpasswd -nb admin password | base64)
+              traefik.ingress.kubernetes.io/router.middlewares: monitoring-basic-auth@kubernetescrd
             hosts:
               - prometheus.aster-lang.cloud
             tls:
@@ -60,6 +64,8 @@ spec:
         # Alertmanager configuration
         alertmanager:
           alertmanagerSpec:
+            # HA configuration - 2 replicas
+            replicas: 2
             resources:
               requests:
                 memory: 128Mi
@@ -81,6 +87,8 @@ spec:
               cert-manager.io/cluster-issuer: letsencrypt-prod
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
+              # Basic auth protection (same middleware as Prometheus)
+              traefik.ingress.kubernetes.io/router.middlewares: monitoring-basic-auth@kubernetescrd
             hosts:
               - alertmanager.aster-lang.cloud
             tls:
@@ -88,8 +96,10 @@ spec:
                 hosts:
                   - alertmanager.aster-lang.cloud
 
-        # Grafana configuration
+        # Grafana configuration (has built-in auth, no middleware needed)
         grafana:
+          # HA configuration - 2 replicas
+          replicas: 2
           # Use ExternalSecret for admin credentials from Vault
           admin:
             existingSecret: grafana-admin
@@ -145,6 +155,39 @@ spec:
           enabled: false
         kubeProxy:
           enabled: false
+
+        # Extra manifests for auth middleware
+        extraManifests:
+          # Basic auth middleware for Prometheus/Alertmanager
+          # To create credentials: htpasswd -nb admin password | base64
+          # Store in monitoring-auth secret with key 'users'
+          - apiVersion: traefik.io/v1alpha1
+            kind: Middleware
+            metadata:
+              name: basic-auth
+              namespace: monitoring
+            spec:
+              basicAuth:
+                secret: monitoring-auth
+          # ExternalSecret for monitoring basic auth credentials
+          - apiVersion: external-secrets.io/v1beta1
+            kind: ExternalSecret
+            metadata:
+              name: monitoring-auth
+              namespace: monitoring
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: vault-backend
+                kind: ClusterSecretStore
+              target:
+                name: monitoring-auth
+                creationPolicy: Owner
+              data:
+                - secretKey: users
+                  remoteRef:
+                    key: infrastructure/monitoring
+                    property: basic_auth_users
 
   destination:
     server: https://kubernetes.default.svc

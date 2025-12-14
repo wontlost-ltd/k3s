@@ -1,0 +1,16 @@
+# PodDisruptionBudget for Data Service
+# Ensures at least 1 pod is always available during maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: data-service
+  namespace: wontlost-data
+  labels:
+    app: data-service
+    app.kubernetes.io/name: data-service
+    app.kubernetes.io/part-of: wontlost
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: data-service
