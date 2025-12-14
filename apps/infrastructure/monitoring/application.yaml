@@ -1,0 +1,154 @@
+# Prometheus Stack Application
+# Deploys Prometheus, Grafana, and Alertmanager using kube-prometheus-stack
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    # Deploy after core infrastructure is ready
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 65.1.1
+    helm:
+      valuesObject:
+        # Prometheus configuration
+        prometheus:
+          prometheusSpec:
+            # Resource limits
+            resources:
+              requests:
+                memory: 512Mi
+                cpu: 250m
+              limits:
+                memory: 2Gi
+                cpu: 1000m
+            # Retention
+            retention: 15d
+            retentionSize: 10GB
+            # Storage
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 20Gi
+            # ServiceMonitor selector - match all
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            hosts:
+              - prometheus.aster-lang.cloud
+            tls:
+              - secretName: prometheus-tls
+                hosts:
+                  - prometheus.aster-lang.cloud
+
+        # Alertmanager configuration
+        alertmanager:
+          alertmanagerSpec:
+            resources:
+              requests:
+                memory: 128Mi
+                cpu: 50m
+              limits:
+                memory: 256Mi
+                cpu: 200m
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            hosts:
+              - alertmanager.aster-lang.cloud
+            tls:
+              - secretName: alertmanager-tls
+                hosts:
+                  - alertmanager.aster-lang.cloud
+
+        # Grafana configuration
+        grafana:
+          adminPassword: "" # Will be set via ExternalSecret
+          persistence:
+            enabled: true
+            size: 5Gi
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            hosts:
+              - grafana.aster-lang.cloud
+            tls:
+              - secretName: grafana-tls
+                hosts:
+                  - grafana.aster-lang.cloud
+          # Default dashboards
+          defaultDashboardsEnabled: true
+          # Sidecar for dashboard discovery
+          sidecar:
+            dashboards:
+              enabled: true
+              searchNamespace: ALL
+            datasources:
+              enabled: true
+
+        # Node exporter for host metrics
+        nodeExporter:
+          enabled: true
+
+        # Kube-state-metrics for K8s object metrics
+        kubeStateMetrics:
+          enabled: true
+
+        # Disable components not needed in K3s
+        kubeEtcd:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeProxy:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -14,9 +14,12 @@ resources:
   - applicationsets/tls-management.yaml
   - applicationsets/secrets-management.yaml
   - applicationsets/identity.yaml
+  - applicationsets/platform.yaml
   - applicationsets/aster-lang.yaml
   - applicationsets/wontlost.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
+  # SSO configuration (apply after Authentik is ready)
+  # - sso-config.yaml
   # Repository credentials (apply separately with secrets)
-  # - repo-secret.yaml
+  # - repo-secret.yaml.sample

@@ -4,7 +4,7 @@ metadata:
   name: aster-lang
   namespace: argocd
 spec:
-  description: "aster-lang.cloud domain applications"
+  description: "aster-lang.cloud and aster-lang.dev domain applications"
   sourceRepos:
     - 'https://github.com/wontlost-ltd/k3s.git'
     - 'https://github.com/aster-cloud/*'
@@ -16,7 +16,46 @@ spec:
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
-    - group: 'networking.k8s.io'
+  # Explicit namespaced resource allowlist for security
+  namespaceResourceWhitelist:
+    # Core workloads
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ServiceAccount
+    - group: ''
+      kind: PersistentVolumeClaim
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: apps
+      kind: DaemonSet
+    - group: apps
+      kind: ReplicaSet
+    - group: batch
+      kind: Job
+    - group: batch
+      kind: CronJob
+    # Networking
+    - group: networking.k8s.io
       kind: Ingress
-    - group: 'cert-manager.io'
-      kind: '*'
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    # RBAC (namespaced)
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    # Monitoring
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+    - group: monitoring.coreos.com
+      kind: PodMonitor
+    # Policy
+    - group: policy
+      kind: PodDisruptionBudget

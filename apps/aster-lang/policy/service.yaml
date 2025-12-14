@@ -1,0 +1,19 @@
+# Policy API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-api
+  namespace: aster-policy
+  labels:
+    app: policy-api
+    app.kubernetes.io/name: policy-api
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: policy-api

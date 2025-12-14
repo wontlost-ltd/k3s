@@ -1,0 +1,32 @@
+# Data Service Ingress
+# Uses wildcard certificate from cert-manager via Reflector
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: data-service
+  namespace: wontlost-data
+  labels:
+    app: data-service
+    app.kubernetes.io/name: data-service
+    app.kubernetes.io/part-of: wontlost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: data.wontlost.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: data-service
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - data.wontlost.com
+      # Uses wildcard cert replicated by Reflector
+      secretName: wontlost-com-tls

@@ -1,0 +1,19 @@
+# Data Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-service
+  namespace: wontlost-data
+  labels:
+    app: data-service
+    app.kubernetes.io/name: data-service
+    app.kubernetes.io/part-of: wontlost
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: data-service

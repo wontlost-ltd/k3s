@@ -1,0 +1,7 @@
+# Wontlost Data Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wontlost-data
+  labels:
+    app.kubernetes.io/part-of: wontlost

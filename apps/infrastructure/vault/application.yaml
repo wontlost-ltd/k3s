@@ -50,30 +50,66 @@ spec:
           dev:
             enabled: false
 
-          # Standalone mode with file storage
+          # Disable standalone mode - using HA mode
           standalone:
+            enabled: false
+
+          # HA mode with Raft storage
+          ha:
             enabled: true
-            config: |
-              ui = true
+            replicas: 3
+            raft:
+              enabled: true
+              setNodeId: true
+              config: |
+                ui = true
 
-              listener "tcp" {
-                address = "[::]:8200"
-                cluster_address = "[::]:8201"
-                tls_cert_file = "/vault/tls/tls.crt"
-                tls_key_file = "/vault/tls/tls.key"
-                telemetry {
-                  unauthenticated_metrics_access = true
+                listener "tcp" {
+                  address = "[::]:8200"
+                  cluster_address = "[::]:8201"
+                  tls_cert_file = "/vault/tls/tls.crt"
+                  tls_key_file = "/vault/tls/tls.key"
+                  telemetry {
+                    unauthenticated_metrics_access = true
+                  }
                 }
-              }
 
-              storage "file" {
-                path = "/vault/data"
-              }
+                storage "raft" {
+                  path = "/vault/data"
+                  retry_join {
+                    leader_api_addr = "https://vault-0.vault-internal:8200"
+                    leader_ca_cert_file = "/vault/tls/tls.crt"
+                    leader_client_cert_file = "/vault/tls/tls.crt"
+                    leader_client_key_file = "/vault/tls/tls.key"
+                  }
+                  retry_join {
+                    leader_api_addr = "https://vault-1.vault-internal:8200"
+                    leader_ca_cert_file = "/vault/tls/tls.crt"
+                    leader_client_cert_file = "/vault/tls/tls.crt"
+                    leader_client_key_file = "/vault/tls/tls.key"
+                  }
+                  retry_join {
+                    leader_api_addr = "https://vault-2.vault-internal:8200"
+                    leader_ca_cert_file = "/vault/tls/tls.crt"
+                    leader_client_cert_file = "/vault/tls/tls.crt"
+                    leader_client_key_file = "/vault/tls/tls.key"
+                  }
+                }
 
-              telemetry {
-                prometheus_retention_time = "30s"
-                disable_hostname = true
-              }
+                service_registration "kubernetes" {}
+
+                telemetry {
+                  prometheus_retention_time = "30s"
+                  disable_hostname = true
+                }
+
+                # Auto-unseal configuration (uncomment when KMS is available)
+                # seal "gcpckms" {
+                #   project     = "your-project"
+                #   region      = "global"
+                #   key_ring    = "vault-keyring"
+                #   crypto_key  = "vault-unseal-key"
+                # }
 
           # Mount TLS certificate from cert-manager
           volumes:

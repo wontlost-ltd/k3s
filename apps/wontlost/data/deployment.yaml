@@ -1,0 +1,46 @@
+# Data Service Deployment
+# Sample application using nginx as placeholder
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-service
+  namespace: wontlost-data
+  labels:
+    app: data-service
+    app.kubernetes.io/name: data-service
+    app.kubernetes.io/part-of: wontlost
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: data-service
+  template:
+    metadata:
+      labels:
+        app: data-service
+        app.kubernetes.io/name: data-service
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 128Mi
+              cpu: 100m
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
