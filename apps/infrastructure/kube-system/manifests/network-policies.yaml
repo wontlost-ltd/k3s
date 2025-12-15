@@ -53,12 +53,13 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow API server communication (service discovery)
-    - ports:
+    # Allow API server communication (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
 
 ---
 # Traefik Ingress Controller Network Policy
@@ -112,12 +113,13 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: aster-policy
-    # Allow API server communication (ingress discovery)
-    - ports:
+    # Allow API server communication (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
     # Allow DNS resolution
     - ports:
         - protocol: UDP
@@ -168,12 +170,13 @@ spec:
     - ports:
         - protocol: TCP
           port: 10250
-    # Allow API server
-    - ports:
+    # Allow API server (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
     # Allow DNS
     - ports:
         - protocol: UDP
@@ -203,12 +206,13 @@ spec:
     - Ingress
     - Egress
   egress:
-    # Allow API server communication (PV/PVC management)
-    - ports:
+    # Allow API server communication (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
     # Allow DNS
     - ports:
         - protocol: UDP

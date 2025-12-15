@@ -34,9 +34,11 @@ spec:
     # Namespace creation (for CreateNamespace=true)
     - group: ''
       kind: Namespace
-    # ArgoCD CRDs
+    # ArgoCD CRDs (excluding AppProject to prevent cross-project escape)
     - group: argoproj.io
-      kind: '*'
+      kind: Application
+    - group: argoproj.io
+      kind: ApplicationSet
     # Prometheus Operator CRDs
     - group: monitoring.coreos.com
       kind: '*'
@@ -115,6 +117,6 @@ spec:
     # Traefik Middleware (for auth)
     - group: traefik.io
       kind: Middleware
-    # ArgoCD Application (for app-of-apps pattern)
-    - group: argoproj.io
-      kind: Application
+    # NOTE: ArgoCD Application removed from namespaceResourceWhitelist
+    # to prevent cross-project escape. Applications are managed via
+    # clusterResourceWhitelist (Application, ApplicationSet only)

@@ -39,14 +39,22 @@ spec:
           podSelector:
             matchLabels:
               k8s-app: kube-dns
-    # Allow API server communication
-    - ports:
+    # Allow API server communication (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
-    # Allow S3 backup (HTTPS)
-    - ports:
+    # Allow S3 backup (external HTTPS only)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
         - protocol: TCP
           port: 443
     # Allow intra-cluster replication
