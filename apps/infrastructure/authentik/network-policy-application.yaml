@@ -6,8 +6,8 @@ metadata:
   name: authentik-network-policies
   namespace: argocd
   annotations:
-    # Deploy after Authentik is created (sync-wave 5)
-    argocd.argoproj.io/sync-wave: "6"
+    # Deploy BEFORE Authentik (sync-wave 5) to ensure network isolation from start
+    argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

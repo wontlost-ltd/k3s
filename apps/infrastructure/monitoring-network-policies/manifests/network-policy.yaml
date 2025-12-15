@@ -172,15 +172,35 @@ spec:
               kubernetes.io/metadata.name: monitoring
           podSelector: {}
     # Allow metrics scraping from kube-system (CoreDNS, Traefik, metrics-server)
+    # Each egress requires both namespaceSelector AND podSelector
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
       ports:
         - protocol: TCP
           port: 9153  # CoreDNS metrics
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
         - protocol: TCP
           port: 9000  # Traefik metrics
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: metrics-server
+      ports:
         - protocol: TCP
           port: 10250 # Kubelet metrics
     # Allow metrics scraping from data-services
@@ -188,9 +208,20 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: data-services
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: shared-postgres
       ports:
         - protocol: TCP
           port: 9187  # PostgreSQL metrics
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data-services
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
         - protocol: TCP
           port: 9121  # Redis metrics
     # Allow metrics scraping from vault
@@ -198,6 +229,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vault
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vault
       ports:
         - protocol: TCP
           port: 8200
@@ -206,6 +240,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: authentik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: authentik
       ports:
         - protocol: TCP
           port: 9300
@@ -214,6 +251,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: external-secrets
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: external-secrets
       ports:
         - protocol: TCP
           port: 8080
@@ -222,6 +262,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: argocd
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
       ports:
         - protocol: TCP
           port: 8083
@@ -230,9 +273,19 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: aster-policy
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: policy-api
+      ports:
+        - protocol: TCP
+          port: 9090  # Prometheus metrics endpoint
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: wontlost-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wontlost-data
       ports:
         - protocol: TCP
           port: 9090  # Prometheus metrics endpoint
@@ -269,6 +322,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: authentik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: authentik
       ports:
         - protocol: TCP
           port: 9000

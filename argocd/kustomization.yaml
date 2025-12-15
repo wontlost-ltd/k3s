@@ -25,6 +25,7 @@ resources:
   - ../apps/infrastructure/argocd-network-policies/application.yaml
   - ../apps/infrastructure/external-secrets-network-policies/application.yaml
   - ../apps/infrastructure/monitoring-network-policies/application.yaml
+  - ../apps/infrastructure/cloudflare-tunnel-network-policies/application.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
   # SSO configuration (enabled after Authentik is ready)

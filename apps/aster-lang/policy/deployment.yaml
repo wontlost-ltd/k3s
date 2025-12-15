@@ -1,5 +1,6 @@
 # Policy API Deployment
 # Sample application using nginx as placeholder
+# TODO: Replace nginx:alpine with actual policy-api image when ready
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,8 +31,15 @@ spec:
       containers:
         - name: nginx
           image: nginx:alpine
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
+          # Inject credentials from Vault via ExternalSecrets
+          envFrom:
+            - secretRef:
+                name: policy-api-db-credentials
+            - secretRef:
+                name: policy-api-redis-credentials
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

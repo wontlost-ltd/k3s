@@ -1,27 +1,27 @@
-# Data Services Network Policies
-# Deploys NetworkPolicies for PostgreSQL and Redis
+# NetworkPolicies for cloudflare namespace
+# Default-deny with specific allow rules for tunnel operations
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: data-services-network-policies
+  name: cloudflare-tunnel-network-policies
   namespace: argocd
   annotations:
-    # Deploy BEFORE data services (sync-wave 4) to ensure network isolation from start
+    # Deploy BEFORE cloudflare-tunnel (sync-wave 4) to ensure network isolation from start
     argocd.argoproj.io/sync-wave: "3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: data-services
+  project: infrastructure
   source:
     repoURL: https://github.com/wontlost-ltd/k3s.git
+    path: apps/infrastructure/cloudflare-tunnel-network-policies/manifests
     targetRevision: main
-    path: apps/infrastructure/data-services-network-policies/manifests
   destination:
     server: https://kubernetes.default.svc
-    namespace: data-services
+    namespace: cloudflare
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-      - ServerSideApply=true
+      - CreateNamespace=true

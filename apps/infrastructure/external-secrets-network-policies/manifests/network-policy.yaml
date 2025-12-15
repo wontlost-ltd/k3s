@@ -28,20 +28,26 @@ spec:
     - Ingress
   ingress:
     # Allow webhook traffic from kube-system (API server aggregation)
-    # Note: API server itself runs on control plane nodes, not as pods
-    # We allow from kube-system as the API server extension apiserver runs there
+    # DOCUMENTED EXCEPTION: API server runs on control plane nodes, not as pods.
+    # Kubernetes ValidatingWebhookConfiguration requires this access pattern.
+    # Using podSelector: {} allows any pod in kube-system, which is required
+    # because API server traffic is proxied through the aggregation layer.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+          podSelector: {}
       ports:
         - protocol: TCP
           port: 10250
-    # Allow metrics from monitoring
+    # Allow metrics from Prometheus
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 8080
@@ -60,11 +66,14 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow metrics from monitoring
+    # Allow metrics from Prometheus
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 8080
@@ -84,20 +93,26 @@ spec:
     - Ingress
   ingress:
     # Allow webhook traffic from kube-system (API server aggregation)
-    # Note: API server itself runs on control plane nodes, not as pods
-    # We allow from kube-system as the API server extension apiserver runs there
+    # DOCUMENTED EXCEPTION: API server runs on control plane nodes, not as pods.
+    # Kubernetes ValidatingWebhookConfiguration requires this access pattern.
+    # Using podSelector: {} allows any pod in kube-system, which is required
+    # because API server traffic is proxied through the aggregation layer.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+          podSelector: {}
       ports:
         - protocol: TCP
           port: 10250
-    # Allow metrics from monitoring
+    # Allow metrics from Prometheus
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 8080

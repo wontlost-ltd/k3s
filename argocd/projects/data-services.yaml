@@ -26,9 +26,9 @@ spec:
     # Namespace creation
     - group: ''
       kind: Namespace
-    # CloudNativePG CRDs
+    # CloudNativePG cluster-scoped resources (for operator installation)
     - group: postgresql.cnpg.io
-      kind: '*'
+      kind: ClusterImageCatalog
     # Webhook configurations
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration

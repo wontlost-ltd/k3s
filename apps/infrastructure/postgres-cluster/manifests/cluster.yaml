@@ -136,6 +136,16 @@ spec:
     seccompProfile:
       type: RuntimeDefault
 
+  # NOTE: CNPG operator manages container security internally
+  # PostgreSQL requires write access to data directory, so readOnlyRootFilesystem
+  # is not applicable. The operator enforces allowPrivilegeEscalation: false by default.
+  # See: https://cloudnative-pg.io/documentation/current/security/
+
+  # Additional hardening via ephemeralVolumesSizeLimit to restrict tmpfs usage
+  ephemeralVolumesSizeLimit:
+    shm: 256Mi
+    temporaryData: 1Gi
+
   # Affinity - spread across nodes (required for true HA)
   affinity:
     podAntiAffinityType: required

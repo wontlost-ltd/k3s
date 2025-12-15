@@ -19,14 +19,32 @@ spec:
     helm:
       releaseName: prometheus
       valuesObject:
+        # Global image pull policy
+        global:
+          imageRegistry: ""
+          imagePullSecrets: []
+
         # Prometheus configuration
         prometheus:
           prometheusSpec:
+            # Image pull policy
+            image:
+              pullPolicy: IfNotPresent
             # HA configuration - 2 replicas
             replicas: 2
             podDisruptionBudget:
               enabled: true
               minAvailable: 1
+            # Pod anti-affinity for HA
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchLabels:
+                          app.kubernetes.io/name: prometheus
+                      topologyKey: kubernetes.io/hostname
             # Security hardening
             securityContext:
               runAsNonRoot: true
@@ -40,6 +58,17 @@ spec:
                 securityContext:
                   allowPrivilegeEscalation: false
                   readOnlyRootFilesystem: true
+                  capabilities:
+                    drop:
+                      - ALL
+              # Security hardening for config-reloader sidecar
+              - name: config-reloader
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
                   capabilities:
                     drop:
                       - ALL
@@ -84,11 +113,24 @@ spec:
         # Alertmanager configuration
         alertmanager:
           alertmanagerSpec:
+            # Image pull policy
+            image:
+              pullPolicy: IfNotPresent
             # HA configuration - 2 replicas
             replicas: 2
             podDisruptionBudget:
               enabled: true
               minAvailable: 1
+            # Pod anti-affinity for HA
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchLabels:
+                          app.kubernetes.io/name: alertmanager
+                      topologyKey: kubernetes.io/hostname
             # Security hardening
             securityContext:
               runAsNonRoot: true
@@ -102,6 +144,17 @@ spec:
                 securityContext:
                   allowPrivilegeEscalation: false
                   readOnlyRootFilesystem: true
+                  capabilities:
+                    drop:
+                      - ALL
+              # Security hardening for config-reloader sidecar
+              - name: config-reloader
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
                   capabilities:
                     drop:
                       - ALL
@@ -137,6 +190,9 @@ spec:
 
         # Grafana configuration (has built-in auth, no middleware needed)
         grafana:
+          # Image pull policy
+          image:
+            pullPolicy: IfNotPresent
           # HA configuration - 2 replicas
           replicas: 2
           podDisruptionBudget:
@@ -206,6 +262,8 @@ spec:
         # Prometheus Operator - manages CRDs
         prometheusOperator:
           enabled: true
+          image:
+            pullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
@@ -230,6 +288,8 @@ spec:
         # Node exporter for host metrics
         nodeExporter:
           enabled: true
+          image:
+            pullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
@@ -253,6 +313,8 @@ spec:
 
         # Kube-state-metrics for K8s object metrics
         kube-state-metrics:
+          image:
+            pullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534

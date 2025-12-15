@@ -6,8 +6,8 @@ metadata:
   name: cnpg-system-network-policies
   namespace: argocd
   annotations:
-    # Deploy after cloudnative-pg is installed
-    argocd.argoproj.io/sync-wave: "-7"
+    # Deploy BEFORE cloudnative-pg (sync-wave -8) to ensure network isolation from start
+    argocd.argoproj.io/sync-wave: "-9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -15,7 +15,7 @@ spec:
   source:
     repoURL: https://github.com/wontlost-ltd/k3s.git
     path: apps/infrastructure/cnpg-system-network-policies/manifests
-    targetRevision: HEAD
+    targetRevision: main
   destination:
     server: https://kubernetes.default.svc
     namespace: cnpg-system

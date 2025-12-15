@@ -31,6 +31,10 @@ spec:
     - Egress
   ingress:
     # Allow DNS queries from all cluster pods (required for cluster DNS)
+    # NOTE: DNS must be accessible from ALL pods in ALL namespaces - this is
+    # intentional and required for Kubernetes DNS resolution to function.
+    # Using namespaceSelector: {} with podSelector: {} means "any pod in any
+    # namespace" which is required for cluster-wide DNS accessibility.
     - ports:
         - protocol: UDP
           port: 53
@@ -38,7 +42,8 @@ spec:
           port: 53
       from:
         - namespaceSelector: {}
-    # Allow metrics scraping from monitoring namespace only
+          podSelector: {}
+    # Allow metrics scraping from Prometheus
     - ports:
         - protocol: TCP
           port: 9153
@@ -46,13 +51,24 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
   egress:
     # Allow upstream DNS queries (external DNS resolution)
+    # Restricted to external addresses only (RFC1918 excluded)
     - ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
           port: 53
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
     # Allow API server communication (kubernetes service ClusterIP)
     - to:
         - ipBlock:
@@ -84,7 +100,7 @@ spec:
           port: 8000  # web entrypoint
         - protocol: TCP
           port: 8443  # websecure entrypoint
-    # Allow metrics/dashboard from monitoring namespace only
+    # Allow metrics/dashboard from Prometheus
     - ports:
         - protocol: TCP
           port: 9000
@@ -92,27 +108,94 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
   egress:
     # Allow routing to backend services in application namespaces
+    # Each destination requires both namespaceSelector AND podSelector
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: authentik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: authentik
+      ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 9443
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 3000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 9093
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: argocd
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vault
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vault
+      ports:
+        - protocol: TCP
+          port: 8200
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: wontlost-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wontlost-data
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: aster-policy
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: policy-api
+      ports:
+        - protocol: TCP
+          port: 8080
     # Allow API server communication (kubernetes service ClusterIP)
     - to:
         - ipBlock:
@@ -149,19 +232,27 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow from monitoring namespace for metrics scraping
+    # Allow from Prometheus for metrics scraping
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 10250
-    # Allow from kube-system (API server aggregation layer runs here)
+    # Allow from kube-system (API server aggregation layer)
+    # DOCUMENTED EXCEPTION: API server runs on control plane nodes, not as pods.
+    # Metrics server aggregation requires this access pattern for HPA to work.
+    # Using namespaceSelector with podSelector: {} is the most restrictive option
+    # that still allows API server aggregation to function properly.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+          podSelector: {}
       ports:
         - protocol: TCP
           port: 10250

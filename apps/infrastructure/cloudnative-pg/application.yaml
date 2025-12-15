@@ -20,6 +20,10 @@ spec:
     helm:
       releaseName: cloudnative-pg
       valuesObject:
+        # Image pull policy
+        image:
+          pullPolicy: IfNotPresent
+
         # HA configuration for the operator itself
         replicaCount: 2
 

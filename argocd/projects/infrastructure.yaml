@@ -26,6 +26,9 @@ spec:
     # Monitoring namespace
     - namespace: monitoring
       server: https://kubernetes.default.svc
+    # Cloudflare namespace for tunnel
+    - namespace: cloudflare
+      server: https://kubernetes.default.svc
     # kube-system for K3s system components (Traefik, CoreDNS, etc.)
     # WARNING: Use prune: false on Applications targeting this namespace
     - namespace: kube-system
@@ -39,28 +42,59 @@ spec:
       kind: Application
     - group: argoproj.io
       kind: ApplicationSet
-    # Prometheus Operator CRDs
+    # Prometheus Operator cluster-scoped CRDs (specific kinds only)
     - group: monitoring.coreos.com
-      kind: '*'
+      kind: Alertmanager
+    - group: monitoring.coreos.com
+      kind: Prometheus
+    - group: monitoring.coreos.com
+      kind: ThanosRuler
+    - group: monitoring.coreos.com
+      kind: PrometheusAgent
     # Ingress resources
     - group: networking.k8s.io
       kind: IngressClass
     - group: networking.k8s.io
       kind: Ingress
-    # Traefik CRDs
+    # Traefik CRDs (specific kinds only)
     - group: traefik.io
-      kind: '*'
+      kind: IngressRoute
+    - group: traefik.io
+      kind: IngressRouteTCP
+    - group: traefik.io
+      kind: IngressRouteUDP
+    - group: traefik.io
+      kind: Middleware
+    - group: traefik.io
+      kind: MiddlewareTCP
+    - group: traefik.io
+      kind: TLSOption
+    - group: traefik.io
+      kind: TLSStore
+    - group: traefik.io
+      kind: ServersTransport
+    - group: traefik.io
+      kind: TraefikService
+    # Legacy Traefik CRDs (containo.us group - deprecated but may still be used)
     - group: traefik.containo.us
-      kind: '*'
+      kind: IngressRoute
+    - group: traefik.containo.us
+      kind: Middleware
     # Webhook configurations
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
-    # CRDs
+    # CRDs - Required for operator installations (CNPG, cert-manager, etc.)
+    # SECURITY NOTE: CRD creation is restricted by sourceRepos whitelist.
+    # Only trusted Helm charts from official repos can create CRDs.
     - group: apiextensions.k8s.io
       kind: CustomResourceDefinition
-    # ClusterRoles for RBAC
+    # ClusterRoles for RBAC - Required for operator service accounts
+    # SECURITY NOTE: Restricted by sourceRepos. Only infrastructure operators
+    # from trusted repos (argoproj, prometheus-community, traefik) can create
+    # cluster-scoped RBAC. Business apps use separate projects with no
+    # ClusterRole permissions.
     - group: rbac.authorization.k8s.io
       kind: ClusterRole
     - group: rbac.authorization.k8s.io

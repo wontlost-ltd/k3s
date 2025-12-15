@@ -27,27 +27,28 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow Vault API access from external-secrets namespace
+    # Allow Vault API access from external-secrets namespace (ESO operator)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: external-secrets
-      ports:
-        - protocol: TCP
-          port: 8200
-    # Allow Vault API access from argocd namespace (for secrets)
-    - from:
-        - namespaceSelector:
+          podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: argocd
+              app.kubernetes.io/name: external-secrets
       ports:
         - protocol: TCP
           port: 8200
-    # Allow Vault API access from authentik namespace
+    # NOTE: argocd namespace access REMOVED
+    # ArgoCD doesn't need direct Vault access - it uses K8s Secrets created by ESO
+    # If using ArgoCD Vault Plugin, add specific pod selector for repo-server only
+    # Allow Vault API access from authentik (server and worker pods)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: authentik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: authentik
       ports:
         - protocol: TCP
           port: 8200
@@ -61,11 +62,14 @@ spec:
           port: 8200
         - protocol: TCP
           port: 8201  # Cluster port
-    # Allow metrics scraping from monitoring namespace
+    # Allow metrics scraping from Prometheus
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 8200

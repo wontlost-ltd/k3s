@@ -17,6 +17,10 @@ spec:
     helm:
       releaseName: external-secrets
       values: |
+        # Image pull policy
+        image:
+          pullPolicy: IfNotPresent
+
         # Install CRDs
         installCRDs: true
 
@@ -25,6 +29,15 @@ spec:
         podDisruptionBudget:
           enabled: true
           minAvailable: 1
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: external-secrets
+                  topologyKey: kubernetes.io/hostname
 
         # Resource limits (production values)
         resources:
@@ -56,6 +69,15 @@ spec:
           podDisruptionBudget:
             enabled: true
             minAvailable: 1
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: external-secrets-webhook
+                    topologyKey: kubernetes.io/hostname
           resources:
             requests:
               cpu: 50m
@@ -84,6 +106,15 @@ spec:
           podDisruptionBudget:
             enabled: true
             minAvailable: 1
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: external-secrets-cert-controller
+                    topologyKey: kubernetes.io/hostname
           resources:
             requests:
               cpu: 50m

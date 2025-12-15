@@ -22,12 +22,9 @@ spec:
     # App-of-apps pattern is managed by infrastructure project only
   # Cluster-scoped resources needed for TLS
   clusterResourceWhitelist:
-    # cert-manager CRDs
-    - group: cert-manager.io
-      kind: '*'
-    - group: acme.cert-manager.io
-      kind: '*'
-    # ClusterIssuers
+    # cert-manager cluster-scoped resources (specific kinds only)
+    # NOTE: acme.cert-manager.io resources (Order, Challenge) are namespaced,
+    # not cluster-scoped, and are listed in namespaceResourceWhitelist
     - group: cert-manager.io
       kind: ClusterIssuer
     # Reflector needs to watch secrets across namespaces

@@ -1,0 +1,32 @@
+# Cloudflare Tunnel Application
+# Deploys cloudflared to expose services through Cloudflare's network
+# Provides DDoS protection and eliminates need for public cluster IPs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflare-tunnel
+  namespace: argocd
+  annotations:
+    # Deploy after cert-manager and external-secrets are ready
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    path: apps/infrastructure/cloudflare-tunnel
+    targetRevision: main
+    directory:
+      include: '*.yaml'
+      exclude: 'application.yaml'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflare
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

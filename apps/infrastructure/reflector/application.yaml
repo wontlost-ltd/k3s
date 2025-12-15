@@ -21,6 +21,10 @@ spec:
     helm:
       releaseName: reflector
       values: |
+        # Image pull policy
+        image:
+          pullPolicy: IfNotPresent
+
         # HA configuration
         replicaCount: 2
         podDisruptionBudget:

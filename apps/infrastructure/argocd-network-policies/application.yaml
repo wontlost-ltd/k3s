@@ -6,7 +6,8 @@ metadata:
   name: argocd-network-policies
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    # Deploy NetworkPolicies BEFORE ArgoCD components (wave 0)
+    argocd.argoproj.io/sync-wave: "-1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

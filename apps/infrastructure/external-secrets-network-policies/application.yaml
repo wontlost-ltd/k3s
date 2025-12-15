@@ -6,7 +6,8 @@ metadata:
   name: external-secrets-network-policies
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    # Deploy BEFORE External Secrets (sync-wave 0) to ensure network isolation from start
+    argocd.argoproj.io/sync-wave: "-1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

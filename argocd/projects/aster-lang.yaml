@@ -10,8 +10,8 @@ spec:
     - 'https://github.com/wontlost-ltd/k3s.git'
     - 'https://github.com/aster-cloud/policy-api.git'
   destinations:
-    # Only allow aster-* namespaces (no default namespace)
-    - namespace: 'aster-*'
+    # Explicit namespace list (no wildcards for security)
+    - namespace: aster-policy
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''

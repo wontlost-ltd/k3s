@@ -1,5 +1,6 @@
 # NetworkPolicy for aster-policy namespace
 # Default deny + explicit allow for business workloads
+# NOTE: All NetworkPolicies use sync-wave: "-1" to deploy BEFORE workloads
 ---
 # Default deny all for aster-policy namespace
 apiVersion: networking.k8s.io/v1
@@ -7,6 +8,8 @@ kind: NetworkPolicy
 metadata:
   name: default-deny-all
   namespace: aster-policy
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector: {}
   policyTypes:
@@ -20,6 +23,8 @@ kind: NetworkPolicy
 metadata:
   name: policy-api-ingress
   namespace: aster-policy
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchLabels:
@@ -38,11 +43,14 @@ spec:
       ports:
         - protocol: TCP
           port: 80
-    # Allow metrics scraping from monitoring
+    # Allow metrics scraping from Prometheus
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 9090  # Metrics port (if exposed)
@@ -54,6 +62,8 @@ kind: NetworkPolicy
 metadata:
   name: policy-api-egress
   namespace: aster-policy
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchLabels:

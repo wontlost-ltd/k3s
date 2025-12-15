@@ -24,6 +24,8 @@ spec:
         injector:
           enabled: true
           replicas: 2
+          image:
+            pullPolicy: IfNotPresent
           podDisruptionBudget:
             enabled: true
             minAvailable: 1
@@ -55,8 +57,15 @@ spec:
           image:
             repository: hashicorp/vault
             tag: "1.19.0"
+            pullPolicy: IfNotPresent
 
           # Security hardening
+          # NOTE: Vault has specific security requirements that differ from typical apps:
+          # - readOnlyRootFilesystem: false - Vault writes to /vault/data (Raft) and /tmp
+          #   Data storage is on a separate PVC, but rootfs write is needed for runtime
+          # - IPC_LOCK capability - Required for mlock() to prevent secrets from being
+          #   swapped to disk. Removing this would degrade security, not improve it.
+          # See: https://developer.hashicorp.com/vault/docs/configuration#disable_mlock
           statefulSet:
             securityContext:
               pod:
@@ -68,12 +77,12 @@ spec:
                   type: RuntimeDefault
               container:
                 allowPrivilegeEscalation: false
-                readOnlyRootFilesystem: false  # Vault needs to write to /vault/data
+                readOnlyRootFilesystem: false
                 capabilities:
                   drop:
                     - ALL
                   add:
-                    - IPC_LOCK  # Required for Vault mlock
+                    - IPC_LOCK
 
           resources:
             requests:
@@ -95,6 +104,17 @@ spec:
           podDisruptionBudget:
             enabled: true
             minAvailable: 2
+
+          # Pod anti-affinity for HA
+          affinity: |
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: vault
+                    topologyKey: kubernetes.io/hostname
 
           # HA mode with Raft storage
           ha:

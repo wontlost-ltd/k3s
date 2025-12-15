@@ -20,6 +20,15 @@ spec:
     helm:
       releaseName: shared-redis
       valuesObject:
+        # Global settings
+        global:
+          imageRegistry: ""
+          imagePullSecrets: []
+
+        # Image pull policy
+        image:
+          pullPolicy: IfNotPresent
+
         # Sentinel HA architecture
         architecture: replication
 
