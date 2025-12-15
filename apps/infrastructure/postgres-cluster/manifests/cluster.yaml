@@ -127,6 +127,15 @@ spec:
       memory: "2Gi"
       cpu: "1000m"
 
+  # Security context for PostgreSQL pods
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 26  # postgres user
+    runAsGroup: 26
+    fsGroup: 26
+    seccompProfile:
+      type: RuntimeDefault
+
   # Affinity - spread across nodes (required for true HA)
   affinity:
     podAntiAffinityType: required

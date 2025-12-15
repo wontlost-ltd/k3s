@@ -5,6 +5,7 @@ namespace: kube-system
 # Security resources for kube-system
 resources:
   - network-policies.yaml
+  - critical-pdbs.yaml
 
 # Strategic merge patches for existing K3s resources
 patches:
