@@ -12,7 +12,9 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: secrets-management
+  # NOTE: Using infrastructure project as bootstrap deploys secrets to many namespaces
+  # This avoids giving secrets-management project access to argocd namespace
+  project: infrastructure
   source:
     repoURL: https://github.com/wontlost-ltd/k3s.git
     targetRevision: main
