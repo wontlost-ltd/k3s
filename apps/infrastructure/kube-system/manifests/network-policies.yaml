@@ -147,8 +147,20 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow from API server and monitoring
-    - ports:
+    # Allow from monitoring namespace for metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 10250
+    # Allow from kube-system (API server aggregation layer runs here)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - protocol: TCP
           port: 10250
   egress:

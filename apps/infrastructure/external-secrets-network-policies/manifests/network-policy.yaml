@@ -27,8 +27,14 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow webhook traffic from API server
-    - ports:
+    # Allow webhook traffic from kube-system (API server aggregation)
+    # Note: API server itself runs on control plane nodes, not as pods
+    # We allow from kube-system as the API server extension apiserver runs there
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - protocol: TCP
           port: 10250
     # Allow metrics from monitoring
@@ -77,8 +83,14 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow webhook traffic from API server
-    - ports:
+    # Allow webhook traffic from kube-system (API server aggregation)
+    # Note: API server itself runs on control plane nodes, not as pods
+    # We allow from kube-system as the API server extension apiserver runs there
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
         - protocol: TCP
           port: 10250
     # Allow metrics from monitoring
