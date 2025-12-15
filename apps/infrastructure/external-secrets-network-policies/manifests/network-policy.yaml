@@ -127,12 +127,13 @@ spec:
           podSelector:
             matchLabels:
               k8s-app: kube-dns
-    # Allow API server communication
-    - ports:
+    # Allow API server communication (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
     # Allow Vault access for secret retrieval
     - to:
         - namespaceSelector:

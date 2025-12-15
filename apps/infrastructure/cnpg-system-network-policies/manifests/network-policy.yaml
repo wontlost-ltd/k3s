@@ -57,6 +57,7 @@ spec:
           port: 53
 ---
 # Allow egress to Kubernetes API (for managing PostgreSQL clusters)
+# Restricted to kubernetes service ClusterIP only
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -69,12 +70,10 @@ spec:
   egress:
     - to:
         - ipBlock:
-            cidr: 0.0.0.0/0
+            cidr: 10.43.0.1/32
       ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
 ---
 # Allow egress to data-services namespace (for managing PostgreSQL clusters)
 apiVersion: networking.k8s.io/v1

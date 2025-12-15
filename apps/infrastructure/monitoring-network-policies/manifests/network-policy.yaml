@@ -158,15 +158,19 @@ spec:
           podSelector:
             matchLabels:
               k8s-app: kube-dns
-    # Allow API server communication
-    - ports:
+    # Allow API server communication (kubernetes service ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
-    # Allow inter-component communication
+    # Allow inter-component communication within monitoring namespace
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector: {}
     # Allow metrics scraping from kube-system (CoreDNS, Traefik, metrics-server)
     - to:
         - namespaceSelector:
@@ -244,7 +248,16 @@ spec:
         - protocol: TCP
           port: 5432
     # Allow Alertmanager to send notifications (SMTP, Slack webhooks)
-    - ports:
+    # NOTE: External services must be accessed via explicit IPs or through an egress proxy
+    # For now, restrict to non-cluster external addresses only
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
         - protocol: TCP
           port: 443
         - protocol: TCP
