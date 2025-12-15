@@ -17,6 +17,10 @@ spec:
         # Global settings
         global:
           domain: argocd.aster-lang.cloud
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
 
         # Server configuration (2 replicas for HA)
         server:
@@ -31,6 +35,12 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # Repo server (2 replicas for HA)
         repoServer:
@@ -45,6 +55,12 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # Application controller (HA with sharding)
         controller:
@@ -59,6 +75,12 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # Redis HA
         redis:
@@ -88,6 +110,12 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # ApplicationSet controller
         applicationSet:
@@ -102,6 +130,12 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
         # Dex (OIDC)
         dex:

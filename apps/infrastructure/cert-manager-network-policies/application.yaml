@@ -1,0 +1,27 @@
+# NetworkPolicies for cert-manager namespace
+# Default-deny with specific allow rules for cert-manager operations
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-network-policies
+  namespace: argocd
+  annotations:
+    # Deploy after cert-manager is installed
+    argocd.argoproj.io/sync-wave: "-9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tls-management
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    path: apps/infrastructure/cert-manager-network-policies/manifests
+    targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

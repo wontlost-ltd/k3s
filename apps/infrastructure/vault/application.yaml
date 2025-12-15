@@ -34,12 +34,46 @@ spec:
             limits:
               memory: 256Mi
               cpu: 250m
+          # Security hardening
+          securityContext:
+            pod:
+              runAsNonRoot: true
+              runAsUser: 100
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
+            container:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
 
         server:
           enabled: true
           image:
             repository: hashicorp/vault
             tag: "1.19.0"
+
+          # Security hardening
+          statefulSet:
+            securityContext:
+              pod:
+                runAsNonRoot: true
+                runAsUser: 100
+                runAsGroup: 1000
+                fsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              container:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false  # Vault needs to write to /vault/data
+                capabilities:
+                  drop:
+                    - ALL
+                  add:
+                    - IPC_LOCK  # Required for Vault mlock
 
           resources:
             requests:

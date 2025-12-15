@@ -36,6 +36,22 @@ spec:
             cpu: 200m
             memory: 256Mi
 
+        # Security hardening
+        podSecurityContext:
+          runAsNonRoot: true
+          fsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          capabilities:
+            drop:
+              - ALL
+
         # Configuration
         configuration:
           logging:

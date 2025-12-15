@@ -35,6 +35,21 @@ spec:
             cpu: 500m
             memory: 512Mi
 
+        # Security hardening
+        podSecurityContext:
+          runAsNonRoot: true
+          fsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          capabilities:
+            drop:
+              - ALL
+
         # Webhook configuration (2 for HA)
         webhook:
           replicaCount: 2
@@ -48,6 +63,20 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop:
+                - ALL
 
         # Cert controller for webhook certificates
         certController:
@@ -62,6 +91,20 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop:
+                - ALL
 
         # Service account
         serviceAccount:

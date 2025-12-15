@@ -37,6 +37,20 @@ spec:
             cpu: 500m
             memory: 512Mi
 
+        # Security hardening (controller)
+        podSecurityContext:
+          runAsNonRoot: true
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities:
+            drop:
+              - ALL
+
         webhook:
           replicaCount: 2
           podDisruptionBudget:
@@ -49,6 +63,19 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
 
         cainjector:
           replicaCount: 2
@@ -62,6 +89,19 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
 
         # Enable prometheus metrics for observability
         prometheus:
