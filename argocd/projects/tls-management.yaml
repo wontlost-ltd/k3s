@@ -18,9 +18,8 @@ spec:
     # reflector namespace
     - namespace: reflector
       server: https://kubernetes.default.svc
-    # ArgoCD namespace for Application resources
-    - namespace: argocd
-      server: https://kubernetes.default.svc
+    # NOTE: argocd namespace removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only
   # Cluster-scoped resources needed for TLS
   clusterResourceWhitelist:
     # cert-manager CRDs
@@ -101,6 +100,5 @@ spec:
     # Policy
     - group: policy
       kind: PodDisruptionBudget
-    # ArgoCD Application (for app-of-apps pattern)
-    - group: argoproj.io
-      kind: Application
+    # NOTE: argoproj.io/Application removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only

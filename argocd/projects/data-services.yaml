@@ -20,9 +20,8 @@ spec:
     # Shared data services namespace
     - namespace: data-services
       server: https://kubernetes.default.svc
-    # ArgoCD namespace for Application resources
-    - namespace: argocd
-      server: https://kubernetes.default.svc
+    # NOTE: argocd namespace removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only
   clusterResourceWhitelist:
     # Namespace creation
     - group: ''
@@ -99,6 +98,5 @@ spec:
     # External Secrets
     - group: external-secrets.io
       kind: ExternalSecret
-    # ArgoCD Application (for app-of-apps)
-    - group: argoproj.io
-      kind: Application
+    # NOTE: argoproj.io/Application removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only

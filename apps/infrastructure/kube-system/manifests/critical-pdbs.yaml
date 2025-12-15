@@ -1,0 +1,38 @@
+# PodDisruptionBudgets for critical kube-system components
+# Ensures at least one replica is available during node maintenance
+---
+# Traefik PDB - ensures ingress remains available during upgrades
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: traefik-pdb
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+---
+# CoreDNS PDB - ensures DNS resolution remains available
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns-pdb
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+---
+# Metrics Server PDB - ensures metrics remain available for HPA
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: metrics-server-pdb
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      k8s-app: metrics-server

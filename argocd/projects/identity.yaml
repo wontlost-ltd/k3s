@@ -14,9 +14,8 @@ spec:
     # Authentik namespace
     - namespace: authentik
       server: https://kubernetes.default.svc
-    # ArgoCD namespace for Application resources
-    - namespace: argocd
-      server: https://kubernetes.default.svc
+    # NOTE: argocd namespace removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only
   # Limited cluster-scoped resources
   clusterResourceWhitelist:
     # Namespace creation (for CreateNamespace=true)
@@ -73,6 +72,5 @@ spec:
     # Policy
     - group: policy
       kind: PodDisruptionBudget
-    # ArgoCD Application (for app-of-apps pattern)
-    - group: argoproj.io
-      kind: Application
+    # NOTE: argoproj.io/Application removed to prevent project boundary escape
+    # App-of-apps pattern is managed by infrastructure project only
