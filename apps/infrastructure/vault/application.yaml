@@ -27,8 +27,7 @@ spec:
           image:
             pullPolicy: IfNotPresent
           podDisruptionBudget:
-            enabled: true
-            minAvailable: 1
+            maxUnavailable: 1
           resources:
             requests:
               memory: 128Mi
@@ -100,11 +99,6 @@ spec:
           standalone:
             enabled: false
 
-          # PDB for Vault server
-          podDisruptionBudget:
-            enabled: true
-            minAvailable: 2
-
           # Pod anti-affinity for HA
           affinity: |
             podAntiAffinity:
@@ -120,6 +114,9 @@ spec:
           ha:
             enabled: true
             replicas: 3
+            disruptionBudget:
+              enabled: true
+              maxUnavailable: 1
             raft:
               enabled: true
               setNodeId: true
