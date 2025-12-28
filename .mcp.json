@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "oci-compute": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["oracle.oci-compute-mcp-server"],
+      "env": {
+        "OCI_CONFIG_PROFILE": "DEFAULT",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "oci-networking": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["oracle.oci-networking-mcp-server"],
+      "env": {
+        "OCI_CONFIG_PROFILE": "DEFAULT",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "oci-nlb": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["oracle.oci-network-load-balancer-mcp-server"],
+      "env": {
+        "OCI_CONFIG_PROFILE": "DEFAULT",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "oci-object-storage": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["oracle.oci-object-storage-mcp-server"],
+      "env": {
+        "OCI_CONFIG_PROFILE": "DEFAULT",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}

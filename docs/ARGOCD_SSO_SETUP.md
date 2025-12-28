@@ -5,7 +5,10 @@ This guide explains how to configure Single Sign-On (SSO) for ArgoCD using Authe
 ## Prerequisites
 
 1. Authentik running at `https://auth.aster-lang.cloud`
-2. ArgoCD running at `https://argocd.aster-lang.cloud`
+2. ArgoCD accessible via multiple domains:
+   - `https://argocd.aster-lang.cloud` (primary)
+   - `https://argocd.aster-lang.dev`
+   - `https://argocd.ezymeta.com`
 3. Vault configured with External Secrets
 
 ## Step 1: Create Authentik Application
@@ -22,8 +25,15 @@ This guide explains how to configure Single Sign-On (SSO) for ArgoCD using Authe
    | Client type | Confidential |
    | Client ID | `argocd` |
    | Client Secret | (auto-generated, save this) |
-   | Redirect URIs | `https://argocd.aster-lang.cloud/auth/callback` |
+   | Redirect URIs | See below (multiple domains) |
    | Signing Key | authentik Self-signed Certificate |
+
+   **Redirect URIs** (add all three):
+   ```
+   https://argocd.aster-lang.cloud/auth/callback
+   https://argocd.aster-lang.dev/auth/callback
+   https://argocd.ezymeta.com/auth/callback
+   ```
 
 5. Click **Finish**
 
@@ -99,10 +109,14 @@ kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server --tail=100
 
 ### Invalid Redirect URI
 
-Ensure the redirect URI in Authentik matches exactly:
+Ensure all redirect URIs are configured in Authentik:
 ```
 https://argocd.aster-lang.cloud/auth/callback
+https://argocd.aster-lang.dev/auth/callback
+https://argocd.ezymeta.com/auth/callback
 ```
+
+The redirect URI must match the domain used to access ArgoCD.
 
 ### Groups Not Mapped
 

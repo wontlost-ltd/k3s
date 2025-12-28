@@ -1,5 +1,8 @@
 # ArgoCD Ingress Configuration
-# Exposes ArgoCD UI at argocd.aster-lang.cloud
+# Exposes ArgoCD UI at multiple domains:
+# - argocd.aster-lang.cloud (primary)
+# - argocd.aster-lang.dev
+# - argocd.ezymeta.com
 # Note: server.insecure is configured in argocd-install.yaml Helm values
 
 apiVersion: networking.k8s.io/v1
@@ -26,10 +29,36 @@ spec:
                 name: argocd-server
                 port:
                   number: 80
+    - host: argocd.aster-lang.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+    - host: argocd.ezymeta.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
   tls:
     - hosts:
         - argocd.aster-lang.cloud
-      secretName: argocd-tls
+      secretName: argocd-tls-aster-lang-cloud
+    - hosts:
+        - argocd.aster-lang.dev
+      secretName: argocd-tls-aster-lang-dev
+    - hosts:
+        - argocd.ezymeta.com
+      secretName: argocd-tls-ezymeta-com
 
 ---
 # Middleware for ArgoCD headers (needed for gRPC)
@@ -42,4 +71,3 @@ spec:
   headers:
     customRequestHeaders:
       X-Forwarded-Proto: https
-

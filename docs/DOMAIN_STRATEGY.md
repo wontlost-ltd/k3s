@@ -28,6 +28,20 @@ Internal/DevOps services - consider restricting access via Authentik.
 | `traefik.aster-lang.cloud` | Traefik Dashboard | Future |
 | `longhorn.aster-lang.cloud` | Longhorn Storage UI | Future |
 
+## Multi-Domain Services
+
+Some services are accessible via multiple domains for flexibility:
+
+### ArgoCD (Multi-Domain)
+
+| Domain | Purpose |
+|--------|---------|
+| `argocd.aster-lang.cloud` | Primary (infrastructure) |
+| `argocd.aster-lang.dev` | Developer access |
+| `argocd.ezymeta.com` | Product team access |
+
+All domains route to the same ArgoCD instance. SSO redirect URIs are configured for all three.
+
 ### aster-lang.dev (Developer)
 
 Public-facing developer resources.
