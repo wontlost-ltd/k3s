@@ -262,7 +262,6 @@ spec:
                 - openid
                 - profile
                 - email
-                - groups
           rbac:
             # Map Authentik groups to ArgoCD roles
             policy.csv: |
@@ -282,7 +281,7 @@ spec:
               p, role:readonly, gpgkeys, get, *, allow
               p, role:readonly, logs, get, */*, allow
             policy.default: role:readonly
-            scopes: "[groups, email]"
+            scopes: "[email]"
           params:
             # Run ArgoCD server without TLS (Traefik terminates TLS)
             server.insecure: "true"
