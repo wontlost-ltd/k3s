@@ -33,6 +33,17 @@ spec:
     # WARNING: Use prune: false on Applications targeting this namespace
     - namespace: kube-system
       server: https://kubernetes.default.svc
+    # Network policies namespaces (managed by network-policies ApplicationSet)
+    - namespace: external-secrets
+      server: https://kubernetes.default.svc
+    - namespace: data-services
+      server: https://kubernetes.default.svc
+    - namespace: cert-manager
+      server: https://kubernetes.default.svc
+    - namespace: cnpg-system
+      server: https://kubernetes.default.svc
+    - namespace: reflector
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     # Namespace creation (for CreateNamespace=true)
     - group: ''
