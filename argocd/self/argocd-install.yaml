@@ -253,6 +253,7 @@ spec:
             # ArgoCD URL
             url: https://argocd.aster-lang.cloud
             # OIDC Configuration (Authentik)
+            # Multi-domain support per DOMAIN_STRATEGY.md
             oidc.config: |
               name: Authentik
               issuer: https://auth.aster-lang.cloud/application/o/argocd/
@@ -262,6 +263,10 @@ spec:
                 - openid
                 - profile
                 - email
+              allowedRedirectURLs:
+                - https://argocd.aster-lang.cloud/auth/callback
+                - https://argocd.aster-lang.dev/auth/callback
+                - https://argocd.ezymeta.com/auth/callback
           rbac:
             # Map Authentik groups to ArgoCD roles
             policy.csv: |
