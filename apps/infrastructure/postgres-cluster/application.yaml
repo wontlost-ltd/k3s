@@ -29,7 +29,7 @@ spec:
     - group: postgresql.cnpg.io
       kind: Cluster
       managedFieldsManagers:
-        - cnpg-controller-manager
+        - manager
   syncPolicy:
     automated:
       prune: true
