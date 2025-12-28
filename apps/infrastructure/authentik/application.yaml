@@ -51,9 +51,9 @@ spec:
               value: authentik_user
             - name: AUTHENTIK_POSTGRESQL__NAME
               value: authentik
-            # Redis host pointing to shared Redis master (Sentinel handles failover)
+            # Redis host pointing to shared Redis service
             - name: AUTHENTIK_REDIS__HOST
-              value: shared-redis-master.data-services.svc.cluster.local
+              value: shared-redis.data-services.svc.cluster.local
             # Redis port (default Redis port, not Sentinel)
             - name: AUTHENTIK_REDIS__PORT
               value: "6379"

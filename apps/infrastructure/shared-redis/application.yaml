@@ -16,7 +16,7 @@ spec:
   source:
     repoURL: https://charts.bitnami.com/bitnami
     chart: redis
-    targetRevision: 20.3.0
+    targetRevision: 19.6.4
     helm:
       releaseName: shared-redis
       valuesObject:
@@ -25,8 +25,11 @@ spec:
           imageRegistry: ""
           imagePullSecrets: []
 
-        # Image pull policy
+        # Image configuration - Bitnami now only has 'latest' on Docker Hub
         image:
+          registry: docker.io
+          repository: bitnami/redis
+          tag: latest
           pullPolicy: IfNotPresent
 
         # Sentinel HA architecture
@@ -122,6 +125,10 @@ spec:
         # Sentinel configuration for automatic failover
         sentinel:
           enabled: true
+          image:
+            registry: docker.io
+            repository: bitnami/redis-sentinel
+            tag: latest
           resources:
             requests:
               memory: 64Mi
@@ -142,6 +149,10 @@ spec:
         # Metrics
         metrics:
           enabled: true
+          image:
+            registry: docker.io
+            repository: bitnami/redis-exporter
+            tag: latest
           # NOTE: ServiceMonitor disabled until monitoring stack is deployed
           # After monitoring is ready, set enabled: true and sync again
           serviceMonitor:
