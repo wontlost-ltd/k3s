@@ -1,81 +1,12 @@
 # Network Policies for kube-system
-# Defense-in-depth: default-deny + explicit allow for CoreDNS and Traefik
+# NOTE: default-deny-all REMOVED - it blocks DNS resolution for the entire cluster
+# CoreDNS must be accessible without restrictions for cluster DNS to function
+# Individual service policies below provide defense-in-depth without breaking DNS
 ---
-# Default deny all ingress and egress for kube-system
-# Pods must have explicit NetworkPolicy to communicate
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-all
-  namespace: kube-system
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-    - Egress
-
----
-# CoreDNS Network Policy
-# DNS must be accessible from all cluster pods
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: coredns-network-policy
-  namespace: kube-system
-spec:
-  podSelector:
-    matchLabels:
-      k8s-app: kube-dns
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    # Allow DNS queries from all cluster pods (required for cluster DNS)
-    # NOTE: DNS must be accessible from ALL pods in ALL namespaces - this is
-    # intentional and required for Kubernetes DNS resolution to function.
-    # Using namespaceSelector: {} with podSelector: {} means "any pod in any
-    # namespace" which is required for cluster-wide DNS accessibility.
-    - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-      from:
-        - namespaceSelector: {}
-          podSelector: {}
-    # Allow metrics scraping from Prometheus
-    - ports:
-        - protocol: TCP
-          port: 9153
-      from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: monitoring
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: prometheus
-  egress:
-    # Allow upstream DNS queries (external DNS resolution)
-    # Restricted to external addresses only (RFC1918 excluded)
-    - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-      to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-    # Allow API server communication (kubernetes service ClusterIP)
-    - to:
-        - ipBlock:
-            cidr: 10.43.0.1/32
-      ports:
-        - protocol: TCP
-          port: 443
+# NOTE: CoreDNS Network Policy REMOVED
+# CoreDNS is critical cluster infrastructure and must be unrestricted
+# Restricting CoreDNS egress breaks cluster DNS resolution
+# The restrictive egress rules were blocking CoreDNS from functioning properly
 
 ---
 # Traefik Ingress Controller Network Policy

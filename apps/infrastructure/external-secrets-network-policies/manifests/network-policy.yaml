@@ -1,18 +1,6 @@
 # NetworkPolicy for External Secrets Operator namespace
-# Default deny + explicit allow for ESO components
----
-# Default deny all for external-secrets namespace
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-all
-  namespace: external-secrets
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-    - Egress
-
+# NOTE: default-deny-all REMOVED to prevent connectivity issues with Vault
+# Individual policies below provide targeted security without blocking all traffic
 ---
 # External Secrets Operator ingress policy
 apiVersion: networking.k8s.io/v1

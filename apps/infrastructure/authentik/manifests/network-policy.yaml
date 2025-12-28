@@ -1,18 +1,6 @@
 # NetworkPolicy for Authentik
-# Restricts access to Authentik to only authorized sources
----
-# Default deny all for authentik namespace
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-all
-  namespace: authentik
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-    - Egress
-
+# NOTE: default-deny-all REMOVED to prevent cluster-wide connectivity issues
+# Individual policies below provide targeted security without blocking all traffic
 ---
 # Authentik server access policy (Ingress)
 apiVersion: networking.k8s.io/v1
