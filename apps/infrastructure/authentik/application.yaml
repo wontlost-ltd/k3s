@@ -143,18 +143,14 @@ spec:
         serviceAccount:
           create: true
 
-        # Prometheus metrics
+        # Prometheus metrics (new format - metrics are exposed by worker, not server)
         # NOTE: ServiceMonitor disabled until monitoring stack is deployed
         # After monitoring is ready, set enabled: true and sync again
-        prometheus:
-          serviceMonitor:
-            enabled: false
-            # Re-enable after monitoring deployment:
-            # enabled: true
-            # labels:
-            #   release: prometheus
-          rules:
-            enabled: false
+        # worker:
+        #   metrics:
+        #     enabled: true
+        #     serviceMonitor:
+        #       enabled: true
 
   destination:
     server: https://kubernetes.default.svc
