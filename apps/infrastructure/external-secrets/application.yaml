@@ -147,10 +147,14 @@ spec:
           service:
             enabled: true
             port: 8080
+          # NOTE: ServiceMonitor disabled until monitoring stack is deployed
+          # After monitoring is ready, set enabled: true and sync again
           serviceMonitor:
-            enabled: true
-            labels:
-              release: prometheus
+            enabled: false
+            # Re-enable after monitoring deployment:
+            # enabled: true
+            # labels:
+            #   release: prometheus
 
   destination:
     server: https://kubernetes.default.svc
