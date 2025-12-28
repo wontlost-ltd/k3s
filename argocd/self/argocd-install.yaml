@@ -250,8 +250,11 @@ spec:
             # If emergency access is needed, temporarily re-enable and use
             # argocd-initial-admin-secret (requires kubectl access to cluster)
             admin.enabled: "false"
-            # ArgoCD URL
+            # ArgoCD URLs - Multi-domain access per DOMAIN_STRATEGY.md
             url: https://argocd.aster-lang.cloud
+            additionalUrls: |
+              - https://argocd.aster-lang.dev
+              - https://argocd.ezymeta.com
             # OIDC Configuration (Authentik)
             # Multi-domain support per DOMAIN_STRATEGY.md
             oidc.config: |
