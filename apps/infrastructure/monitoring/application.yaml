@@ -381,6 +381,29 @@ spec:
                   remoteRef:
                     key: infrastructure/monitoring
                     property: basic_auth_users
+          # ExternalSecret for Grafana admin credentials
+          - apiVersion: external-secrets.io/v1beta1
+            kind: ExternalSecret
+            metadata:
+              name: grafana-admin
+              namespace: monitoring
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: vault-backend
+                kind: ClusterSecretStore
+              target:
+                name: grafana-admin
+                creationPolicy: Owner
+              data:
+                - secretKey: admin-user
+                  remoteRef:
+                    key: infrastructure/grafana
+                    property: admin-user
+                - secretKey: admin-password
+                  remoteRef:
+                    key: infrastructure/grafana
+                    property: admin-password
 
   destination:
     server: https://kubernetes.default.svc
