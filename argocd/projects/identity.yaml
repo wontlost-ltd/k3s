@@ -73,6 +73,9 @@ spec:
     # Policy
     - group: policy
       kind: PodDisruptionBudget
+    # External Secrets for Vault integration
+    - group: external-secrets.io
+      kind: ExternalSecret
     # ArgoCD Application for app-of-apps pattern
     - group: argoproj.io
       kind: Application
