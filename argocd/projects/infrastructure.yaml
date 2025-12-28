@@ -56,15 +56,6 @@ spec:
       kind: ApplicationSet
     - group: argoproj.io
       kind: AppProject
-    # Prometheus Operator cluster-scoped CRDs (specific kinds only)
-    - group: monitoring.coreos.com
-      kind: Alertmanager
-    - group: monitoring.coreos.com
-      kind: Prometheus
-    - group: monitoring.coreos.com
-      kind: ThanosRuler
-    - group: monitoring.coreos.com
-      kind: PrometheusAgent
     # Ingress resources
     - group: networking.k8s.io
       kind: IngressClass
@@ -151,13 +142,25 @@ spec:
       kind: Role
     - group: rbac.authorization.k8s.io
       kind: RoleBinding
-    # Monitoring
+    # Monitoring (Prometheus Operator CRDs - all are namespaced)
     - group: monitoring.coreos.com
       kind: ServiceMonitor
     - group: monitoring.coreos.com
       kind: PodMonitor
     - group: monitoring.coreos.com
       kind: PrometheusRule
+    - group: monitoring.coreos.com
+      kind: Prometheus
+    - group: monitoring.coreos.com
+      kind: Alertmanager
+    - group: monitoring.coreos.com
+      kind: ThanosRuler
+    - group: monitoring.coreos.com
+      kind: PrometheusAgent
+    - group: monitoring.coreos.com
+      kind: ScrapeConfig
+    - group: monitoring.coreos.com
+      kind: AlertmanagerConfig
     # Policy
     - group: policy
       kind: PodDisruptionBudget

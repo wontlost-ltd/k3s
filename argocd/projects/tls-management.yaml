@@ -21,6 +21,9 @@ spec:
     # ArgoCD namespace for app-of-apps pattern
     - namespace: argocd
       server: https://kubernetes.default.svc
+    # kube-system namespace for cert-manager leader election roles
+    - namespace: kube-system
+      server: https://kubernetes.default.svc
   # Cluster-scoped resources needed for TLS
   clusterResourceWhitelist:
     # cert-manager cluster-scoped resources (specific kinds only)
