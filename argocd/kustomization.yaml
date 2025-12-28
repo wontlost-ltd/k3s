@@ -19,8 +19,6 @@ resources:
   - applicationsets/platform.yaml
   - applicationsets/aster-lang.yaml
   - applicationsets/wontlost.yaml
-  # Network Policies ApplicationSet (manages all *-network-policies apps)
-  - applicationsets/network-policies.yaml
   # Ingress for ArgoCD UI
   - ingress.yaml
   # SSO configuration (enabled after Authentik is ready)

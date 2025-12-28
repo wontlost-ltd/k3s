@@ -6,4 +6,3 @@ kind: Kustomization
 resources:
   - application.yaml
   - config-application.yaml
-  - network-policy-application.yaml
