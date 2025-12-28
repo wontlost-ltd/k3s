@@ -11,8 +11,7 @@ spec:
   generators:
     - list:
         elements:
-          - name: kube-system
-            namespace: kube-system
+          # kube-system network policies are managed by kube-system-config Application
           - name: data-services-network-policies
             namespace: data-services
           - name: argocd-network-policies
@@ -43,7 +42,7 @@ spec:
       source:
         repoURL: https://github.com/wontlost-ltd/k3s.git
         targetRevision: main
-        path: 'apps/infrastructure/{{ .name }}'
+        path: 'apps/infrastructure/{{ .name }}/manifests'
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{ .namespace }}'
