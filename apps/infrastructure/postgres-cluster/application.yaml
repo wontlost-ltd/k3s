@@ -28,8 +28,8 @@ spec:
         - .spec.data[].remoteRef.metadataPolicy
     - group: postgresql.cnpg.io
       kind: Cluster
-      jqPathExpressions:
-        - .spec.postgresql.parameters
+      managedFieldsManagers:
+        - cnpg-controller-manager
   syncPolicy:
     automated:
       prune: true
