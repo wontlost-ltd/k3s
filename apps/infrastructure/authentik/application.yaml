@@ -51,12 +51,15 @@ spec:
               value: authentik_user
             - name: AUTHENTIK_POSTGRESQL__NAME
               value: authentik
-            # Redis host pointing to shared Redis service
+            # Redis connection - pointing directly to master node
+            # Note: Uses headless service to reach specific node
+            # For Sentinel HA failover, application-level Sentinel support needed
             - name: AUTHENTIK_REDIS__HOST
-              value: shared-redis.data-services.svc.cluster.local
-            # Redis port (default Redis port, not Sentinel)
+              value: shared-redis-node-0.shared-redis-headless.data-services.svc.cluster.local
             - name: AUTHENTIK_REDIS__PORT
               value: "6379"
+            - name: AUTHENTIK_REDIS__DB
+              value: "0"
 
         # Server configuration (production HA)
         server:
