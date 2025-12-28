@@ -42,6 +42,15 @@ spec:
             - secretRef:
                 name: authentik-secrets
           env:
+            # PostgreSQL connection (shared cluster)
+            - name: AUTHENTIK_POSTGRESQL__HOST
+              value: shared-postgres-rw.data-services.svc.cluster.local
+            - name: AUTHENTIK_POSTGRESQL__PORT
+              value: "5432"
+            - name: AUTHENTIK_POSTGRESQL__USER
+              value: authentik_user
+            - name: AUTHENTIK_POSTGRESQL__NAME
+              value: authentik
             # Redis host pointing to shared Redis master (Sentinel handles failover)
             - name: AUTHENTIK_REDIS__HOST
               value: shared-redis-master.data-services.svc.cluster.local
