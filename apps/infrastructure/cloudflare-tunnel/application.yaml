@@ -17,9 +17,7 @@ spec:
     repoURL: https://github.com/wontlost-ltd/k3s.git
     path: apps/infrastructure/cloudflare-tunnel
     targetRevision: main
-    directory:
-      include: '*.yaml'
-      exclude: 'application.yaml'
+    kustomize: {}
   destination:
     server: https://kubernetes.default.svc
     namespace: cloudflare

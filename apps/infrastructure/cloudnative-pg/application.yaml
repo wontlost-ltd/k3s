@@ -56,10 +56,12 @@ spec:
               - ALL
 
         # Monitoring
+        # NOTE: PodMonitor disabled until monitoring stack is deployed
+        # After Prometheus Operator is ready, set podMonitorEnabled: true
         monitoring:
-          podMonitorEnabled: true
-          podMonitorAdditionalLabels:
-            release: prometheus
+          podMonitorEnabled: false
+          # podMonitorAdditionalLabels:
+          #   release: prometheus
 
         # Webhook configuration
         webhook:

@@ -156,6 +156,8 @@ spec:
       kind: ServiceMonitor
     - group: monitoring.coreos.com
       kind: PodMonitor
+    - group: monitoring.coreos.com
+      kind: PrometheusRule
     # Policy
     - group: policy
       kind: PodDisruptionBudget
