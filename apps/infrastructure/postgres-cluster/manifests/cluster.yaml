@@ -127,15 +127,6 @@ spec:
       memory: "2Gi"
       cpu: "1000m"
 
-  # Security context for PostgreSQL pods
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 26  # postgres user
-    runAsGroup: 26
-    fsGroup: 26
-    seccompProfile:
-      type: RuntimeDefault
-
   # NOTE: CNPG operator manages container security internally
   # PostgreSQL requires write access to data directory, so readOnlyRootFilesystem
   # is not applicable. The operator enforces allowPrivilegeEscalation: false by default.
