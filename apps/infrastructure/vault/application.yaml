@@ -217,11 +217,15 @@ spec:
           serviceType: ClusterIP
 
         # Prometheus metrics
+        # NOTE: ServiceMonitor disabled until monitoring stack is deployed
+        # After monitoring is ready, set enabled: true and sync Vault again
         serverTelemetry:
           serviceMonitor:
-            enabled: true
-            selectors:
-              release: prometheus
+            enabled: false
+            # Re-enable after monitoring deployment:
+            # enabled: true
+            # selectors:
+            #   release: prometheus
 
   destination:
     server: https://kubernetes.default.svc
