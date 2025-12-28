@@ -272,14 +272,43 @@ spec:
                 - https://argocd.ezymeta.com/auth/callback
           rbac:
             # Map Authentik groups to ArgoCD roles
+            # Group membership is determined by Authentik OIDC groups claim
             policy.csv: |
-              # Admins group gets full access
+              # ===========================================
+              # GROUP MAPPINGS (Authentik groups -> roles)
+              # ===========================================
+              # Admins: Full access to all projects
               g, argocd-admins, role:admin
-              # Readonly group gets read-only access
-              g, argocd-readonly, role:readonly
-              # Local admin account has full access (emergency fallback)
+
+              # Developers: Access to development projects
+              g, argocd-devs, role:developer
+
+              # Product team: Access to product projects
+              g, argocd-product, role:product
+
+              # Local admin (emergency fallback)
               g, admin, role:admin
-              # Default policy for authenticated users
+
+              # ===========================================
+              # ROLE DEFINITIONS
+              # ===========================================
+              # role:admin - built-in, full access
+
+              # role:developer - aster-lang project access
+              p, role:developer, applications, *, aster-lang/*, allow
+              p, role:developer, repositories, get, *, allow
+              p, role:developer, clusters, get, *, allow
+              p, role:developer, projects, get, aster-lang, allow
+              p, role:developer, logs, get, aster-lang/*, allow
+
+              # role:product - wontlost project access
+              p, role:product, applications, *, wontlost/*, allow
+              p, role:product, repositories, get, *, allow
+              p, role:product, clusters, get, *, allow
+              p, role:product, projects, get, wontlost, allow
+              p, role:product, logs, get, wontlost/*, allow
+
+              # role:readonly - default for authenticated users
               p, role:readonly, applications, get, */*, allow
               p, role:readonly, certificates, get, *, allow
               p, role:readonly, clusters, get, *, allow
@@ -289,7 +318,7 @@ spec:
               p, role:readonly, gpgkeys, get, *, allow
               p, role:readonly, logs, get, */*, allow
             policy.default: role:readonly
-            scopes: "[email]"
+            scopes: "[groups]"
           params:
             # Run ArgoCD server without TLS (Traefik terminates TLS)
             server.insecure: "true"
