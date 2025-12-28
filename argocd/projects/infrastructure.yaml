@@ -44,6 +44,9 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: reflector
       server: https://kubernetes.default.svc
+    # Authentik namespace for bootstrap secrets
+    - namespace: authentik
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     # Namespace creation (for CreateNamespace=true)
     - group: ''
