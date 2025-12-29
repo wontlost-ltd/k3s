@@ -6,8 +6,8 @@ External Secrets Operator (ESO) synchronizes secrets from HashiCorp Vault to Kub
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         Secrets Flow                                     │
-│                                                                          │
+│                         Secrets Flow                                    │
+│                                                                         │
 │  ┌──────────────┐     ┌──────────────────┐     ┌──────────────────────┐ │
 │  │  HashiCorp   │────►│ External Secrets │────►│  Kubernetes Secret   │ │
 │  │    Vault     │     │    Operator      │     │  (auto-generated)    │ │
