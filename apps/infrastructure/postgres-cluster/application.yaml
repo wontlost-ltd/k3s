@@ -43,6 +43,10 @@ spec:
         - /spec/startDelay
         - /spec/stopDelay
         - /spec/switchoverDelay
+        - /spec/bootstrap/initdb/encoding
+        - /spec/bootstrap/initdb/localeCType
+        - /spec/bootstrap/initdb/localeCollate
+        - /spec/backup/target
   syncPolicy:
     automated:
       prune: true
