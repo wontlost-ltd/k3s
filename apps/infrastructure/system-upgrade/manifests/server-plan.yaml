@@ -40,7 +40,6 @@ spec:
   drain:
     force: true
     skipWaitForDeleteTimeout: 60
-    deleteEmptyDirData: true
     ignoreDaemonSets: true
 
   # Upgrade container
