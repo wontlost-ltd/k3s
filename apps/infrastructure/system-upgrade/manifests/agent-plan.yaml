@@ -1,0 +1,43 @@
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: k3s-agent
+  namespace: system-upgrade
+  labels:
+    k3s-upgrade: agent
+spec:
+  # Target version - update this to trigger upgrades
+  version: v1.31.14+k3s1
+
+  # Upgrade one agent at a time
+  concurrency: 1
+
+  # Select worker nodes (not control-plane)
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
+
+  # Wait for server plan to complete first
+  prepare:
+    image: rancher/k3s-upgrade
+    args:
+      - prepare
+      - k3s-server
+
+  # Service account for the upgrade job
+  serviceAccountName: system-upgrade
+
+  # Cordon node before upgrade
+  cordon: true
+
+  # Drain settings
+  drain:
+    force: true
+    skipWaitForDeleteTimeout: 60
+    deleteEmptyDirData: true
+    ignoreDaemonSets: true
+
+  # Upgrade container
+  upgrade:
+    image: rancher/k3s-upgrade
