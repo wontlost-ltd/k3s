@@ -1,0 +1,35 @@
+# Root Application - Single Bootstrap Entry Point
+# This is the ONLY manifest that needs to be applied manually.
+# After applying this, ArgoCD manages everything including itself.
+#
+# Bootstrap command:
+#   kubectl apply -f argocd/bootstrap/root-app.yaml
+#
+# Disaster recovery:
+#   1. Install ArgoCD (helm install argo/argo-cd or kubectl apply -k)
+#   2. kubectl apply -f argocd/bootstrap/root-app.yaml
+#   3. ArgoCD will reconcile the entire cluster state from Git
+#
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    path: argocd/apps
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,39 @@
+# ArgoCD Configuration Application
+# Manages Projects, ApplicationSets, Ingress, and SSO config
+# Deployed after ArgoCD is running (sync-wave: 1)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-config
+  namespace: argocd
+  annotations:
+    # Deploy after ArgoCD helm chart is ready
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  # Ignore differences for fields auto-populated by external-secrets operator
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /spec/data/0/remoteRef/conversionStrategy
+        - /spec/data/0/remoteRef/decodingStrategy
+        - /spec/data/0/remoteRef/metadataPolicy
+        - /spec/target/deletionPolicy
+  source:
+    repoURL: https://github.com/wontlost-ltd/k3s.git
+    targetRevision: main
+    path: argocd
+    # Use Kustomize to process kustomization.yaml in argocd/ directory
+    kustomize: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

@@ -1,0 +1,11 @@
+# Platform Applications - Managed by root-app
+# Contains the core ArgoCD applications that manage the cluster
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+
+resources:
+  # ArgoCD Helm Chart (sync-wave: 0)
+  - argocd.yaml
+  # ArgoCD Configuration - Projects, ApplicationSets, etc. (sync-wave: 1)
+  - argocd-config.yaml
