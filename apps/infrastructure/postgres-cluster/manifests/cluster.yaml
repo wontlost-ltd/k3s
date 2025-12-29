@@ -143,13 +143,13 @@ spec:
       - sourceLabels: [__meta_kubernetes_pod_name]
         targetLabel: instance
 
-  # Backup configuration - S3-compatible object store
+  # Backup configuration - OCI Object Storage (S3-compatible)
   # Requires postgres-backup-credentials secret with ACCESS_KEY_ID and SECRET_ACCESS_KEY
   # See apps/infrastructure/bootstrap/postgres-backup-external-secret.yaml
   backup:
     barmanObjectStore:
-      destinationPath: s3://postgres-backups/shared-postgres/
-      endpointURL: https://s3.aster-lang.cloud
+      destinationPath: s3://bucket-backup/shared-postgres/
+      endpointURL: https://axuwdowxwpud.compat.objectstorage.ap-melbourne-1.oraclecloud.com
       s3Credentials:
         accessKeyId:
           name: postgres-backup-credentials
