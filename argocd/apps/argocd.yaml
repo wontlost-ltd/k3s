@@ -271,6 +271,7 @@ spec:
                 - openid
                 - profile
                 - email
+                - groups
               allowedRedirectURLs:
                 - https://argocd.aster-lang.cloud/auth/callback
                 - https://argocd.aster-lang.dev/auth/callback
