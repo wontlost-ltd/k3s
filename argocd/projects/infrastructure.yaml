@@ -47,6 +47,9 @@ spec:
     # Authentik namespace for bootstrap secrets
     - namespace: authentik
       server: https://kubernetes.default.svc
+    # System Upgrade Controller namespace
+    - namespace: system-upgrade
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     # Namespace creation (for CreateNamespace=true)
     - group: ''
@@ -183,3 +186,6 @@ spec:
       kind: ApplicationSet
     - group: argoproj.io
       kind: AppProject
+    # System Upgrade Controller (K3s upgrade plans)
+    - group: upgrade.cattle.io
+      kind: Plan
