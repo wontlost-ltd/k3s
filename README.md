@@ -62,10 +62,12 @@ For detailed domain allocation, see [docs/DOMAIN_STRATEGY.md](docs/DOMAIN_STRATE
 ```
 k3s/
 ├── argocd/                          # ArgoCD configuration
-│   ├── self/                        # ArgoCD self-management
-│   │   ├── argocd-install.yaml     # ArgoCD installation (Helm chart argo-cd v7.9.0)
-│   │   ├── argocd-config.yaml      # ArgoCD config (projects, applicationsets)
-│   │   └── kustomization.yaml      # Self-management bootstrap
+│   ├── bootstrap/                   # Single entry point for cluster bootstrap
+│   │   └── root-app.yaml           # THE root application - only manual apply needed
+│   ├── apps/                        # Platform applications (managed by root-app)
+│   │   ├── kustomization.yaml      # Includes argocd + argocd-config
+│   │   ├── argocd.yaml             # ArgoCD Helm chart (sync-wave: 0)
+│   │   └── argocd-config.yaml      # Projects, ApplicationSets (sync-wave: 1)
 │   ├── projects/                    # Project definitions (RBAC boundaries)
 │   │   ├── infrastructure.yaml     # Shared infrastructure project
 │   │   ├── tls-management.yaml     # TLS/cert-manager project
@@ -116,10 +118,28 @@ k3s/
 
 ## How It Works
 
-1. **Self-Management**: ArgoCD manages its own installation via `argocd/self/`
-2. **Projects** define security boundaries and allowed source repos/destinations
-3. **ApplicationSets** scan `apps/<project>/*` directories and auto-create ArgoCD Applications
-4. Adding a new app is as simple as creating a new folder under `apps/<project>/`
+1. **App of Apps Pattern**: A single `root-app` bootstraps the entire cluster
+2. **Self-Management**: ArgoCD manages its own installation via layered Applications
+3. **Projects** define security boundaries and allowed source repos/destinations
+4. **ApplicationSets** scan `apps/<project>/*` directories and auto-create ArgoCD Applications
+5. Adding a new app is as simple as creating a new folder under `apps/<project>/`
+
+### Bootstrap Hierarchy
+
+```
+root-app (bootstrap/root-app.yaml)
+    └── argocd/apps/kustomization.yaml
+         ├── argocd (sync-wave: 0) ─────► ArgoCD Helm chart + HA config + RBAC
+         └── argocd-config (sync-wave: 1) ─► Projects + ApplicationSets
+                                               ├── aster-lang-apps (ApplicationSet)
+                                               ├── wontlost-apps (ApplicationSet)
+                                               └── infrastructure-apps (ApplicationSet)
+```
+
+**Key Benefits:**
+- **Single Entry Point**: Only `kubectl apply -f argocd/bootstrap/root-app.yaml` is needed
+- **Disaster Recovery**: Re-apply root-app to restore entire cluster state from Git
+- **Ordered Deployment**: sync-waves ensure ArgoCD is ready before deploying config
 
 ### Sync-Wave Order (Infrastructure Dependencies)
 
@@ -143,30 +163,38 @@ Infrastructure components deploy in this order via sync-waves:
 ### Self-Management Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      ArgoCD Cluster                         │
-│                                                             │
-│  ┌─────────────┐     manages      ┌─────────────────────┐   │
-│  │   argocd    │ ───────────────► │  ArgoCD Install     │   │
-│  │   (App)     │                  │  (Helm argo-cd)     │   │
-│  └─────────────┘                  └─────────────────────┘   │
-│         │                                                   │
-│         │ manages                                           │
-│         ▼                                                   │
-│  ┌─────────────┐     manages      ┌─────────────────────┐   │
-│  │argocd-config│ ───────────────► │  Projects +         │   │
-│  │   (App)     │                  │  ApplicationSets    │   │
-│  └─────────────┘                  └─────────────────────┘   │
-│                                            │                │
-│                                            │ generates      │
-│                                            ▼                │
-│                                   ┌─────────────────────┐   │
-│                                   │  aster-policy       │   │
-│                                   │  wontlost-data      │   │
-│                                   │  cert-manager       │   │
-│                                   │  vault, monitoring  │   │
-│                                   └─────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                          ArgoCD Cluster                              │
+│                                                                      │
+│  ┌──────────────┐                                                    │
+│  │   root-app   │  ◄── Single bootstrap entry point                  │
+│  │  (manually   │      (kubectl apply -f argocd/bootstrap/root-app.yaml)
+│  │   applied)   │                                                    │
+│  └──────────────┘                                                    │
+│         │                                                            │
+│         │ manages (argocd/apps/kustomization.yaml)                   │
+│         ▼                                                            │
+│  ┌──────────────┐     manages      ┌─────────────────────┐          │
+│  │   argocd     │ ───────────────► │  ArgoCD Helm Chart  │          │
+│  │ (sync-wave:0)│                  │  (HA + RBAC config) │          │
+│  └──────────────┘                  └─────────────────────┘          │
+│         │                                                            │
+│         │ (after argocd is healthy)                                  │
+│         ▼                                                            │
+│  ┌──────────────┐     manages      ┌─────────────────────┐          │
+│  │argocd-config │ ───────────────► │  Projects +         │          │
+│  │ (sync-wave:1)│                  │  ApplicationSets    │          │
+│  └──────────────┘                  └─────────────────────┘          │
+│                                            │                         │
+│                                            │ generates               │
+│                                            ▼                         │
+│                                   ┌─────────────────────┐           │
+│                                   │  aster-policy       │           │
+│                                   │  wontlost-data      │           │
+│                                   │  cert-manager       │           │
+│                                   │  vault, monitoring  │           │
+│                                   └─────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Naming Convention
@@ -278,7 +306,7 @@ kubectl delete clusterrolebinding argocd-application-controller argocd-server 2>
 
 > **Note**: This installs ArgoCD from raw manifests for initial bootstrap. Once self-management
 > is enabled (Step 3), ArgoCD will manage itself via the Helm chart defined in
-> `argocd/self/argocd-install.yaml` with HA configuration.
+> `argocd/apps/argocd.yaml` with HA configuration, OIDC (Authentik), and project-based RBAC.
 
 ```bash
 # Create ArgoCD namespace
@@ -355,34 +383,38 @@ kubectl create secret generic k3s-repo-creds -n argocd \
 kubectl label secret k3s-repo-creds -n argocd argocd.argoproj.io/secret-type=repository
 ```
 
-### Step 3: Enable Self-Management
+### Step 3: Enable Self-Management (App of Apps)
 
-Now enable ArgoCD to manage itself and all configurations from this Git repository.
+Now enable ArgoCD to manage itself and all configurations from this Git repository using the App of Apps pattern.
 
 ```bash
 # Make sure this repository is pushed to GitHub first!
 # cd /path/to/k3s && git add . && git commit -m "Initial setup" && git push
 
-# Apply self-management configuration
-# Option A: If you have the repo cloned locally
-kubectl apply -k /path/to/k3s/argocd/self/
+# Apply the root application - this is the ONLY manual kubectl apply needed!
+kubectl apply -f argocd/bootstrap/root-app.yaml
 
-# Option B: Apply directly from GitHub (after pushing)
-kubectl apply -k https://github.com/wontlost-ltd/k3s.git/argocd/self
+# Wait for ArgoCD to sync (this may take 2-3 minutes as it deploys itself)
+kubectl wait --for=condition=Ready pods --all -n argocd --timeout=300s
 ```
 
-This creates two ArgoCD Applications:
-- **argocd**: Manages ArgoCD installation itself (points to upstream argoproj/argo-cd)
-- **argocd-config**: Manages Projects and ApplicationSets (points to this repository)
+This creates a hierarchy of ArgoCD Applications:
+- **root-app**: The single bootstrap entry point (manages `argocd/apps/`)
+- **argocd**: Manages ArgoCD installation via Helm chart (sync-wave: 0)
+- **argocd-config**: Manages Projects and ApplicationSets (sync-wave: 1)
+
+> **Disaster Recovery**: To restore the entire cluster state, simply re-apply the root-app:
+> `kubectl apply -f argocd/bootstrap/root-app.yaml`
 
 ### Step 4: Verify Installation
 
 ```bash
-# Check ArgoCD Applications
+# Check ArgoCD Applications (all three should be Synced and Healthy)
 kubectl get applications -n argocd
 
 # Expected output:
 # NAME            SYNC STATUS   HEALTH STATUS
+# root-app        Synced        Healthy
 # argocd          Synced        Healthy
 # argocd-config   Synced        Healthy
 
@@ -1554,19 +1586,24 @@ With self-management enabled, upgrading ArgoCD is done via Git:
 ### Check Current Version
 
 ```bash
+# Check Helm chart version
+grep targetRevision argocd/apps/argocd.yaml
+
+# Check running pods image version
 kubectl get pods -n argocd -o jsonpath='{.items[0].spec.containers[0].image}' | cut -d: -f2
 ```
 
 ### Upgrade Process
 
 ```bash
-# 1. Edit argocd/self/argocd-install.yaml
-# Change targetRevision from v2.13.2 to desired version (e.g., v2.14.0)
-sed -i 's/targetRevision: v2.13.2/targetRevision: v2.14.0/' argocd/self/argocd-install.yaml
+# 1. Edit argocd/apps/argocd.yaml
+# Change targetRevision to desired version (e.g., 7.10.0)
+# Note: This is the Helm chart version from https://argoproj.github.io/argo-helm
+sed -i 's/targetRevision: 7.9.0/targetRevision: 7.10.0/' argocd/apps/argocd.yaml
 
 # 2. Commit and push
-git add argocd/self/argocd-install.yaml
-git commit -m "Upgrade ArgoCD to v2.14.0"
+git add argocd/apps/argocd.yaml
+git commit -m "chore(argocd): upgrade Helm chart to 7.10.0"
 git push
 
 # 3. ArgoCD will detect the change and upgrade itself!

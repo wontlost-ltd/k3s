@@ -350,14 +350,21 @@ kubectl apply -f argocd/projects/tls-management.yaml
 kubectl get appprojects -n argocd
 ```
 
-### 2.4 Apply ArgoCD Self-Management Application
+### 2.4 Apply Root Application (App of Apps)
 
 ```bash
-# This makes ArgoCD manage itself
-kubectl apply -f argocd/self/argocd-install.yaml
+# Apply the root application - this is the ONLY manual apply needed!
+# It will create argocd (sync-wave 0) and argocd-config (sync-wave 1)
+kubectl apply -f argocd/bootstrap/root-app.yaml
 
-# Wait for sync
+# Wait for sync (this may take 2-3 minutes as ArgoCD upgrades itself)
 kubectl get applications -n argocd -w
+
+# Expected applications:
+# NAME            SYNC STATUS   HEALTH STATUS
+# root-app        Synced        Healthy
+# argocd          Synced        Healthy
+# argocd-config   Synced        Healthy
 
 # Verify ArgoCD is healthy
 kubectl get pods -n argocd
@@ -1111,6 +1118,12 @@ argocd app get <app-name> --hard-refresh
 ```
 k3s/
 ├── argocd/
+│   ├── bootstrap/
+│   │   └── root-app.yaml            # Single entry point - only manual apply needed
+│   ├── apps/
+│   │   ├── kustomization.yaml       # Includes argocd + argocd-config
+│   │   ├── argocd.yaml              # ArgoCD Helm chart (sync-wave: 0)
+│   │   └── argocd-config.yaml       # Projects, ApplicationSets (sync-wave: 1)
 │   ├── applicationsets/
 │   │   ├── infrastructure.yaml      # Infrastructure apps
 │   │   ├── secrets-management.yaml  # Vault, External Secrets
@@ -1123,8 +1136,6 @@ k3s/
 │   │   ├── identity.yaml
 │   │   ├── data-services.yaml
 │   │   └── tls-management.yaml
-│   ├── self/
-│   │   └── argocd-install.yaml      # Self-managed ArgoCD
 │   ├── ingress.yaml
 │   └── kustomization.yaml
 ├── apps/
@@ -1212,8 +1223,8 @@ kubectl run -it --rm debug --image=busybox -- sh
 - [ ] Create ArgoCD namespace and repo secret
 - [ ] Install ArgoCD via Helm (bootstrap)
 - [ ] Apply AppProjects
-- [ ] Apply self-management Application
-- [ ] Apply ApplicationSets
+- [ ] Apply root-app (App of Apps): `kubectl apply -f argocd/bootstrap/root-app.yaml`
+- [ ] Verify all three apps synced: root-app, argocd, argocd-config
 - [ ] Monitor deployment progress
 
 ### 🐔🥚 Bootstrap (Critical - See Phase 2.5)
