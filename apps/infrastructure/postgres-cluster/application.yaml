@@ -28,9 +28,14 @@ spec:
         - .spec.data[].remoteRef.metadataPolicy
     - group: postgresql.cnpg.io
       kind: Cluster
-      jqPathExpressions:
+      name: shared-postgres
+      namespace: data-services
+      managedFieldsManagers:
+        - cnpg-controller-manager
+      jsonPointers:
         # Ignore labels that operator may remove
-        - .metadata.labels
+        - /metadata/labels
+      jqPathExpressions:
         # Ignore all operator-managed default fields
         - .spec.enablePDB
         - .spec.enableSuperuserAccess
@@ -82,14 +87,14 @@ spec:
         - .spec.storage.resizeInUseVolumes
     - group: postgresql.cnpg.io
       kind: ScheduledBackup
-      jqPathExpressions:
+      jsonPointers:
         # Ignore labels that operator may remove
-        - .metadata.labels
+        - /metadata/labels
     - group: policy
       kind: PodDisruptionBudget
-      jqPathExpressions:
+      jsonPointers:
         # Ignore labels that operator may remove
-        - .metadata.labels
+        - /metadata/labels
   syncPolicy:
     automated:
       prune: true
@@ -97,3 +102,5 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - RespectIgnoreDifferences=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
