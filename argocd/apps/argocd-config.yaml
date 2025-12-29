@@ -26,8 +26,6 @@ spec:
     repoURL: https://github.com/wontlost-ltd/k3s.git
     targetRevision: main
     path: argocd
-    # Use Kustomize to process kustomization.yaml in argocd/ directory
-    kustomize: {}
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
