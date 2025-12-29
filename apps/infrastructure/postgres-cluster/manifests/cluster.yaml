@@ -167,6 +167,8 @@ kind: ScheduledBackup
 metadata:
   name: shared-postgres-daily-backup
   namespace: data-services
+  labels:
+    argocd.argoproj.io/instance: postgres-cluster
 spec:
   schedule: "0 2 * * *"
   backupOwnerReference: self
@@ -182,6 +184,8 @@ kind: PodDisruptionBudget
 metadata:
   name: shared-postgres-pdb
   namespace: data-services
+  labels:
+    argocd.argoproj.io/instance: postgres-cluster
 spec:
   minAvailable: 2
   selector:
