@@ -28,21 +28,21 @@ spec:
         - .spec.data[].remoteRef.metadataPolicy
     - group: postgresql.cnpg.io
       kind: Cluster
-      jqPathExpressions:
-        - .spec.enablePDB
-        - .spec.enableSuperuserAccess
-        - .spec.failoverDelay
-        - .spec.logLevel
-        - .spec.maxSyncReplicas
-        - .spec.minSyncReplicas
-        - .spec.postgresGID
-        - .spec.postgresUID
-        - .spec.primaryUpdateMethod
-        - .spec.replicationSlots
-        - .spec.smartShutdownTimeout
-        - .spec.startDelay
-        - .spec.stopDelay
-        - .spec.switchoverDelay
+      jsonPointers:
+        - /spec/enablePDB
+        - /spec/enableSuperuserAccess
+        - /spec/failoverDelay
+        - /spec/logLevel
+        - /spec/maxSyncReplicas
+        - /spec/minSyncReplicas
+        - /spec/postgresGID
+        - /spec/postgresUID
+        - /spec/primaryUpdateMethod
+        - /spec/replicationSlots
+        - /spec/smartShutdownTimeout
+        - /spec/startDelay
+        - /spec/stopDelay
+        - /spec/switchoverDelay
   syncPolicy:
     automated:
       prune: true
