@@ -11,5 +11,7 @@ resources:
   - service.yaml
   - ingress.yaml
   - pdb.yaml
-  - network-policy.yaml
+  # TODO: Re-enable when k3s kube-router cross-node network policy issue is resolved
+  # See: https://github.com/k3s-io/k3s/issues - kube-router has bugs with NetworkPolicy
+  # - network-policy.yaml
   - external-secrets.yaml
