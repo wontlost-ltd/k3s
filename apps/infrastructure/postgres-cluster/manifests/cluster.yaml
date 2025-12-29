@@ -5,6 +5,8 @@ kind: Cluster
 metadata:
   name: shared-postgres
   namespace: data-services
+  labels:
+    argocd.argoproj.io/instance: postgres-cluster
   annotations:
     # Ignore extra fields added by CNPG operator during comparison
     argocd.argoproj.io/compare-options: IgnoreExtraneous
