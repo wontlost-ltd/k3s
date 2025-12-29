@@ -32,9 +32,6 @@ spec:
       namespace: data-services
       managedFieldsManagers:
         - cnpg-controller-manager
-      jsonPointers:
-        # Ignore labels that operator may remove
-        - /metadata/labels
       jqPathExpressions:
         # Ignore all operator-managed default fields
         - .spec.enablePDB
@@ -85,16 +82,6 @@ spec:
         - .spec.postgresql.syncReplicaElectionConstraint
         # Storage defaults added by operator
         - .spec.storage.resizeInUseVolumes
-    - group: postgresql.cnpg.io
-      kind: ScheduledBackup
-      jsonPointers:
-        # Ignore labels that operator may remove
-        - /metadata/labels
-    - group: policy
-      kind: PodDisruptionBudget
-      jsonPointers:
-        # Ignore labels that operator may remove
-        - /metadata/labels
   syncPolicy:
     automated:
       prune: true
