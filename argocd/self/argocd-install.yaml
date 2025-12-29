@@ -273,6 +273,7 @@ spec:
           rbac:
             # Map Authentik groups to ArgoCD roles
             # Group membership is determined by Authentik OIDC groups claim
+            # VISIBILITY: Users only see applications in their assigned project(s)
             policy.csv: |
               # ===========================================
               # GROUP MAPPINGS (Authentik groups -> roles)
@@ -280,10 +281,10 @@ spec:
               # Admins: Full access to all projects
               g, argocd-admins, role:admin
 
-              # Developers: Access to development projects
+              # Developers: Access to aster-lang project only
               g, argocd-devs, role:developer
 
-              # Product team: Access to product projects
+              # Product team: Access to wontlost project only
               g, argocd-product, role:product
 
               # Local admin (emergency fallback)
@@ -292,32 +293,24 @@ spec:
               # ===========================================
               # ROLE DEFINITIONS
               # ===========================================
-              # role:admin - built-in, full access
+              # role:admin - built-in, full access to everything
 
-              # role:developer - aster-lang project access
+              # role:developer - aster-lang project ONLY (view + manage)
               p, role:developer, applications, *, aster-lang/*, allow
+              p, role:developer, logs, get, aster-lang/*, allow
+              p, role:developer, projects, get, aster-lang, allow
               p, role:developer, repositories, get, *, allow
               p, role:developer, clusters, get, *, allow
-              p, role:developer, projects, get, aster-lang, allow
-              p, role:developer, logs, get, aster-lang/*, allow
 
-              # role:product - wontlost project access
+              # role:product - wontlost project ONLY (view + manage)
               p, role:product, applications, *, wontlost/*, allow
+              p, role:product, logs, get, wontlost/*, allow
+              p, role:product, projects, get, wontlost, allow
               p, role:product, repositories, get, *, allow
               p, role:product, clusters, get, *, allow
-              p, role:product, projects, get, wontlost, allow
-              p, role:product, logs, get, wontlost/*, allow
 
-              # role:readonly - default for authenticated users
-              p, role:readonly, applications, get, */*, allow
-              p, role:readonly, certificates, get, *, allow
-              p, role:readonly, clusters, get, *, allow
-              p, role:readonly, repositories, get, *, allow
-              p, role:readonly, projects, get, *, allow
-              p, role:readonly, accounts, get, *, allow
-              p, role:readonly, gpgkeys, get, *, allow
-              p, role:readonly, logs, get, */*, allow
-            policy.default: role:readonly
+            # No default role - users without group mapping have NO access
+            policy.default: ""
             scopes: "[groups]"
           params:
             # Run ArgoCD server without TLS (Traefik terminates TLS)
