@@ -29,6 +29,8 @@ spec:
     - group: postgresql.cnpg.io
       kind: Cluster
       jqPathExpressions:
+        # Ignore labels that operator may remove
+        - .metadata.labels
         # Ignore all operator-managed default fields
         - .spec.enablePDB
         - .spec.enableSuperuserAccess
@@ -78,6 +80,16 @@ spec:
         - .spec.postgresql.syncReplicaElectionConstraint
         # Storage defaults added by operator
         - .spec.storage.resizeInUseVolumes
+    - group: postgresql.cnpg.io
+      kind: ScheduledBackup
+      jqPathExpressions:
+        # Ignore labels that operator may remove
+        - .metadata.labels
+    - group: policy
+      kind: PodDisruptionBudget
+      jqPathExpressions:
+        # Ignore labels that operator may remove
+        - .metadata.labels
   syncPolicy:
     automated:
       prune: true
