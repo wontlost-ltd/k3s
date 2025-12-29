@@ -1,0 +1,69 @@
+# Vault Auto-Unseal CronJob
+# Automatically unseals Vault pods when they restart
+# Requires vault-unseal-keys secret to be created manually:
+#   kubectl create secret generic vault-unseal-keys -n vault \
+#     --from-literal=UNSEAL_KEY_1="<key1>" \
+#     --from-literal=UNSEAL_KEY_2="<key2>" \
+#     --from-literal=UNSEAL_KEY_3="<key3>"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-auto-unseal
+  namespace: vault
+spec:
+  schedule: "* * * * *"  # Every minute
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 50
+      template:
+        spec:
+          serviceAccountName: vault
+          restartPolicy: Never
+          containers:
+          - name: unseal
+            image: hashicorp/vault:1.19.0
+            env:
+            - name: VAULT_SKIP_VERIFY
+              value: "true"
+            - name: UNSEAL_KEY_1
+              valueFrom:
+                secretKeyRef:
+                  name: vault-unseal-keys
+                  key: UNSEAL_KEY_1
+            - name: UNSEAL_KEY_2
+              valueFrom:
+                secretKeyRef:
+                  name: vault-unseal-keys
+                  key: UNSEAL_KEY_2
+            - name: UNSEAL_KEY_3
+              valueFrom:
+                secretKeyRef:
+                  name: vault-unseal-keys
+                  key: UNSEAL_KEY_3
+            command:
+            - /bin/sh
+            - -c
+            - |
+              for i in 0 1 2; do
+                VAULT_ADDR="https://vault-${i}.vault-internal:8200"
+                export VAULT_ADDR
+
+                # Check if sealed
+                STATUS=$(vault status -format=json 2>/dev/null || echo '{"sealed":true}')
+                SEALED=$(echo "$STATUS" | grep -o '"sealed":[^,]*' | cut -d: -f2)
+
+                if [ "$SEALED" = "true" ]; then
+                  echo "vault-${i} is sealed, unsealing..."
+                  vault operator unseal "$UNSEAL_KEY_1" || true
+                  vault operator unseal "$UNSEAL_KEY_2" || true
+                  vault operator unseal "$UNSEAL_KEY_3" || true
+                  echo "vault-${i} unseal attempted"
+                else
+                  echo "vault-${i} is already unsealed"
+                fi
+              done
