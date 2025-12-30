@@ -16,14 +16,14 @@ spec:
     targetRevision: 1.2.0
     helm:
       releaseName: external-secrets
-      skipCrds: true
+      skipCrds: false
       values: |
         # Image pull policy
         image:
           pullPolicy: IfNotPresent
 
-        # Skip CRDs - managed separately to avoid conversion strategy issues
-        installCRDs: false
+        # Install CRDs
+        installCRDs: true
 
         # Replicas for HA (2 for production resilience)
         replicaCount: 2
@@ -167,4 +167,3 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
