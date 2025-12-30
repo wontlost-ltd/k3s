@@ -382,7 +382,7 @@ spec:
         # Extra manifests for auth middleware
         extraManifests:
           # ForwardAuth middleware for Prometheus/Alertmanager (Authentik SSO)
-          # Uses Authentik's forward auth endpoint for transparent SSO
+          # Uses Authentik outpost's forward auth endpoint
           - apiVersion: traefik.io/v1alpha1
             kind: Middleware
             metadata:
@@ -390,7 +390,7 @@ spec:
               namespace: monitoring
             spec:
               forwardAuth:
-                address: http://authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik
+                address: http://ak-outpost-monitor-outpost.authentik.svc.cluster.local:9000/outpost.goauthentik.io/auth/traefik
                 trustForwardHeader: true
                 authResponseHeaders:
                   - X-authentik-username
