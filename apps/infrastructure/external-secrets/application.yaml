@@ -21,8 +21,8 @@ spec:
         image:
           pullPolicy: IfNotPresent
 
-        # Install CRDs
-        installCRDs: true
+        # Skip CRDs - managed separately to avoid conversion strategy issues
+        installCRDs: false
 
         # Replicas for HA (2 for production resilience)
         replicaCount: 2
