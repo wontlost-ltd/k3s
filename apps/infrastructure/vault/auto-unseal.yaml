@@ -53,17 +53,20 @@ spec:
                 VAULT_ADDR="https://vault-${i}.vault-internal:8200"
                 export VAULT_ADDR
 
-                # Check if sealed
-                STATUS=$(vault status -format=json 2>/dev/null || echo '{"sealed":true}')
-                SEALED=$(echo "$STATUS" | grep -o '"sealed":[^,]*' | cut -d: -f2)
+                # Check seal status using exit code
+                # Exit 0 = unsealed, Exit 2 = sealed, Exit 1 = error
+                vault status > /dev/null 2>&1
+                EXIT_CODE=$?
 
-                if [ "$SEALED" = "true" ]; then
-                  echo "vault-${i} is sealed, unsealing..."
+                if [ "$EXIT_CODE" = "2" ]; then
+                  echo "vault-${i} is sealed (exit code 2), unsealing..."
                   vault operator unseal "$UNSEAL_KEY_1" || true
                   vault operator unseal "$UNSEAL_KEY_2" || true
                   vault operator unseal "$UNSEAL_KEY_3" || true
-                  echo "vault-${i} unseal attempted"
-                else
+                  echo "vault-${i} unseal complete"
+                elif [ "$EXIT_CODE" = "0" ]; then
                   echo "vault-${i} is already unsealed"
+                else
+                  echo "vault-${i} is not reachable (exit code $EXIT_CODE)"
                 fi
               done
