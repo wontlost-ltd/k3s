@@ -12,7 +12,7 @@ metadata:
   name: vault-auto-unseal
   namespace: vault
 spec:
-  schedule: "* * * * *"  # Every minute
+  schedule: "*/5 * * * *"  # Every 5 minutes (reduced from every minute)
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3

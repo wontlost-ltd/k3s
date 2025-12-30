@@ -178,6 +178,16 @@ spec:
               limits:
                 cpu: 250m
                 memory: 512Mi
+          # Sentinel resource limits to prevent CPU runaway spikes
+          # Without limits, Sentinel can consume 900m+ CPU during failover detection
+          sentinel:
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
           hardAntiAffinity: true
           pdb:
             enabled: true
