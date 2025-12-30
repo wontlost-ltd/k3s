@@ -20,6 +20,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: traefik
+          # Update to Traefik 3.6.6 (latest stable)
+          image: traefik:v3.6.6
           # Container-level security context hardening
           securityContext:
             allowPrivilegeEscalation: false
