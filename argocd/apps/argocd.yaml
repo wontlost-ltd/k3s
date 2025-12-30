@@ -251,6 +251,62 @@ spec:
         # Configs
         configs:
           cm:
+            # Custom health checks for CRDs without built-in support
+            resource.customizations.health.postgresql.cnpg.io_Cluster: |
+              hs = {}
+              if obj.status == nil then
+                hs.status = "Progressing"
+                hs.message = "Waiting for cluster status"
+                return hs
+              end
+              if obj.status.phase == "Cluster in healthy state" then
+                hs.status = "Healthy"
+                hs.message = obj.status.phase
+              elseif obj.status.phase == "Setting up primary" or obj.status.phase == "Creating a new replica" or obj.status.phase == "Waiting for the instances to become active" then
+                hs.status = "Progressing"
+                hs.message = obj.status.phase
+              else
+                hs.status = "Degraded"
+                hs.message = obj.status.phase or "Unknown phase"
+              end
+              return hs
+            resource.customizations.health.postgresql.cnpg.io_ScheduledBackup: |
+              hs = {}
+              if obj.status == nil then
+                hs.status = "Progressing"
+                hs.message = "Waiting for backup status"
+                return hs
+              end
+              if obj.status.lastScheduleTime ~= nil then
+                hs.status = "Healthy"
+                hs.message = "Last backup: " .. obj.status.lastScheduleTime
+              else
+                hs.status = "Progressing"
+                hs.message = "Waiting for first backup"
+              end
+              return hs
+            resource.customizations.health.external-secrets.io_ExternalSecret: |
+              hs = {}
+              if obj.status == nil or obj.status.conditions == nil then
+                hs.status = "Progressing"
+                hs.message = "Waiting for sync"
+                return hs
+              end
+              for i, condition in ipairs(obj.status.conditions) do
+                if condition.type == "Ready" then
+                  if condition.status == "True" then
+                    hs.status = "Healthy"
+                    hs.message = condition.reason or "SecretSynced"
+                  else
+                    hs.status = "Degraded"
+                    hs.message = condition.message or "Not ready"
+                  end
+                  return hs
+                end
+              end
+              hs.status = "Progressing"
+              hs.message = "Waiting for Ready condition"
+              return hs
             # Admin account DISABLED - all authentication via OIDC (Authentik)
             # If emergency access is needed, temporarily re-enable and use
             # argocd-initial-admin-secret (requires kubectl access to cluster)
