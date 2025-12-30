@@ -191,24 +191,10 @@ spec:
             size: 5Gi
             storageClass: null
 
-          # External ingress (uses Let's Encrypt wildcard cert)
+          # External ingress disabled - using IngressRoute instead
+          # (ServersTransport annotation doesn't work reliably with Kubernetes Ingress)
           ingress:
-            enabled: true
-            ingressClassName: traefik
-            pathType: Prefix
-            annotations:
-              traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              traefik.ingress.kubernetes.io/router.tls: "true"
-              # Backend uses HTTPS with internal CA - tell Traefik to use HTTPS and skip verify
-              traefik.ingress.kubernetes.io/service.serversscheme: https
-              traefik.ingress.kubernetes.io/service.serverstransport: vault-vault-vault@kubernetescrd
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-            hosts:
-              - host: vault.aster-lang.cloud
-            tls:
-              - secretName: vault-ingress-tls
-                hosts:
-                  - vault.aster-lang.cloud
+            enabled: false
 
         ui:
           enabled: true

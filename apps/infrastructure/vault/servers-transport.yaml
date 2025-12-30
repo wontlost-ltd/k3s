@@ -3,8 +3,31 @@
 apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
-  name: vault-vault
+  name: vault
   namespace: vault
 spec:
   # Skip TLS verification for internal CA
   insecureSkipVerify: true
+---
+# IngressRoute for Vault UI
+# Uses ServersTransport to handle HTTPS backend with internal CA
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vault-ui
+  namespace: vault
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`vault.aster-lang.cloud`)
+      kind: Rule
+      services:
+        - name: vault-active
+          port: 8200
+          scheme: https
+          serversTransport: vault
+  tls:
+    secretName: vault-ingress-tls
