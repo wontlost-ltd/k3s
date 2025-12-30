@@ -363,7 +363,7 @@ spec:
               basicAuth:
                 secret: monitoring-auth
           # ExternalSecret for monitoring basic auth credentials
-          - apiVersion: external-secrets.io/v1beta1
+          - apiVersion: external-secrets.io/v1
             kind: ExternalSecret
             metadata:
               name: monitoring-auth
@@ -382,7 +382,7 @@ spec:
                     key: infrastructure/monitoring
                     property: basic_auth_users
           # ExternalSecret for Grafana admin credentials
-          - apiVersion: external-secrets.io/v1beta1
+          - apiVersion: external-secrets.io/v1
             kind: ExternalSecret
             metadata:
               name: grafana-admin

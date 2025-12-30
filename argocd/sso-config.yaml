@@ -9,7 +9,7 @@
 
 ---
 # ArgoCD OIDC Secret (populated by ExternalSecret)
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: argocd-oidc-secret
