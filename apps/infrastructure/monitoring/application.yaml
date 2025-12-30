@@ -101,8 +101,8 @@ spec:
               cert-manager.io/cluster-issuer: letsencrypt-prod
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
-              # Basic auth protection (create secret: htpasswd -nb admin password | base64)
-              traefik.ingress.kubernetes.io/router.middlewares: monitoring-monitoring-basic-auth@kubernetescrd
+              # Authentik forward auth protection (SSO)
+              traefik.ingress.kubernetes.io/router.middlewares: monitoring-authentik-forward-auth@kubernetescrd
             hosts:
               - prometheus.aster-lang.cloud
             tls:
@@ -179,8 +179,8 @@ spec:
               cert-manager.io/cluster-issuer: letsencrypt-prod
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
-              # Basic auth protection (same middleware as Prometheus)
-              traefik.ingress.kubernetes.io/router.middlewares: monitoring-monitoring-basic-auth@kubernetescrd
+              # Authentik forward auth protection (SSO)
+              traefik.ingress.kubernetes.io/router.middlewares: monitoring-authentik-forward-auth@kubernetescrd
             hosts:
               - alertmanager.aster-lang.cloud
             tls:
@@ -188,7 +188,7 @@ spec:
                 hosts:
                   - alertmanager.aster-lang.cloud
 
-        # Grafana configuration (has built-in auth, no middleware needed)
+        # Grafana configuration (SSO via Authentik OIDC)
         grafana:
           # Image pull policy
           image:
@@ -221,11 +221,38 @@ spec:
                       matchLabels:
                         app.kubernetes.io/name: grafana
                     topologyKey: kubernetes.io/hostname
-          # Use ExternalSecret for admin credentials from Vault
+          # Use ExternalSecret for admin credentials from Vault (fallback)
           admin:
             existingSecret: grafana-admin
             userKey: admin-user
             passwordKey: admin-password
+          # Environment variables for OIDC configuration
+          envFromSecrets:
+            - name: grafana-oidc
+              optional: false
+          # Grafana OIDC configuration via grafana.ini
+          grafana.ini:
+            server:
+              root_url: https://grafana.aster-lang.cloud
+            auth:
+              # Disable login form for SSO-only access
+              disable_login_form: false
+              # Allow signout redirect to Authentik
+              signout_redirect_url: https://auth.aster-lang.cloud/application/o/grafana/end-session/
+            auth.generic_oauth:
+              enabled: true
+              name: Authentik
+              allow_sign_up: true
+              client_id: grafana
+              client_secret: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
+              scopes: openid profile email groups
+              auth_url: https://auth.aster-lang.cloud/application/o/authorize/
+              token_url: https://auth.aster-lang.cloud/application/o/token/
+              api_url: https://auth.aster-lang.cloud/application/o/userinfo/
+              # Map Authentik groups to Grafana roles
+              role_attribute_path: contains(groups, 'grafana-admins') && 'Admin' || contains(groups, 'grafana-editors') && 'Editor' || 'Viewer'
+              # Auto-login with OIDC (optional - uncomment to skip login page)
+              # auto_login: true
           persistence:
             enabled: true
             size: 5Gi
@@ -351,9 +378,30 @@ spec:
 
         # Extra manifests for auth middleware
         extraManifests:
-          # Basic auth middleware for Prometheus/Alertmanager
-          # To create credentials: htpasswd -nb admin password | base64
-          # Store in monitoring-auth secret with key 'users'
+          # ForwardAuth middleware for Prometheus/Alertmanager (Authentik SSO)
+          # Uses Authentik's forward auth endpoint for transparent SSO
+          - apiVersion: traefik.io/v1alpha1
+            kind: Middleware
+            metadata:
+              name: authentik-forward-auth
+              namespace: monitoring
+            spec:
+              forwardAuth:
+                address: http://authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik
+                trustForwardHeader: true
+                authResponseHeaders:
+                  - X-authentik-username
+                  - X-authentik-groups
+                  - X-authentik-email
+                  - X-authentik-name
+                  - X-authentik-uid
+                  - X-authentik-jwt
+                  - X-authentik-meta-jwks
+                  - X-authentik-meta-outpost
+                  - X-authentik-meta-provider
+                  - X-authentik-meta-app
+                  - X-authentik-meta-version
+          # Keep basic auth as fallback (can be removed after SSO is verified working)
           - apiVersion: traefik.io/v1alpha1
             kind: Middleware
             metadata:
@@ -362,7 +410,7 @@ spec:
             spec:
               basicAuth:
                 secret: monitoring-auth
-          # ExternalSecret for monitoring basic auth credentials
+          # ExternalSecret for monitoring basic auth credentials (fallback)
           - apiVersion: external-secrets.io/v1
             kind: ExternalSecret
             metadata:
@@ -381,7 +429,7 @@ spec:
                   remoteRef:
                     key: infrastructure/monitoring
                     property: basic_auth_users
-          # ExternalSecret for Grafana admin credentials
+          # ExternalSecret for Grafana admin credentials (fallback)
           - apiVersion: external-secrets.io/v1
             kind: ExternalSecret
             metadata:
@@ -404,6 +452,25 @@ spec:
                   remoteRef:
                     key: infrastructure/grafana
                     property: admin-password
+          # ExternalSecret for Grafana OIDC credentials
+          - apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: grafana-oidc
+              namespace: monitoring
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: vault-backend
+                kind: ClusterSecretStore
+              target:
+                name: grafana-oidc
+                creationPolicy: Owner
+              data:
+                - secretKey: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+                  remoteRef:
+                    key: infrastructure/grafana-oidc
+                    property: client_secret
 
   destination:
     server: https://kubernetes.default.svc
