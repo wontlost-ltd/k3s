@@ -20,7 +20,7 @@ spec:
     targetRevision: main
     path: apps/infrastructure/vault
     directory:
-      include: '{internal-tls.yaml,auto-unseal.yaml}'
+      include: '{internal-tls.yaml,auto-unseal.yaml,servers-transport.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: vault

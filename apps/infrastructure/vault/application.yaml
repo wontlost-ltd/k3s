@@ -199,6 +199,9 @@ spec:
             annotations:
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
+              # Backend uses HTTPS with internal CA - tell Traefik to use HTTPS and skip verify
+              traefik.ingress.kubernetes.io/service.serversscheme: https
+              traefik.ingress.kubernetes.io/service.serverstransport: vault-vault@kubernetescrd
               cert-manager.io/cluster-issuer: letsencrypt-prod
             hosts:
               - host: vault.aster-lang.cloud

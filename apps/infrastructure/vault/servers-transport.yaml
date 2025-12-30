@@ -1,0 +1,10 @@
+# Traefik ServersTransport for Vault backend
+# Allows Traefik to connect to Vault's HTTPS backend with self-signed internal CA
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: vault-vault
+  namespace: vault
+spec:
+  # Skip TLS verification for internal CA
+  insecureSkipVerify: true
