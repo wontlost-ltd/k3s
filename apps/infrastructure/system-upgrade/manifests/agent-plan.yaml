@@ -7,7 +7,7 @@ metadata:
     k3s-upgrade: agent
 spec:
   # Target version - update this to trigger upgrades
-  version: v1.31.14+k3s1
+  version: v1.35.0+k3s1
 
   # Upgrade one agent at a time
   concurrency: 1
