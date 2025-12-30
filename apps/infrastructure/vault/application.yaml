@@ -83,13 +83,14 @@ spec:
                   add:
                     - IPC_LOCK
 
+          # Resource requests tuned based on actual usage (~30m CPU observed)
           resources:
             requests:
-              memory: 512Mi
-              cpu: 250m
+              memory: 256Mi
+              cpu: 100m
             limits:
               memory: 1Gi
-              cpu: 1000m
+              cpu: 500m
 
           # Development mode (for testing - uses in-memory storage)
           dev:

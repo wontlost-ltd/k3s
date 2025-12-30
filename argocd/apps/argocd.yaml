@@ -35,6 +35,7 @@ spec:
               type: RuntimeDefault
 
         # Server configuration (2 replicas for HA)
+        # Resource requests tuned based on actual usage
         server:
           replicas: 2
           pdb:
@@ -51,10 +52,10 @@ spec:
                     topologyKey: kubernetes.io/hostname
           resources:
             requests:
-              cpu: 100m
+              cpu: 50m
               memory: 128Mi
             limits:
-              cpu: 500m
+              cpu: 250m
               memory: 512Mi
           containerSecurityContext:
             allowPrivilegeEscalation: false
@@ -67,6 +68,7 @@ spec:
                 - ALL
 
         # Repo server (2 replicas for HA)
+        # Resource requests tuned based on actual usage
         repoServer:
           replicas: 2
           pdb:
@@ -83,10 +85,10 @@ spec:
                     topologyKey: kubernetes.io/hostname
           resources:
             requests:
-              cpu: 100m
+              cpu: 50m
               memory: 256Mi
             limits:
-              cpu: 1000m
+              cpu: 500m
               memory: 1Gi
           containerSecurityContext:
             allowPrivilegeEscalation: false
@@ -99,6 +101,7 @@ spec:
                 - ALL
 
         # Application controller (HA with sharding)
+        # Resource requests tuned based on actual usage (~17m CPU observed)
         controller:
           replicas: 2
           pdb:
@@ -115,10 +118,10 @@ spec:
                     topologyKey: kubernetes.io/hostname
           resources:
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 1000m
+              cpu: 500m
               memory: 1Gi
           containerSecurityContext:
             allowPrivilegeEscalation: false
@@ -158,6 +161,7 @@ spec:
               limits:
                 cpu: 200m
                 memory: 256Mi
+          # Resource requests tuned based on actual usage (~17m CPU observed)
           redis:
             replicas: 3
             securityContext:
@@ -169,10 +173,10 @@ spec:
                 type: RuntimeDefault
             resources:
               requests:
-                cpu: 100m
+                cpu: 50m
                 memory: 128Mi
               limits:
-                cpu: 500m
+                cpu: 250m
                 memory: 512Mi
           hardAntiAffinity: true
           pdb:
