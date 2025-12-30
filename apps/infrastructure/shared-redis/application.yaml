@@ -16,7 +16,7 @@ spec:
   source:
     repoURL: https://charts.bitnami.com/bitnami
     chart: redis
-    targetRevision: 19.6.4
+    targetRevision: 24.1.0
     helm:
       releaseName: shared-redis
       valuesObject:

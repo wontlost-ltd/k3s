@@ -294,3 +294,105 @@ kubectl logs -n vault vault-0 -f
    ```bash
    kubectl get pvc -n vault
    ```
+
+## Authentik Vault Integration
+
+### Blueprint (for Authentik)
+
+```yaml
+# This blueprint creates the OAuth2/OIDC provider and application for Vault
+#
+# To apply this blueprint:
+# 1. Log into Authentik Admin at https://auth.aster-lang.cloud/if/admin/
+# 2. Go to System > Blueprints > Create
+# 3. Paste this content as "File (yaml)" type
+# 4. Or create manually following the steps below
+#
+# MANUAL SETUP STEPS:
+# ===================
+#
+# Step 1: Create OAuth2 Provider
+# - Go to Applications > Providers > Create
+# - Select "OAuth2/OpenID Provider"
+# - Name: Vault
+# - Authorization flow: default-provider-authorization-implicit-consent
+# - Client type: Confidential
+# - Client ID: vault
+# - Client Secret: ****************
+# - Redirect URIs:
+#     https://vault.aster-lang.cloud/ui/vault/auth/Authentik/oidc/callback
+#     http://localhost:8250/oidc/callback
+# - Signing Key: authentik Self-signed Certificate
+# - Scopes: openid, email, profile
+# - Subject mode: Based on the User's hashed ID
+#
+# Step 2: Create Application
+# - Go to Applications > Applications > Create
+# - Name: Vault
+# - Slug: vault
+# - Provider: Vault (created above)
+# - Launch URL: https://vault.aster-lang.cloud
+#
+# Step 3: Create Groups (Optional but recommended)
+# - Go to Directory > Groups
+# - Create: vault-admins (full admin access to Vault)
+# - Create: vault-operators (manage secrets, limited admin)
+# - Create: vault-users (read-only access)
+#
+# ===================
+```
+
+> Note: The blueprint block above contains a client secret in plaintext. Treat it as sensitive data — rotate it and store it securely (Vault, secret manager, or similar) before using in production.
+
+### Manual Setup Steps
+
+1. Create the OAuth2/OpenID Provider in Authentik
+
+   - Go to: Applications > Providers > Create
+   - Provider type: OAuth2/OpenID Provider
+   - Name: Vault
+   - Authorization flow: default-provider-authorization-implicit-consent
+   - Client type: Confidential
+   - Client ID: `vault`
+   - Client Secret: (generate a secure secret and store it in Vault or a secret manager)
+   - Redirect URIs (add both):
+
+     ```text
+     https://vault.aster-lang.cloud/ui/vault/auth/Authentik/oidc/callback
+     http://localhost:8250/oidc/callback
+     ```
+
+   - Signing Key: authentik Self-signed Certificate
+   - Scopes: `openid`, `email`, `profile`
+   - Subject mode: Based on the User's hashed ID
+
+2. Create the Application in Authentik
+
+   - Go to: Applications > Applications > Create
+   - Name: Vault
+   - Slug: `vault`
+   - Provider: select the `Vault` provider created above
+   - Launch URL: `https://vault.aster-lang.cloud`
+
+3. Create Groups (optional, recommended)
+
+   - Go to: Directory > Groups
+   - Create groups with intended privileges:
+     - `vault-admins` — full admin access to Vault
+     - `vault-operators` — manage secrets and day-to-day operations
+     - `vault-users` — read-only access
+
+4. Configure Vault to use Authentik as an OIDC provider
+
+   - In Vault (example):
+
+     ```bash
+     vault write auth/oidc/config \
+       oidc_discovery_url="https://auth.aster-lang.cloud/if/" \
+       oidc_client_id="vault" \
+       oidc_client_secret="<YOUR_CLIENT_SECRET>" \
+       default_role="vault"
+     ```
+
+   - Create an OIDC role mapping Vault policies to Authentik groups/users as needed.
+
