@@ -198,6 +198,9 @@ spec:
           podDisruptionBudget:
             enabled: true
             minAvailable: 1
+          # Disable initChownData - fsGroup handles permissions via securityContext
+          initChownData:
+            enabled: false
           # Security hardening
           securityContext:
             runAsNonRoot: true
