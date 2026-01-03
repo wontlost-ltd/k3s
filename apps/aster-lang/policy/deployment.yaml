@@ -1,6 +1,5 @@
 # Policy API Deployment
-# Sample application using nginx as placeholder
-# TODO: Replace nginx:alpine with actual policy-api image when ready
+# Quarkus Policy API - Aster Lang CNL Evaluation Engine
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,59 +22,86 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
-        fsGroup: 65534
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: nginx
-          image: nginx:alpine
-          imagePullPolicy: IfNotPresent
+        - name: policy-api
+          image: docker.io/wontlost/policy-api:jvm-latest
+          imagePullPolicy: Always
           ports:
-            - containerPort: 80
-          # Inject credentials from Vault via ExternalSecrets
-          envFrom:
-            - secretRef:
-                name: policy-api-db-credentials
-            - secretRef:
-                name: policy-api-redis-credentials
+            - containerPort: 8080
+              name: http
+          env:
+            # 数据库连接（从 ExternalSecret 注入）
+            - name: QUARKUS_DATASOURCE_JDBC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: policy-api-db-credentials
+                  key: jdbc-url
+            - name: QUARKUS_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: policy-api-db-credentials
+                  key: username
+            - name: QUARKUS_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: policy-api-db-credentials
+                  key: password
+            # Redis 连接（从 ExternalSecret 注入）
+            - name: QUARKUS_REDIS_HOSTS
+              valueFrom:
+                secretKeyRef:
+                  name: policy-api-redis-credentials
+                  key: redis-url
+            # CORS 配置
+            - name: QUARKUS_HTTP_CORS_ORIGINS
+              value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.cloud"
+            # JVM 调优
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false
             capabilities:
               drop:
                 - ALL
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: cache
-              mountPath: /var/cache/nginx
-            - name: run
-              mountPath: /var/run
           resources:
             requests:
-              memory: 64Mi
-              cpu: 50m
+              memory: 384Mi
+              cpu: 200m
             limits:
-              memory: 128Mi
-              cpu: 100m
+              memory: 768Mi
+              cpu: 1000m
           livenessProbe:
             httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 5
+              path: /q/health/live
+              port: 8080
+            initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /
-              port: 80
+              path: /q/health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /q/health/started
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+            failureThreshold: 30
       volumes:
         - name: tmp
-          emptyDir: {}
-        - name: cache
-          emptyDir: {}
-        - name: run
           emptyDir: {}
