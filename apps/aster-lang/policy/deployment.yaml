@@ -51,6 +51,12 @@ spec:
                 secretKeyRef:
                   name: policy-api-db-credentials
                   key: password
+            # Reactive datasource URL (for Flyway/Hibernate)
+            - name: QUARKUS_DATASOURCE_REACTIVE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: policy-api-db-credentials
+                  key: reactive-url
             # Redis 连接（从 ExternalSecret 注入）
             - name: QUARKUS_REDIS_HOSTS
               valueFrom:
