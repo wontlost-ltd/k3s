@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: policy-api
-          image: docker.io/wontlost/policy-api:jvm-20260105182514
+          image: docker.io/wontlost/policy-api:jvm-20260105183834
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
