@@ -57,12 +57,19 @@ spec:
                 secretKeyRef:
                   name: policy-api-db-credentials
                   key: reactive-url
-            # Redis 连接（从 ExternalSecret 注入）
+            # Redis Sentinel 连接配置
             - name: QUARKUS_REDIS_HOSTS
               valueFrom:
                 secretKeyRef:
                   name: policy-api-redis-credentials
-                  key: redis-url
+                  key: redis-hosts
+            - name: QUARKUS_REDIS_CLIENT_TYPE
+              value: "sentinel"
+            - name: QUARKUS_REDIS_MASTER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: policy-api-redis-credentials
+                  key: master-name
             # CORS 配置
             - name: QUARKUS_HTTP_CORS_ORIGINS
               value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.cloud"
