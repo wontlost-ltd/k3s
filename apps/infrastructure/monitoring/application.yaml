@@ -80,9 +80,9 @@ spec:
               limits:
                 memory: 2Gi
                 cpu: 1000m
-            # Retention
-            retention: 15d
-            retentionSize: 10GB
+            # Retention (reduced to save disk space)
+            retention: 7d
+            retentionSize: 5GB
             # Storage
             storageSpec:
               volumeClaimTemplate:
@@ -90,7 +90,7 @@ spec:
                   accessModes: ["ReadWriteOnce"]
                   resources:
                     requests:
-                      storage: 20Gi
+                      storage: 10Gi
             # ServiceMonitor selector - match all
             serviceMonitorSelectorNilUsesHelmValues: false
             podMonitorSelectorNilUsesHelmValues: false
