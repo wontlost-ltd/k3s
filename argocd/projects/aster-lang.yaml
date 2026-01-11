@@ -13,6 +13,8 @@ spec:
     # Explicit namespace list (no wildcards for security)
     - namespace: aster-policy
       server: https://kubernetes.default.svc
+    - namespace: aster-lsp
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace

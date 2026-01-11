@@ -1,0 +1,20 @@
+# Aster LSP WebSocket Service
+# Language Server Protocol proxy for Monaco editor integration
+apiVersion: v1
+kind: Service
+metadata:
+  name: aster-lsp
+  namespace: aster-lsp
+  labels:
+    app: aster-lsp
+    app.kubernetes.io/name: aster-lsp
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3001
+      protocol: TCP
+      name: http
+  selector:
+    app: aster-lsp

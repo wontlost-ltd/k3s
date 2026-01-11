@@ -1,0 +1,37 @@
+# Aster LSP WebSocket Ingress
+# Uses wildcard certificate from cert-manager via Reflector
+# WebSocket support enabled via Traefik annotations
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aster-lsp
+  namespace: aster-lsp
+  labels:
+    app: aster-lsp
+    app.kubernetes.io/name: aster-lsp
+    app.kubernetes.io/part-of: aster-lang
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # WebSocket support - important for LSP connections
+    traefik.ingress.kubernetes.io/service.sticky.cookie: "true"
+    traefik.ingress.kubernetes.io/service.sticky.cookie.name: "aster-lsp-affinity"
+    traefik.ingress.kubernetes.io/service.sticky.cookie.secure: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: lsp.aster-lang.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aster-lsp
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - lsp.aster-lang.dev
+      # Uses wildcard cert replicated by Reflector
+      secretName: aster-lang-dev-tls

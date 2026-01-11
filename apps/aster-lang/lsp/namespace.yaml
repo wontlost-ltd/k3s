@@ -1,0 +1,7 @@
+# Aster LSP Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aster-lsp
+  labels:
+    app.kubernetes.io/part-of: aster-lang

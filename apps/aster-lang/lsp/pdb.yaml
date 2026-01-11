@@ -1,0 +1,16 @@
+# PodDisruptionBudget for Aster LSP
+# Ensures at least 1 pod is always available during maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aster-lsp
+  namespace: aster-lsp
+  labels:
+    app: aster-lsp
+    app.kubernetes.io/name: aster-lsp
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: aster-lsp
