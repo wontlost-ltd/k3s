@@ -29,8 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: aster-api
-          # Native GraalVM image - 毫秒级启动，低内存占用
-          image: docker.io/wontlost/aster-api:native-latest
+          image: docker.io/wontlost/aster-api:jvm-latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -74,6 +73,9 @@ spec:
             # CORS 配置
             - name: QUARKUS_HTTP_CORS_ORIGINS
               value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.cloud"
+            # JVM 调优
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
@@ -84,19 +86,17 @@ spec:
             - name: tmp
               mountPath: /tmp
           resources:
-            # Native 镜像资源需求更低
             requests:
-              memory: 128Mi
-              cpu: 100m
+              memory: 384Mi
+              cpu: 200m
             limits:
-              memory: 256Mi
-              cpu: 500m
+              memory: 768Mi
+              cpu: 1000m
           livenessProbe:
             httpGet:
               path: /q/health/live
               port: 8080
-            # Native 镜像启动更快，减少初始延迟
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -104,7 +104,7 @@ spec:
             httpGet:
               path: /q/health/ready
               port: 8080
-            initialDelaySeconds: 3
+            initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
@@ -112,9 +112,9 @@ spec:
             httpGet:
               path: /q/health/started
               port: 8080
-            initialDelaySeconds: 1
-            periodSeconds: 2
-            failureThreshold: 15
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
       volumes:
         - name: tmp
           emptyDir: {}
