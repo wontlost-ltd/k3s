@@ -1,24 +1,24 @@
-# Policy API Deployment
-# Quarkus Policy API - Aster Lang CNL Evaluation Engine
+# Aster API Deployment
+# Aster API - Aster Lang CNL Evaluation Engine
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: policy-api
-  namespace: aster-policy
+  name: aster-api
+  namespace: aster-cloud
   labels:
-    app: policy-api
-    app.kubernetes.io/name: policy-api
+    app: aster-api
+    app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: policy-api
+      app: aster-api
   template:
     metadata:
       labels:
-        app: policy-api
-        app.kubernetes.io/name: policy-api
+        app: aster-api
+        app.kubernetes.io/name: aster-api
     spec:
       securityContext:
         runAsNonRoot: true
@@ -28,8 +28,8 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: policy-api
-          image: docker.io/wontlost/policy-api:jvm-latest
+        - name: aster-api
+          image: docker.io/wontlost/aster-api:jvm-latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -39,36 +39,36 @@ spec:
             - name: QUARKUS_DATASOURCE_JDBC_URL
               valueFrom:
                 secretKeyRef:
-                  name: policy-api-db-credentials
+                  name: aster-api-db-credentials
                   key: jdbc-url
             - name: QUARKUS_DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: policy-api-db-credentials
+                  name: aster-api-db-credentials
                   key: username
             - name: QUARKUS_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: policy-api-db-credentials
+                  name: aster-api-db-credentials
                   key: password
             # Reactive datasource URL (for Flyway/Hibernate)
             - name: QUARKUS_DATASOURCE_REACTIVE_URL
               valueFrom:
                 secretKeyRef:
-                  name: policy-api-db-credentials
+                  name: aster-api-db-credentials
                   key: reactive-url
             # Redis Sentinel 连接配置
             - name: QUARKUS_REDIS_HOSTS
               valueFrom:
                 secretKeyRef:
-                  name: policy-api-redis-credentials
+                  name: aster-api-redis-credentials
                   key: redis-hosts
             - name: QUARKUS_REDIS_CLIENT_TYPE
               value: "sentinel"
             - name: QUARKUS_REDIS_MASTER_NAME
               valueFrom:
                 secretKeyRef:
-                  name: policy-api-redis-credentials
+                  name: aster-api-redis-credentials
                   key: master-name
             # CORS 配置
             - name: QUARKUS_HTTP_CORS_ORIGINS

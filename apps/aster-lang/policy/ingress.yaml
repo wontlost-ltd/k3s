@@ -1,13 +1,13 @@
-# Policy API Ingress
+# Aster API Ingress
 # Uses wildcard certificate from cert-manager via Reflector
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: policy-api
-  namespace: aster-policy
+  name: aster-api
+  namespace: aster-cloud
   labels:
-    app: policy-api
-    app.kubernetes.io/name: policy-api
+    app: aster-api
+    app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
@@ -22,7 +22,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: policy-api
+                name: aster-api
                 port:
                   number: 80
   tls:

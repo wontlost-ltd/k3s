@@ -62,7 +62,7 @@ spec:
         # Ownership will be handled via managed.roles after bootstrap
         - CREATE DATABASE authentik;
         - CREATE DATABASE grafana;
-        - CREATE DATABASE policy_api;
+        - CREATE DATABASE aster_api;
 
   # Managed credentials - CloudNativePG will manage these users
   # Users are created after bootstrap and can connect to the databases
@@ -82,13 +82,13 @@ spec:
         connectionLimit: 50
         passwordSecret:
           name: grafana-postgres-credentials
-      - name: policy_api_user
+      - name: aster_api_user
         ensure: present
         login: true
         inherit: true
         connectionLimit: 50
         passwordSecret:
-          name: policy-api-postgres-credentials
+          name: aster-api-postgres-credentials
 
   # Superuser secret
   superuserSecret:

@@ -1,16 +1,16 @@
-# PodDisruptionBudget for Policy API
+# PodDisruptionBudget for Aster API
 # Ensures at least 1 pod is always available during maintenance
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: policy-api
-  namespace: aster-policy
+  name: aster-api
+  namespace: aster-cloud
   labels:
-    app: policy-api
-    app.kubernetes.io/name: policy-api
+    app: aster-api
+    app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: policy-api
+      app: aster-api

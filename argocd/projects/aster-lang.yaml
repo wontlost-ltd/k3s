@@ -11,7 +11,7 @@ spec:
     - 'https://github.com/aster-cloud/policy-api.git'
   destinations:
     # Explicit namespace list (no wildcards for security)
-    - namespace: aster-policy
+    - namespace: aster-cloud
       server: https://kubernetes.default.svc
     - namespace: aster-lsp
       server: https://kubernetes.default.svc

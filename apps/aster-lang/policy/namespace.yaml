@@ -1,7 +1,7 @@
-# Aster Policy Namespace
+# Aster Cloud Namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: aster-policy
+  name: aster-cloud
   labels:
     app.kubernetes.io/part-of: aster-lang

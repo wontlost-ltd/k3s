@@ -1,13 +1,13 @@
-# NetworkPolicy for aster-policy namespace
+# NetworkPolicy for aster-cloud namespace
 # Default deny + explicit allow for business workloads
 # NOTE: All NetworkPolicies use sync-wave: "-1" to deploy BEFORE workloads
 ---
-# Default deny all for aster-policy namespace
+# Default deny all for aster-cloud namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-all
-  namespace: aster-policy
+  namespace: aster-cloud
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
@@ -17,20 +17,20 @@ spec:
     - Egress
 
 ---
-# Policy API ingress policy
+# Aster API ingress policy
 # NOTE: k3s kube-router has issues with combined namespaceSelector + podSelector
 # Using namespace-only selectors for compatibility
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: policy-api-ingress
-  namespace: aster-policy
+  name: aster-api-ingress
+  namespace: aster-cloud
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchLabels:
-      app: policy-api
+      app: aster-api
   policyTypes:
     - Ingress
   ingress:
@@ -52,18 +52,18 @@ spec:
           port: 9090  # Metrics port (if exposed)
 
 ---
-# Policy API egress policy
+# Aster API egress policy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: policy-api-egress
-  namespace: aster-policy
+  name: aster-api-egress
+  namespace: aster-cloud
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchLabels:
-      app: policy-api
+      app: aster-api
   policyTypes:
     - Egress
   egress:

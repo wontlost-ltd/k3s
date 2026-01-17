@@ -1,13 +1,13 @@
-# Policy API Service
-# Quarkus Policy API - Aster Lang CNL Evaluation Engine
+# Aster API Service
+# Aster API - Aster Lang CNL Evaluation Engine
 apiVersion: v1
 kind: Service
 metadata:
-  name: policy-api
-  namespace: aster-policy
+  name: aster-api
+  namespace: aster-cloud
   labels:
-    app: policy-api
-    app.kubernetes.io/name: policy-api
+    app: aster-api
+    app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
 spec:
   type: ClusterIP
@@ -17,4 +17,4 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: policy-api
+    app: aster-api

@@ -1,9 +1,9 @@
-# Policy API Application
+# Aster API Application
 # Sample application for aster-lang.dev domain
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: aster-policy
+namespace: aster-cloud
 
 resources:
   - namespace.yaml
