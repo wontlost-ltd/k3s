@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: aster-api
-          image: docker.io/wontlost/aster-api:jvm-latest
+          image: docker.io/wontlost/aster-api:jvm-20260119-082951
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
