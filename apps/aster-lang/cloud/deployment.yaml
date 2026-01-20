@@ -72,7 +72,10 @@ spec:
                   key: master-name
             # CORS 配置
             - name: QUARKUS_HTTP_CORS_ORIGINS
-              value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.cloud"
+              value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.dev,https://aster-lang.dev"
+            # 安全配置：禁用 HMAC 签名验证（内部网络访问）
+            - name: ASTER_SECURITY_SIGNATURE_ENABLED
+              value: "false"
             # JVM 调优
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
