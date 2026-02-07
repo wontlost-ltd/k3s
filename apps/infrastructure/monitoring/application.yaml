@@ -133,11 +133,15 @@ spec:
               cpu: 200m
               memory: 256Mi
 
-        # Node exporter for host metrics
+        # Node exporter for host metrics（DaemonSet，需要在所有节点运行）
         nodeExporter:
           enabled: true
           image:
             pullPolicy: IfNotPresent
+          tolerations:
+            - key: node.kubernetes.io/disk-pressure
+              operator: Exists
+              effect: NoSchedule
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
