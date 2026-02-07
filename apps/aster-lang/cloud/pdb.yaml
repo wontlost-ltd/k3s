@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
 spec:
-  minAvailable: 1
+  minAvailable: 0
   selector:
     matchLabels:
       app: aster-api

@@ -11,8 +11,8 @@ metadata:
     # Ignore extra fields added by CNPG operator during comparison
     argocd.argoproj.io/compare-options: IgnoreExtraneous
 spec:
-  # HA configuration - 3 instances
-  instances: 3
+  # 单实例，节省资源
+  instances: 1
 
   # PostgreSQL version
   imageName: ghcr.io/cloudnative-pg/postgresql:16.4
@@ -24,9 +24,9 @@ spec:
   postgresql:
     parameters:
       # Connection settings
-      max_connections: "200"
-      shared_buffers: "256MB"
-      effective_cache_size: "768MB"
+      max_connections: "100"
+      shared_buffers: "128MB"
+      effective_cache_size: "384MB"
       maintenance_work_mem: "128MB"
       checkpoint_completion_target: "0.9"
       wal_buffers: "16MB"
@@ -107,11 +107,11 @@ spec:
   # Resource limits
   resources:
     requests:
-      memory: "512Mi"
-      cpu: "250m"
+      memory: "384Mi"
+      cpu: "150m"
     limits:
-      memory: "2Gi"
-      cpu: "1"
+      memory: "1Gi"
+      cpu: "500m"
 
   # NOTE: CNPG operator manages container security internally
   # PostgreSQL requires write access to data directory, so readOnlyRootFilesystem
@@ -123,10 +123,7 @@ spec:
     shm: 256Mi
     temporaryData: 1Gi
 
-  # Affinity - spread across nodes (required for true HA)
-  affinity:
-    podAntiAffinityType: required
-    topologyKey: kubernetes.io/hostname
+  # 单实例无需 anti-affinity
 
   # Monitoring
   monitoring:
@@ -177,17 +174,3 @@ spec:
   immediate: false
   suspend: false
 
----
-# PodDisruptionBudget for the cluster
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: shared-postgres-pdb
-  namespace: data-services
-  labels:
-    argocd.argoproj.io/instance: postgres-cluster
-spec:
-  minAvailable: 2
-  selector:
-    matchLabels:
-      cnpg.io/cluster: shared-postgres

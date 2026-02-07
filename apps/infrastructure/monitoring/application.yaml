@@ -1,5 +1,5 @@
 # Prometheus Stack Application
-# Deploys Prometheus, Grafana, and Alertmanager using kube-prometheus-stack
+# Deploys minimal Prometheus using kube-prometheus-stack (Grafana/Alertmanager disabled)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -30,21 +30,10 @@ spec:
             # Image pull policy
             image:
               pullPolicy: IfNotPresent
-            # HA configuration - 2 replicas
-            replicas: 2
+            # 单副本，节省资源
+            replicas: 1
             podDisruptionBudget:
-              enabled: true
-              minAvailable: 1
-            # Pod anti-affinity for HA
-            affinity:
-              podAntiAffinity:
-                preferredDuringSchedulingIgnoredDuringExecution:
-                  - weight: 100
-                    podAffinityTerm:
-                      labelSelector:
-                        matchLabels:
-                          app.kubernetes.io/name: prometheus
-                      topologyKey: kubernetes.io/hostname
+              enabled: false
             # Security hardening
             securityContext:
               runAsNonRoot: true
@@ -72,25 +61,25 @@ spec:
                   capabilities:
                     drop:
                       - ALL
-            # Resource limits
+            # Resource limits（缩减）
             resources:
               requests:
-                memory: 512Mi
-                cpu: 250m
+                memory: 256Mi
+                cpu: 100m
               limits:
-                memory: 2Gi
-                cpu: 1000m
-            # Retention (reduced to save disk space)
+                memory: 512Mi
+                cpu: 300m
+            # Retention
             retention: 7d
-            retentionSize: 5GB
-            # Storage
+            retentionSize: 2GB
+            # Storage（缩减）
             storageSpec:
               volumeClaimTemplate:
                 spec:
                   accessModes: ["ReadWriteOnce"]
                   resources:
                     requests:
-                      storage: 10Gi
+                      storage: 5Gi
             # ServiceMonitor selector - match all
             serviceMonitorSelectorNilUsesHelmValues: false
             podMonitorSelectorNilUsesHelmValues: false
@@ -110,186 +99,15 @@ spec:
                 hosts:
                   - prometheus.aster-lang.cloud
 
-        # Alertmanager configuration
+        # 禁用 Alertmanager
         alertmanager:
-          alertmanagerSpec:
-            # Image pull policy
-            image:
-              pullPolicy: IfNotPresent
-            # HA configuration - 2 replicas
-            replicas: 2
-            podDisruptionBudget:
-              enabled: true
-              minAvailable: 1
-            # Pod anti-affinity for HA
-            affinity:
-              podAntiAffinity:
-                preferredDuringSchedulingIgnoredDuringExecution:
-                  - weight: 100
-                    podAffinityTerm:
-                      labelSelector:
-                        matchLabels:
-                          app.kubernetes.io/name: alertmanager
-                      topologyKey: kubernetes.io/hostname
-            # Security hardening
-            securityContext:
-              runAsNonRoot: true
-              runAsUser: 1000
-              runAsGroup: 1000
-              fsGroup: 1000
-              seccompProfile:
-                type: RuntimeDefault
-            containers:
-              - name: alertmanager
-                securityContext:
-                  allowPrivilegeEscalation: false
-                  readOnlyRootFilesystem: true
-                  capabilities:
-                    drop:
-                      - ALL
-              # Security hardening for config-reloader sidecar
-              - name: config-reloader
-                securityContext:
-                  allowPrivilegeEscalation: false
-                  readOnlyRootFilesystem: true
-                  runAsNonRoot: true
-                  runAsUser: 1000
-                  runAsGroup: 1000
-                  capabilities:
-                    drop:
-                      - ALL
-            resources:
-              requests:
-                memory: 128Mi
-                cpu: 50m
-              limits:
-                memory: 256Mi
-                cpu: 200m
-            storage:
-              volumeClaimTemplate:
-                spec:
-                  accessModes: ["ReadWriteOnce"]
-                  resources:
-                    requests:
-                      storage: 5Gi
-          ingress:
-            enabled: true
-            ingressClassName: traefik
-            annotations:
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-              traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              traefik.ingress.kubernetes.io/router.tls: "true"
-              # Authentik forward auth protection (SSO)
-              traefik.ingress.kubernetes.io/router.middlewares: monitoring-authentik-forward-auth@kubernetescrd
-            hosts:
-              - alertmanager.aster-lang.cloud
-            tls:
-              - secretName: alertmanager-tls
-                hosts:
-                  - alertmanager.aster-lang.cloud
+          enabled: false
 
-        # Grafana configuration (SSO via Authentik OIDC)
+        # 禁用 Grafana
         grafana:
-          # Image pull policy
-          image:
-            pullPolicy: IfNotPresent
-          # HA configuration - 2 replicas
-          replicas: 2
-          podDisruptionBudget:
-            enabled: true
-            minAvailable: 1
-          # Disable initChownData - fsGroup handles permissions via securityContext
-          initChownData:
-            enabled: false
-          # Security hardening
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 472
-            runAsGroup: 472
-            fsGroup: 472
-            seccompProfile:
-              type: RuntimeDefault
-          containerSecurityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: grafana
-                    topologyKey: kubernetes.io/hostname
-          # Use ExternalSecret for admin credentials from Vault (fallback)
-          admin:
-            existingSecret: grafana-admin
-            userKey: admin-user
-            passwordKey: admin-password
-          # Environment variables for OIDC configuration
-          envFromSecrets:
-            - name: grafana-oidc
-              optional: false
-          # Grafana OIDC configuration via grafana.ini
-          grafana.ini:
-            server:
-              root_url: https://grafana.aster-lang.cloud
-            auth:
-              # Disable login form for SSO-only access
-              disable_login_form: false
-              # Allow signout redirect to Authentik
-              signout_redirect_url: https://auth.aster-lang.cloud/application/o/grafana/end-session/
-            auth.generic_oauth:
-              enabled: true
-              name: Authentik
-              allow_sign_up: true
-              client_id: grafana
-              client_secret: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
-              scopes: openid profile email groups
-              auth_url: https://auth.aster-lang.cloud/application/o/authorize/
-              token_url: https://auth.aster-lang.cloud/application/o/token/
-              api_url: https://auth.aster-lang.cloud/application/o/userinfo/
-              # Map Authentik groups to Grafana roles
-              role_attribute_path: contains(groups, 'grafana-admins') && 'Admin' || contains(groups, 'grafana-editors') && 'Editor' || 'Viewer'
-              # Auto-login with OIDC (optional - uncomment to skip login page)
-              # auto_login: true
-          persistence:
-            enabled: true
-            size: 5Gi
-          resources:
-            requests:
-              memory: 256Mi
-              cpu: 100m
-            limits:
-              memory: 512Mi
-              cpu: 500m
-          ingress:
-            enabled: true
-            ingressClassName: traefik
-            annotations:
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-              traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              traefik.ingress.kubernetes.io/router.tls: "true"
-            hosts:
-              - grafana.aster-lang.cloud
-            tls:
-              - secretName: grafana-tls
-                hosts:
-                  - grafana.aster-lang.cloud
-          # Default dashboards
-          defaultDashboardsEnabled: true
-          # Sidecar for dashboard discovery
-          sidecar:
-            dashboards:
-              enabled: true
-              searchNamespace: ALL
-            datasources:
-              enabled: true
+          enabled: false
 
-        # Prometheus Operator - manages CRDs
+        # Prometheus Operator - manages CRDs（缩减资源）
         prometheusOperator:
           enabled: true
           image:
@@ -309,11 +127,11 @@ spec:
                 - ALL
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 200m
+              memory: 256Mi
 
         # Node exporter for host metrics
         nodeExporter:
@@ -381,7 +199,7 @@ spec:
 
         # Extra manifests for auth middleware
         extraManifests:
-          # ForwardAuth middleware for Prometheus/Alertmanager (Authentik SSO)
+          # ForwardAuth middleware for Prometheus (Authentik SSO)
           # Uses Authentik outpost's forward auth endpoint
           - apiVersion: traefik.io/v1alpha1
             kind: Middleware
@@ -404,15 +222,6 @@ spec:
                   - X-authentik-meta-provider
                   - X-authentik-meta-app
                   - X-authentik-meta-version
-          # Keep basic auth as fallback (can be removed after SSO is verified working)
-          - apiVersion: traefik.io/v1alpha1
-            kind: Middleware
-            metadata:
-              name: monitoring-basic-auth
-              namespace: monitoring
-            spec:
-              basicAuth:
-                secret: monitoring-auth
           # ExternalSecret for monitoring basic auth credentials (fallback)
           - apiVersion: external-secrets.io/v1
             kind: ExternalSecret
@@ -432,48 +241,6 @@ spec:
                   remoteRef:
                     key: infrastructure/monitoring
                     property: basic_auth_users
-          # ExternalSecret for Grafana admin credentials (fallback)
-          - apiVersion: external-secrets.io/v1
-            kind: ExternalSecret
-            metadata:
-              name: grafana-admin
-              namespace: monitoring
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                name: vault-backend
-                kind: ClusterSecretStore
-              target:
-                name: grafana-admin
-                creationPolicy: Owner
-              data:
-                - secretKey: admin-user
-                  remoteRef:
-                    key: infrastructure/grafana
-                    property: admin-user
-                - secretKey: admin-password
-                  remoteRef:
-                    key: infrastructure/grafana
-                    property: admin-password
-          # ExternalSecret for Grafana OIDC credentials
-          - apiVersion: external-secrets.io/v1
-            kind: ExternalSecret
-            metadata:
-              name: grafana-oidc
-              namespace: monitoring
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                name: vault-backend
-                kind: ClusterSecretStore
-              target:
-                name: grafana-oidc
-                creationPolicy: Owner
-              data:
-                - secretKey: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
-                  remoteRef:
-                    key: infrastructure/grafana-oidc
-                    property: client_secret
 
   destination:
     server: https://kubernetes.default.svc

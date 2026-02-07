@@ -1,5 +1,5 @@
 # TLS Management ApplicationSet
-# Manages cert-manager and reflector applications
+# Manages cert-manager application
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -13,8 +13,6 @@ spec:
         elements:
           - name: cert-manager
             namespace: cert-manager
-          - name: reflector
-            namespace: reflector
   template:
     metadata:
       name: 'tls-{{ .name }}'

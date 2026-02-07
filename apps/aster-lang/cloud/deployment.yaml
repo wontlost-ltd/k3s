@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: aster-api
@@ -57,28 +57,23 @@ spec:
                 secretKeyRef:
                   name: aster-api-db-credentials
                   key: reactive-url
-            # Redis Sentinel 连接配置
+            # Redis Standalone 连接配置
             - name: QUARKUS_REDIS_HOSTS
               valueFrom:
                 secretKeyRef:
                   name: aster-api-redis-credentials
                   key: redis-hosts
             - name: QUARKUS_REDIS_CLIENT_TYPE
-              value: "sentinel"
-            - name: QUARKUS_REDIS_MASTER_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: aster-api-redis-credentials
-                  key: master-name
+              value: "standalone"
             # CORS 配置
             - name: QUARKUS_HTTP_CORS_ORIGINS
               value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.dev,https://aster-lang.dev"
             # 安全配置：禁用 HMAC 签名验证（内部网络访问）
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
-            # JVM 调优
+            # JVM 调优（缩减堆内存）
             - name: JAVA_OPTS
-              value: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
+              value: "-Xms128m -Xmx384m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
@@ -90,11 +85,11 @@ spec:
               mountPath: /tmp
           resources:
             requests:
-              memory: 384Mi
-              cpu: 200m
+              memory: 256Mi
+              cpu: 100m
             limits:
-              memory: 768Mi
-              cpu: 1000m
+              memory: 512Mi
+              cpu: 500m
           livenessProbe:
             httpGet:
               path: /q/health/live

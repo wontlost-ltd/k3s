@@ -1,6 +1,6 @@
-# Shared Redis Cluster
-# Bitnami Redis with Sentinel for HA
-# Used by Authentik, Policy API, and other applications for caching/sessions
+# Shared Redis (Standalone)
+# Bitnami Redis standalone mode for single-node deployment
+# Used by Authentik, Aster API, and other applications for caching/sessions
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -32,8 +32,8 @@ spec:
           tag: latest
           pullPolicy: IfNotPresent
 
-        # Sentinel HA architecture
-        architecture: replication
+        # Standalone 架构，节省资源
+        architecture: standalone
 
         # Authentication
         auth:
@@ -45,98 +45,22 @@ spec:
         master:
           resources:
             requests:
-              memory: 256Mi
-              cpu: 100m
-            limits:
-              memory: 512Mi
-              cpu: 500m
-          persistence:
-            enabled: true
-            size: 2Gi
-          pdb:
-            enabled: true
-            minAvailable: 1
-          # Security hardening
-          podSecurityContext:
-            runAsNonRoot: true
-            fsGroup: 1001
-            seccompProfile:
-              type: RuntimeDefault
-          containerSecurityContext:
-            runAsUser: 1001
-            runAsGroup: 1001
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-          # Anti-affinity to spread master away from replicas
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: redis
-                    topologyKey: kubernetes.io/hostname
-
-        # Replica configuration
-        replica:
-          replicaCount: 2
-          resources:
-            requests:
-              memory: 256Mi
-              cpu: 100m
-            limits:
-              memory: 512Mi
-              cpu: 500m
-          persistence:
-            enabled: true
-            size: 2Gi
-          pdb:
-            enabled: true
-            minAvailable: 1
-          # Security hardening
-          podSecurityContext:
-            runAsNonRoot: true
-            fsGroup: 1001
-            seccompProfile:
-              type: RuntimeDefault
-          containerSecurityContext:
-            runAsUser: 1001
-            runAsGroup: 1001
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: redis
-                        app.kubernetes.io/component: replica
-                    topologyKey: kubernetes.io/hostname
-
-        # Sentinel configuration for automatic failover
-        sentinel:
-          enabled: true
-          image:
-            registry: docker.io
-            repository: bitnami/redis-sentinel
-            tag: latest
-          resources:
-            requests:
-              memory: 64Mi
+              memory: 128Mi
               cpu: 50m
             limits:
-              memory: 128Mi
-              cpu: 100m
-          # Security hardening (inherited from master/replica but explicit)
+              memory: 256Mi
+              cpu: 200m
+          persistence:
+            enabled: true
+            size: 2Gi
+          pdb:
+            enabled: false
+          # Security hardening
+          podSecurityContext:
+            runAsNonRoot: true
+            fsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
           containerSecurityContext:
             runAsUser: 1001
             runAsGroup: 1001
@@ -153,14 +77,8 @@ spec:
             registry: docker.io
             repository: bitnami/redis-exporter
             tag: latest
-          # NOTE: ServiceMonitor disabled until monitoring stack is deployed
-          # After monitoring is ready, set enabled: true and sync again
           serviceMonitor:
             enabled: false
-            # Re-enable after monitoring deployment:
-            # enabled: true
-            # labels:
-            #   release: prometheus
           resources:
             requests:
               memory: 32Mi
@@ -171,7 +89,7 @@ spec:
 
         # Network policy
         networkPolicy:
-          enabled: false  # Enable if you need strict network isolation
+          enabled: false
 
         # Service account
         serviceAccount:

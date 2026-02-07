@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/component: tunnel
     app.kubernetes.io/part-of: cloudflare-tunnel
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: cloudflared
@@ -34,17 +34,6 @@ spec:
         seccompProfile:
           type: RuntimeDefault
 
-      # Spread across nodes for HA
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: cloudflared
-                topologyKey: kubernetes.io/hostname
-
       containers:
         - name: cloudflared
           image: cloudflare/cloudflared:2024.12.2
@@ -65,11 +54,11 @@ spec:
                   key: token
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 25m
+              memory: 32Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -106,17 +95,3 @@ metadata:
     app.kubernetes.io/component: tunnel
     app.kubernetes.io/part-of: cloudflare-tunnel
 automountServiceAccountToken: false
----
-# PodDisruptionBudget for HA
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: cloudflared
-  namespace: cloudflare
-  labels:
-    app.kubernetes.io/name: cloudflared
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: cloudflared

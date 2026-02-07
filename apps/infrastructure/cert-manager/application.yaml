@@ -26,29 +26,19 @@ spec:
           enabled: true
           keep: true
 
-        # HA configuration
-        replicaCount: 2
+        # 单副本，节省资源
+        replicaCount: 1
         podDisruptionBudget:
-          enabled: true
-          minAvailable: 1
-        affinity:
-          podAntiAffinity:
-            preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                podAffinityTerm:
-                  labelSelector:
-                    matchLabels:
-                      app.kubernetes.io/name: cert-manager
-                  topologyKey: kubernetes.io/hostname
+          enabled: false
 
-        # Resource limits (production values)
+        # Resource limits（缩减）
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 50m
+            memory: 64Mi
           limits:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 200m
+            memory: 256Mi
 
         # Security hardening (controller)
         securityContext:
@@ -66,26 +56,16 @@ spec:
               - ALL
 
         webhook:
-          replicaCount: 2
+          replicaCount: 1
           podDisruptionBudget:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: webhook
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 25m
+              memory: 32Mi
             limits:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
           # Security hardening
           securityContext:
             runAsNonRoot: true
@@ -98,26 +78,16 @@ spec:
                 - ALL
 
         cainjector:
-          replicaCount: 2
+          replicaCount: 1
           podDisruptionBudget:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: cainjector
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 200m
+              memory: 256Mi
           # Security hardening
           securityContext:
             runAsNonRoot: true

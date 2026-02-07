@@ -8,7 +8,7 @@ spec:
   sourceRepos:
     # Only allow specific repositories (no wildcards for security)
     - 'https://github.com/wontlost-ltd/k3s.git'
-    - 'https://github.com/aster-cloud/policy-api.git'
+    - 'https://github.com/aster-cloud/aster-api.git'
   destinations:
     # Explicit namespace list (no wildcards for security)
     - namespace: aster-cloud

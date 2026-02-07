@@ -24,20 +24,19 @@ spec:
         image:
           pullPolicy: IfNotPresent
 
-        # HA configuration for the operator itself
-        replicaCount: 2
+        # 单副本，节省资源
+        replicaCount: 1
 
         podDisruptionBudget:
-          enabled: true
-          minAvailable: 1
+          enabled: false
 
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 50m
+            memory: 64Mi
           limits:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 200m
+            memory: 256Mi
 
         # Security hardening
         podSecurityContext:

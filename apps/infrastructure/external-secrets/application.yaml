@@ -25,29 +25,19 @@ spec:
         # Install CRDs
         installCRDs: true
 
-        # Replicas for HA (2 for production resilience)
-        replicaCount: 2
+        # 单副本，节省资源
+        replicaCount: 1
         podDisruptionBudget:
-          enabled: true
-          minAvailable: 1
-        affinity:
-          podAntiAffinity:
-            preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                podAffinityTerm:
-                  labelSelector:
-                    matchLabels:
-                      app.kubernetes.io/name: external-secrets
-                  topologyKey: kubernetes.io/hostname
+          enabled: false
 
-        # Resource limits (production values)
+        # Resource limits（缩减）
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 50m
+            memory: 64Mi
           limits:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 200m
+            memory: 256Mi
 
         # Security hardening
         podSecurityContext:
@@ -64,28 +54,18 @@ spec:
             drop:
               - ALL
 
-        # Webhook configuration (2 for HA)
+        # Webhook configuration（单副本）
         webhook:
-          replicaCount: 2
+          replicaCount: 1
           podDisruptionBudget:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: external-secrets-webhook
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 25m
+              memory: 32Mi
             limits:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
           # Security hardening
           podSecurityContext:
             runAsNonRoot: true
@@ -101,28 +81,18 @@ spec:
               drop:
                 - ALL
 
-        # Cert controller for webhook certificates
+        # Cert controller（单副本）
         certController:
-          replicaCount: 2
+          replicaCount: 1
           podDisruptionBudget:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: external-secrets-cert-controller
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 25m
+              memory: 32Mi
             limits:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
           # Security hardening
           podSecurityContext:
             runAsNonRoot: true
@@ -148,14 +118,8 @@ spec:
           service:
             enabled: true
             port: 8080
-          # NOTE: ServiceMonitor disabled until monitoring stack is deployed
-          # After monitoring is ready, set enabled: true and sync again
           serviceMonitor:
             enabled: false
-            # Re-enable after monitoring deployment:
-            # enabled: true
-            # labels:
-            #   release: prometheus
 
   destination:
     server: https://kubernetes.default.svc
