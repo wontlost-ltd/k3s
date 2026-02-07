@@ -56,7 +56,7 @@ spec:
               drop:
                 - ALL
 
-        # Repo server（单副本模式）
+        # Repo server（单副本模式，需要足够内存渲染 Helm charts）
         repoServer:
           replicas: 1
           pdb:
@@ -64,10 +64,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 256Mi
             limits:
-              cpu: 300m
-              memory: 512Mi
+              cpu: 500m
+              memory: 1Gi
           containerSecurityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
