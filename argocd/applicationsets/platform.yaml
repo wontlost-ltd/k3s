@@ -11,8 +11,6 @@ spec:
   generators:
     - list:
         elements:
-          - name: monitoring
-            namespace: monitoring
           - name: cloudflare-tunnel
             namespace: cloudflare
   template:
