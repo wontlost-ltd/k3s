@@ -13,6 +13,8 @@ spec:
     # Explicit namespace list (no wildcards for security)
     - namespace: wontlost-data
       server: https://kubernetes.default.svc
+    - namespace: wontlost-ckeditor-builder
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
