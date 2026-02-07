@@ -1,0 +1,77 @@
+# CKEditor Builder Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ckeditor-builder
+  namespace: wontlost-ckeditor-builder
+  labels:
+    app: ckeditor-builder
+    app.kubernetes.io/name: ckeditor-builder
+    app.kubernetes.io/part-of: wontlost
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ckeditor-builder
+  template:
+    metadata:
+      labels:
+        app: ckeditor-builder
+        app.kubernetes.io/name: ckeditor-builder
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ckeditor-builder
+          image: wontlost/ckeditor-builder:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - secretRef:
+                name: ckeditor-builder-credentials
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: oracle-wallet
+              mountPath: /app/wallet
+              readOnly: true
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8082
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ckeditor-builder-data
+        - name: oracle-wallet
+          secret:
+            secretName: oracle-wallet

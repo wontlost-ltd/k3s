@@ -1,0 +1,31 @@
+# CKEditor Builder Ingress
+# 使用 Reflector 复制的通配符证书
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ckeditor-builder
+  namespace: wontlost-ckeditor-builder
+  labels:
+    app: ckeditor-builder
+    app.kubernetes.io/name: ckeditor-builder
+    app.kubernetes.io/part-of: wontlost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ckeditor-builder.wontlost.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ckeditor-builder
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ckeditor-builder.wontlost.com
+      secretName: wontlost-com-tls

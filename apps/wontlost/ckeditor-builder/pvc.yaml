@@ -1,0 +1,17 @@
+# H2 数据库持久化存储
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ckeditor-builder-data
+  namespace: wontlost-ckeditor-builder
+  labels:
+    app: ckeditor-builder
+    app.kubernetes.io/name: ckeditor-builder
+    app.kubernetes.io/part-of: wontlost
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

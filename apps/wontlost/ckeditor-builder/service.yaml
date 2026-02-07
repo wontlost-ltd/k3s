@@ -1,0 +1,19 @@
+# CKEditor Builder Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ckeditor-builder
+  namespace: wontlost-ckeditor-builder
+  labels:
+    app: ckeditor-builder
+    app.kubernetes.io/name: ckeditor-builder
+    app.kubernetes.io/part-of: wontlost
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8082
+      protocol: TCP
+      name: http
+  selector:
+    app: ckeditor-builder

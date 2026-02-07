@@ -1,0 +1,7 @@
+# CKEditor Builder Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wontlost-ckeditor-builder
+  labels:
+    app.kubernetes.io/part-of: wontlost
