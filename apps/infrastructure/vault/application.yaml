@@ -26,8 +26,7 @@ spec:
           replicas: 1
           image:
             pullPolicy: IfNotPresent
-          podDisruptionBudget:
-            enabled: false
+          podDisruptionBudget: {}
           resources:
             requests:
               memory: 64Mi
@@ -108,7 +107,7 @@ spec:
             enabled: true
             replicas: 1
             disruptionBudget:
-              enabled: false
+              maxUnavailable: null
             raft:
               enabled: true
               setNodeId: true
