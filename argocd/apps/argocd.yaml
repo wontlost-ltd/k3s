@@ -34,22 +34,11 @@ spec:
             seccompProfile:
               type: RuntimeDefault
 
-        # Server configuration (2 replicas for HA)
-        # Resource requests tuned based on actual usage
+        # Server（单副本模式）
         server:
-          replicas: 2
+          replicas: 1
           pdb:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: argocd-server
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
               cpu: 50m
@@ -67,29 +56,18 @@ spec:
               drop:
                 - ALL
 
-        # Repo server (2 replicas for HA)
-        # Resource requests tuned based on actual usage
+        # Repo server（单副本模式）
         repoServer:
-          replicas: 2
+          replicas: 1
           pdb:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: argocd-repo-server
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
               cpu: 50m
-              memory: 256Mi
+              memory: 128Mi
             limits:
-              cpu: 500m
-              memory: 1Gi
+              cpu: 300m
+              memory: 512Mi
           containerSecurityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -100,22 +78,11 @@ spec:
               drop:
                 - ALL
 
-        # Application controller (HA with sharding)
-        # Resource requests tuned based on actual usage (~17m CPU observed)
+        # Application controller（单副本模式）
         controller:
-          replicas: 2
+          replicas: 1
           pdb:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: argocd-application-controller
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
               cpu: 100m
@@ -133,89 +100,45 @@ spec:
               drop:
                 - ALL
 
-        # Redis HA
+        # Redis Standalone（单副本模式，替代 HA）
         redis:
-          enabled: false  # Disable standalone redis
-        redis-ha:
           enabled: true
-          haproxy:
-            enabled: true
-            replicas: 3
-            securityContext:
-              runAsNonRoot: true
-              runAsUser: 99
-              runAsGroup: 99
-              fsGroup: 99
-              seccompProfile:
-                type: RuntimeDefault
-            containerSecurityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities:
-                drop:
-                  - ALL
-            resources:
-              requests:
-                cpu: 50m
-                memory: 64Mi
-              limits:
-                cpu: 200m
-                memory: 256Mi
-          # Resource requests tuned based on actual usage (~17m CPU observed)
-          redis:
-            replicas: 3
-            securityContext:
-              runAsNonRoot: true
-              runAsUser: 1000
-              runAsGroup: 1000
-              fsGroup: 1000
-              seccompProfile:
-                type: RuntimeDefault
-            resources:
-              requests:
-                cpu: 50m
-                memory: 128Mi
-              limits:
-                cpu: 250m
-                memory: 512Mi
-          # Sentinel resource limits to prevent CPU runaway spikes
-          # Without limits, Sentinel can consume 900m+ CPU during failover detection
-          sentinel:
-            resources:
-              requests:
-                cpu: 25m
-                memory: 64Mi
-              limits:
-                cpu: 100m
-                memory: 128Mi
-          hardAntiAffinity: true
-          pdb:
-            enabled: true
-            minAvailable: 2
-
-        # Notifications controller (2 replicas for HA)
-        notifications:
-          enabled: true
-          replicas: 2
-          pdb:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: argocd-notifications-controller
-                    topologyKey: kubernetes.io/hostname
           resources:
             requests:
-              cpu: 50m
+              cpu: 25m
               memory: 64Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+        redis-ha:
+          enabled: false
+
+        # Notifications controller（单副本模式）
+        notifications:
+          enabled: true
+          replicas: 1
+          pdb:
+            enabled: false
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           containerSecurityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -226,21 +149,11 @@ spec:
               drop:
                 - ALL
 
-        # ApplicationSet controller
+        # ApplicationSet controller（单副本模式）
         applicationSet:
-          replicas: 2
+          replicas: 1
           pdb:
-            enabled: true
-            minAvailable: 1
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app.kubernetes.io/name: argocd-applicationset-controller
-                    topologyKey: kubernetes.io/hostname
+            enabled: false
           resources:
             requests:
               cpu: 50m
