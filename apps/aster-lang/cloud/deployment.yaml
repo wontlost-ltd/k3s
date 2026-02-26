@@ -68,6 +68,27 @@ spec:
             # CORS 配置
             - name: QUARKUS_HTTP_CORS_ORIGINS
               value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.dev,https://aster-lang.dev"
+            # LLM AI Assistant（从 Vault 注入）
+            - name: ASTER_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-llm-credentials
+                  key: api-key
+            - name: ASTER_LLM_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-llm-credentials
+                  key: base-url
+            - name: ASTER_LLM_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-llm-credentials
+                  key: provider
+            - name: ASTER_LLM_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-llm-credentials
+                  key: model
             # 安全配置：禁用 HMAC 签名验证（内部网络访问）
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
