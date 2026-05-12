@@ -107,7 +107,8 @@ spec:
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
             # NSM 埋点 — Mixpanel HTTP 投递（详见 aster-deploy/docs/pm/03-telemetry-spec.md）
-            # token 通过 ExternalSecret 从 Vault 注入
+            # Optional：Vault path secret/apps/aster-api-mixpanel 未配置时 pod 仍可启动，
+            # 但 telemetry 不会生效（ASTER_MIXPANEL_TOKEN 为空时客户端自动禁用）。
             - name: ASTER_MIXPANEL_ENABLED
               value: "true"
             - name: ASTER_MIXPANEL_TOKEN
@@ -115,8 +116,11 @@ spec:
                 secretKeyRef:
                   name: aster-api-mixpanel-credentials
                   key: token
+                  optional: true
             # 跨服务 PlanGate — aster-api → aster-cloud /api/internal/tenant/{id}/plan
             # 详见 aster-deploy/docs/pm/06-cross-service-plan-gate.md
+            # Optional：Vault path secret/apps/aster-api-plan-gate 未配置时 fail-open，
+            # plan 升级生效会延迟到 cache TTL 兜底（5min）。
             - name: ASTER_PLAN_GATE_ENABLED
               value: "true"
             - name: ASTER_CLOUD_INTERNAL_URL
@@ -126,6 +130,7 @@ spec:
                 secretKeyRef:
                   name: aster-api-plan-gate-credentials
                   key: hmac-key
+                  optional: true
             # Staging 工具端点 — 生产显式禁用（防御深度）
             - name: ASTER_STAGING_TELEMETRY_ENABLED
               value: "false"

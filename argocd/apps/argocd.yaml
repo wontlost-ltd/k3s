@@ -83,18 +83,10 @@ spec:
           replicas: 1
           pdb:
             enabled: false
-          # Level 1 优化：限制 reconciler 并发数，降低 CPU burst + 内存峰值。
-          # 默认 controller 会按 CPU 数自动开 ~10 workers/processor，
-          # 在 1 vCPU 节点上 burst 700+MiB RAM。显式设小 worker 数后实测降至 ~400MiB。
-          env:
-            - name: ARGOCD_CONTROLLER_REPLICAS
-              value: "1"
-            - name: ARGOCD_APPLICATION_CONTROLLER_STATUS_PROCESSORS
-              value: "5"
-            - name: ARGOCD_APPLICATION_CONTROLLER_OPERATION_PROCESSORS
-              value: "2"
-            - name: ARGOCD_APPLICATION_CONTROLLER_KUBECTL_PARALLELISM_LIMIT
-              value: "10"
+          # NOTE: reconciler concurrency caps are configured via
+          # configs.params (controller.* keys) further down in this file —
+          # not via direct env injection here, which would duplicate the
+          # Helm chart's own envFrom references to argocd-cmd-params-cm.
           resources:
             requests:
               cpu: 100m
@@ -318,6 +310,11 @@ spec:
           params:
             # Run ArgoCD server without TLS (Traefik terminates TLS)
             server.insecure: "true"
+            # Reconciler concurrency caps (Level 1 perf tuning).
+            # Default scales with CPU count → bursts ~700MiB on 1 vCPU.
+            controller.status.processors: "5"
+            controller.operation.processors: "2"
+            controller.kubectl.parallelism.limit: "10"
 
   destination:
     server: https://kubernetes.default.svc
