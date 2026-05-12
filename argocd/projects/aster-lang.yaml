@@ -15,6 +15,8 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: aster-lsp
       server: https://kubernetes.default.svc
+    - namespace: aster-observability
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
@@ -67,5 +69,12 @@ spec:
     # External Secrets
     - group: external-secrets.io
       kind: ExternalSecret
+    # Traefik routing (per-route auth + path-based blocks for cloud / api)
+    - group: traefik.io
+      kind: IngressRoute
+    - group: traefik.io
+      kind: IngressRouteTCP
+    - group: traefik.io
+      kind: Middleware
     # NOTE: argoproj.io/Application removed to prevent project boundary escape
     # App-of-apps pattern is managed by infrastructure project only
