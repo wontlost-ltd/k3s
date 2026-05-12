@@ -17,7 +17,5 @@ resources:
   # - network-policy.yaml
   - external-secrets.yaml
   # aster-cloud drizzle migration (PreSync hook + standalone runs)
-  # 临时禁用：等待 aster-cloud 仓库配齐 DOCKERHUB_* secret + CI 构建出
-  # wontlost/aster-cloud-migrate:latest 镜像后再启用。
-  # - migrate-external-secret.yaml
-  # - migrate-job.yaml
+  - migrate-external-secret.yaml
+  - migrate-job.yaml
