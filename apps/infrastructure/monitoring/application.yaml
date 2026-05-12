@@ -300,6 +300,11 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # 禁用 init-chown-data：当 securityContext.runAsNonRoot=true 时
+          # 该 init container 无权 chown PVC 文件 → CrashLoop。
+          # fsGroup=472 已经让 kubelet 在挂载时自动 chgrp PVC。
+          initChownData:
+            enabled: false
 
         # Prometheus Operator - manages CRDs（缩减资源）
         prometheusOperator:
