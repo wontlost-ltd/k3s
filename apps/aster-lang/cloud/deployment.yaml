@@ -37,12 +37,17 @@ spec:
               name: http
           env:
             # OTel tracing → otel-collector → tempo（SNAP-10）
-            # Image wontlost/aster-api:jvm-latest @ commit 8673437 bundles
-            # io.opentelemetry:opentelemetry-exporter-otlp 1.57.0.
+            # 'cdi' = Quarkus' built-in CDI-managed OTLP exporter. Reads
+            # quarkus.otel.exporter.otlp.endpoint (mapped from
+            # OTEL_EXPORTER_OTLP_ENDPOINT below). Do NOT use 'otlp' — that
+            # goes through OTel SDK autoconfigure SPI which Quarkus' Fast-Jar
+            # classloader doesn't expose, causing ConfigurationException at
+            # startup.
             - name: OTEL_TRACES_EXPORTER
-              value: "otlp"
+              value: "cdi"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "http://otel-collector.otel-system.svc:4317"
+              # Helm chart 给 Service 加了 chart-name 前缀：otel-collector-opentelemetry-collector
+              value: "http://otel-collector-opentelemetry-collector.otel-system.svc:4317"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: "grpc"
             - name: OTEL_TRACES_SAMPLER
