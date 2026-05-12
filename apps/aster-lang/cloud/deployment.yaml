@@ -37,8 +37,15 @@ spec:
               name: http
           env:
             # OTel tracing → otel-collector → tempo（SNAP-10）
+            # Disabled: current wontlost/aster-api:jvm-latest doesn't include
+            # opentelemetry-exporter-otlp on classpath. Re-enable once the
+            # quarkus-opentelemetry-exporter-otlp extension is added to the
+            # image build. See aster-api crash:
+            #   io.opentelemetry.sdk.autoconfigure.spi.ConfigurationException:
+            #   otel.traces.exporter set to "otlp" but
+            #   opentelemetry-exporter-otlp not found on classpath
             - name: OTEL_TRACES_EXPORTER
-              value: "otlp"
+              value: "none"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector.otel-system.svc:4317"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
