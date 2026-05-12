@@ -1,0 +1,10 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aster-slo-burn-rate
+  namespace: aster-observability
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    app.kubernetes.io/component: slo
+    release: prometheus
+spec:

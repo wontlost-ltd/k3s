@@ -20,6 +20,7 @@ spec:
         app: aster-lsp
         app.kubernetes.io/name: aster-lsp
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001

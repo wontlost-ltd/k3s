@@ -1,0 +1,50 @@
+# 屏蔽 /api/v1/policies/evaluate-source 公开访问
+#
+# 该端点接受请求体里的 CNL 源码，绕过审核流。仅 cloud BFF（dashboard preview）
+# 应通过 InternalCallerFilter 调用。这个 ingress + middleware 是兜底防御：
+# 即使 InternalCallerFilter 配错或被绕过，traefik 层也会先返回 404。
+#
+# 工作原理：
+#   - Middleware "block-evaluate-source" 用 replacePathRegex 把请求改写到 /__forbidden__
+#   - 同 namespace 的 IngressRoute 优先级高于 Ingress，仅匹配 evaluate-source 精确路径
+#   - 改写后路径 /__forbidden__ 不存在 → traefik 返回 404
+#
+# cloud BFF 调用 evaluate-source 时不经此 ingress（cloud 通过 ASTER_POLICY_API_INTERNAL_URL
+# 走集群内部 service DNS，绕过 ingress 直连 aster-api service）。
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: block-evaluate-source
+  namespace: aster-cloud
+spec:
+  # replacePathRegex 把所有匹配请求改写到一个不存在的路径，traefik 返回 404
+  replacePathRegex:
+    regex: ^/api/v1/policies/evaluate-source$
+    replacement: /__blocked_evaluate_source__
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: aster-api-deny-evaluate-source
+  namespace: aster-cloud
+  labels:
+    app: aster-api
+    app.kubernetes.io/name: aster-api
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # 优先级数字越大越优先匹配；这里用精确路径匹配 evaluate-source
+    - match: Host(`policy.aster-lang.dev`) && Path(`/api/v1/policies/evaluate-source`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: block-evaluate-source
+      services:
+        # 路由到 aster-api 但被 middleware 改写为不存在路径 → 404
+        - name: aster-api
+          port: 80
+  tls:
+    secretName: aster-lang-dev-tls

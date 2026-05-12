@@ -13,6 +13,11 @@ spec:
         elements:
           - name: cloudflare-tunnel
             namespace: cloudflare
+          # SNAP-10: tempo + otel-collector 一并部署
+          - name: tempo
+            namespace: argocd  # 自身 Application 在 argocd ns，目标 ns 由其内部决定
+          - name: otel-collector
+            namespace: argocd
   template:
     metadata:
       name: 'platform-{{ .name }}'

@@ -20,6 +20,7 @@ spec:
         app: aster-api
         app.kubernetes.io/name: aster-api
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
@@ -29,12 +30,25 @@ spec:
           type: RuntimeDefault
       containers:
         - name: aster-api
-          image: docker.io/wontlost/aster-api:jvm-latest
+          image: docker.io/wontlost/aster-api:jvm-latest  # managed by ArgoCD + imagePullPolicy:Always ensures freshness
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: http
           env:
+            # OTel tracing → otel-collector → tempo（SNAP-10）
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.otel-system.svc:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_TRACES_SAMPLER
+              value: "parentbased_traceidratio"
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "0.1"  # 10% 采样
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.name=aster-policy-api,service.version=jvm-latest,deployment.environment=prod"
             # 数据库连接（从 ExternalSecret 注入）
             - name: QUARKUS_DATASOURCE_JDBC_URL
               valueFrom:
@@ -92,12 +106,35 @@ spec:
             # 安全配置：禁用 HMAC 签名验证（内部网络访问）
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
+            # NSM 埋点 — Mixpanel HTTP 投递（详见 aster-deploy/docs/pm/03-telemetry-spec.md）
+            # token 通过 ExternalSecret 从 Vault 注入
+            - name: ASTER_MIXPANEL_ENABLED
+              value: "true"
+            - name: ASTER_MIXPANEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-mixpanel-credentials
+                  key: token
+            # 跨服务 PlanGate — aster-api → aster-cloud /api/internal/tenant/{id}/plan
+            # 详见 aster-deploy/docs/pm/06-cross-service-plan-gate.md
+            - name: ASTER_PLAN_GATE_ENABLED
+              value: "true"
+            - name: ASTER_CLOUD_INTERNAL_URL
+              value: "http://aster-cloud.aster-cloud.svc.cluster.local:3000"
+            - name: ASTER_PLAN_GATE_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-plan-gate-credentials
+                  key: hmac-key
+            # Staging 工具端点 — 生产显式禁用（防御深度）
+            - name: ASTER_STAGING_TELEMETRY_ENABLED
+              value: "false"
             # JVM 调优（缩减堆内存）
             - name: JAVA_OPTS
               value: "-Xms128m -Xmx384m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
