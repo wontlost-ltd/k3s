@@ -24,13 +24,13 @@ metadata:
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:
   ttlSecondsAfterFinished: 86400  # 24h 后自动清理
-  backoffLimit: 2
+  backoffLimit: 0
   template:
     metadata:
       labels:
         app: aster-cloud-migrate
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
