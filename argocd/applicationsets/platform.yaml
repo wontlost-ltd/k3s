@@ -18,6 +18,9 @@ spec:
             namespace: argocd  # 自身 Application 在 argocd ns，目标 ns 由其内部决定
           - name: otel-collector
             namespace: argocd
+          # P0-2: kube-prometheus-stack（Prometheus + Grafana + AlertManager）
+          - name: monitoring
+            namespace: argocd
   template:
     metadata:
       name: 'platform-{{ .name }}'

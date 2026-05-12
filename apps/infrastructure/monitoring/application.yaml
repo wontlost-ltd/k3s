@@ -468,6 +468,31 @@ spec:
                     key: infrastructure/monitoring
                     property: grafana_oauth_client_secret
 
+          # ExternalSecret for AlertManager Slack webhook
+          # Vault path: secret/apps/aster-api-plan-gate.slack-webhook
+          # AlertManager 通过 alertmanagerSpec.secrets 挂载到
+          # /etc/alertmanager/secrets/alertmanager-slack-webhook/url
+          # secretKey 直接命名为 "url" 以匹配挂载路径，避免双层模板转义。
+          - apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: alertmanager-slack-webhook
+              namespace: monitoring
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: vault-backend
+                kind: ClusterSecretStore
+              target:
+                name: alertmanager-slack-webhook
+                creationPolicy: Owner
+                deletionPolicy: Retain
+              data:
+                - secretKey: url
+                  remoteRef:
+                    key: apps/aster-api-plan-gate
+                    property: slack-webhook
+
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
