@@ -400,6 +400,19 @@ spec:
         kubeProxy:
           enabled: false
 
+        # K3s 的 kubelet 默认仅监听 127.0.0.1:10250 → Prometheus 直连 nodeIP:10250
+        # 会 connection refused。让 ServiceMonitor 走 K8s API server proxy 抓 kubelet
+        # （/api/v1/nodes/<node>/proxy/metrics）。
+        # 参考: https://github.com/prometheus-community/helm-charts/issues/204
+        kubelet:
+          enabled: true
+          serviceMonitor:
+            https: true
+            cAdvisor: true
+            probes: true
+            # 不直连 nodeIP:10250，改走 API server proxy。
+            useAPIServer: true
+
         # Extra manifests for auth middleware
         extraManifests:
           # ForwardAuth middleware for Prometheus (Authentik SSO)
