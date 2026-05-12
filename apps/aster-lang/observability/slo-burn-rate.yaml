@@ -8,3 +8,7 @@ metadata:
     app.kubernetes.io/component: slo
     release: prometheus
 spec:
+  # SLO burn-rate placeholder — fill in actual SLO rules when Tempo / metrics
+  # data is wired up (Phase 3E observability work). Empty groups makes the
+  # CRD valid without firing any alerts.
+  groups: []
