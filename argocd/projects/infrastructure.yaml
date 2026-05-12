@@ -16,6 +16,9 @@ spec:
     - 'https://traefik.github.io/charts'
     # Monitoring
     - 'https://prometheus-community.github.io/helm-charts'
+    # Tracing — Tempo (Grafana) + OpenTelemetry Collector
+    - 'https://grafana.github.io/helm-charts'
+    - 'https://open-telemetry.github.io/opentelemetry-helm-charts'
   destinations:
     # ArgoCD namespace for self-management
     - namespace: argocd
@@ -49,6 +52,11 @@ spec:
       server: https://kubernetes.default.svc
     # System Upgrade Controller namespace
     - namespace: system-upgrade
+      server: https://kubernetes.default.svc
+    # Observability namespaces (Tempo + OTel Collector)
+    - namespace: tempo
+      server: https://kubernetes.default.svc
+    - namespace: otel-system
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     # Namespace creation (for CreateNamespace=true)
