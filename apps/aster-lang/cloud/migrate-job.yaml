@@ -20,7 +20,8 @@ metadata:
     # 迁移失败不阻塞 deployment（aster-cloud 跑在 CF，K8s 里也没 cloud deployment 要更新）
     # 但迁移失败会让 ArgoCD app 标 Degraded，足够触发关注。
     argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded,HookFailed
+    # 仅在成功时删除；失败时保留以便 kubectl logs 调试
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:
   ttlSecondsAfterFinished: 86400  # 24h 后自动清理
   backoffLimit: 2
