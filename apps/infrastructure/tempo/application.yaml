@@ -74,6 +74,16 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: tempo
+  # Tempo Helm chart emits some fields (containers/securityContext defaults)
+  # that K8s API normalizes; ArgoCD's structured-merge diff sees this as a
+  # persistent OutOfSync. Ignore the cosmetic delta — the rollout itself
+  # succeeds and STS is Healthy.
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/template/spec/containers/0/securityContext
+        - /spec/template/spec/securityContext
   syncPolicy:
     automated:
       prune: true
@@ -81,3 +91,4 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
