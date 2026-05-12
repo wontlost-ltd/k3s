@@ -8,7 +8,137 @@ metadata:
     app.kubernetes.io/component: slo
     release: prometheus
 spec:
-  # SLO burn-rate placeholder — fill in actual SLO rules when Tempo / metrics
-  # data is wired up (Phase 3E observability work). Empty groups makes the
-  # CRD valid without firing any alerts.
-  groups: []
+  groups:
+    # SLO 1：可用性
+    #   定义：HTTP 状态码 < 5xx 的请求占比 ≥ 99.0%（30d 窗口）
+    #   错误预算：1.0% / 30d
+    #   多窗口多燃尽率告警（Google SRE workbook 标准模式）
+    - name: aster.slo.availability
+      interval: 30s
+      rules:
+        # 错误率记录规则（短窗 + 长窗）
+        - record: aster_api:request_errors:ratio_rate5m
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="aster-api",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[5m])), 1)
+
+        - record: aster_api:request_errors:ratio_rate1h
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="aster-api",status=~"5.."}[1h]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[1h])), 1)
+
+        - record: aster_api:request_errors:ratio_rate6h
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="aster-api",status=~"5.."}[6h]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[6h])), 1)
+
+        - record: aster_api:request_errors:ratio_rate1d
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="aster-api",status=~"5.."}[1d]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[1d])), 1)
+
+        # 14.4x burn：1h 内消耗 2% 预算 → 30d 预算 1.4 天烧完 → 紧急
+        - alert: AsterApiAvailabilityFastBurn
+          expr: |
+            aster_api:request_errors:ratio_rate1h > (14.4 * 0.01)
+            and
+            aster_api:request_errors:ratio_rate5m > (14.4 * 0.01)
+          for: 2m
+          labels:
+            severity: critical
+            team: backend
+            slo: availability
+            burn_rate: "14.4x"
+          annotations:
+            summary: "aster-api 可用性快速燃尽（1h burn rate 14.4x）"
+            description: |
+              过去 1h 错误率 {{ $value | humanizePercentage }}，按当前速率
+              30 天错误预算将在约 2 天内烧完。立即响应。
+
+        # 6x burn：6h 内消耗 5% 预算 → 30d 预算 5 天烧完 → 高优先级
+        - alert: AsterApiAvailabilitySlowBurn
+          expr: |
+            aster_api:request_errors:ratio_rate6h > (6 * 0.01)
+            and
+            aster_api:request_errors:ratio_rate1h > (6 * 0.01)
+          for: 15m
+          labels:
+            severity: warning
+            team: backend
+            slo: availability
+            burn_rate: "6x"
+          annotations:
+            summary: "aster-api 可用性慢速燃尽（6h burn rate 6x）"
+            description: |
+              过去 6h 错误率 {{ $value | humanizePercentage }}，按当前速率
+              30 天错误预算将在约 5 天内烧完。
+
+    # SLO 2：延迟
+    #   定义：P95 延迟 ≤ 500ms 的请求占比 ≥ 99.0%（30d 窗口）
+    - name: aster.slo.latency
+      interval: 30s
+      rules:
+        - record: aster_api:request_slow:ratio_rate5m
+          expr: |
+            (
+              sum(rate(http_server_requests_seconds_count{job="aster-api"}[5m]))
+              -
+              sum(rate(http_server_requests_seconds_bucket{job="aster-api",le="0.5"}[5m]))
+            )
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[5m])), 1)
+
+        - record: aster_api:request_slow:ratio_rate1h
+          expr: |
+            (
+              sum(rate(http_server_requests_seconds_count{job="aster-api"}[1h]))
+              -
+              sum(rate(http_server_requests_seconds_bucket{job="aster-api",le="0.5"}[1h]))
+            )
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[1h])), 1)
+
+        - record: aster_api:request_slow:ratio_rate6h
+          expr: |
+            (
+              sum(rate(http_server_requests_seconds_count{job="aster-api"}[6h]))
+              -
+              sum(rate(http_server_requests_seconds_bucket{job="aster-api",le="0.5"}[6h]))
+            )
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="aster-api"}[6h])), 1)
+
+        - alert: AsterApiLatencyFastBurn
+          expr: |
+            aster_api:request_slow:ratio_rate1h > (14.4 * 0.01)
+            and
+            aster_api:request_slow:ratio_rate5m > (14.4 * 0.01)
+          for: 2m
+          labels:
+            severity: critical
+            team: backend
+            slo: latency
+            burn_rate: "14.4x"
+          annotations:
+            summary: "aster-api 延迟 SLO 快速燃尽（1h burn rate 14.4x）"
+            description: |
+              过去 1h 慢请求占比 {{ $value | humanizePercentage }}。
+              P95 > 500ms 的请求异常增多。
+
+        - alert: AsterApiLatencySlowBurn
+          expr: |
+            aster_api:request_slow:ratio_rate6h > (6 * 0.01)
+            and
+            aster_api:request_slow:ratio_rate1h > (6 * 0.01)
+          for: 15m
+          labels:
+            severity: warning
+            team: backend
+            slo: latency
+            burn_rate: "6x"
+          annotations:
+            summary: "aster-api 延迟 SLO 慢速燃尽（6h burn rate 6x）"
