@@ -11,6 +11,10 @@ metadata:
     app.kubernetes.io/part-of: aster-lang
     release: prometheus
 spec:
+  # 用 Service 的 app.kubernetes.io/name 标签作为 Prometheus job 名
+  # 这样 aster-api Service (name=aster-api) 抓出来的 metrics 带 job="aster-api"
+  # 让 SLO rules 和 dashboard 中的 {job="aster-api"} 选择器能命中
+  jobLabel: app.kubernetes.io/name
   namespaceSelector:
     matchNames:
       - aster-policy

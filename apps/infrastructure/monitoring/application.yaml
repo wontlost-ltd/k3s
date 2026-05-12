@@ -118,24 +118,59 @@ spec:
               limits:
                 cpu: 100m
                 memory: 128Mi
+            # 挂载 Slack webhook 密钥（由 ExternalSecret 提供）
+            # AlertManager 会以 /etc/alertmanager/secrets/<secretName>/<key> 路径访问
+            secrets:
+              - alertmanager-slack-webhook
           config:
             global:
               resolve_timeout: 5m
+              # slack_api_url 由 ExternalSecret 注入 alertmanager-slack-webhook
+              # 通过 alertmanagerSpec.secrets 挂载，模板里用 file 引用
+              slack_api_url_file: /etc/alertmanager/secrets/alertmanager-slack-webhook/url
             route:
-              group_by: ['namespace', 'alertname']
+              group_by: ['namespace', 'alertname', 'severity']
               group_wait: 30s
               group_interval: 5m
               repeat_interval: 12h
-              receiver: 'null'
+              receiver: 'slack-default'
               routes:
                 - matchers:
                     - alertname = "Watchdog"
                   receiver: 'null'
                 - matchers:
-                    - severity =~ "critical|warning"
-                  receiver: 'null'
+                    - severity = "critical"
+                  receiver: 'slack-critical'
+                  group_wait: 10s
+                  repeat_interval: 1h
+                - matchers:
+                    - severity = "warning"
+                  receiver: 'slack-default'
             receivers:
               - name: 'null'
+              - name: 'slack-default'
+                slack_configs:
+                  - channel: '#aster-alerts'
+                    send_resolved: true
+                    title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}
+                      *Severity*: {{ .Labels.severity }}
+                      *Summary*: {{ .Annotations.summary }}
+                      *Description*: {{ .Annotations.description }}
+                      *Source*: {{ .GeneratorURL }}
+                      {{ end }}
+              - name: 'slack-critical'
+                slack_configs:
+                  - channel: '#aster-alerts-critical'
+                    send_resolved: true
+                    title: ':rotating_light: [CRITICAL] {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}
+                      *Summary*: {{ .Annotations.summary }}
+                      *Description*: {{ .Annotations.description }}
+                      *Labels*: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+                      {{ end }}
           # 内置关键告警规则（pod 崩溃、OOM、高错误率）
           additionalRulesForClusterRole: []
         defaultRules:

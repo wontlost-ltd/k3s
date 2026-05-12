@@ -12,13 +12,20 @@ resources:
   - service-monitor.yaml
 
 # Grafana dashboard ConfigMap
-# 当 monitoring 栈启用 Grafana（kube-prometheus-stack values: grafana.enabled=true）时，
-# Grafana sidecar 会自动发现带 grafana_dashboard=1 标签的 ConfigMap 并挂载。
-# 当前 Grafana 未启用：ConfigMap 仍合法存在，无副作用，待启用后无需再改。
+# monitoring 栈（kube-prometheus-stack）已启用 Grafana，
+# sidecar 自动发现带 grafana_dashboard=1 标签的 ConfigMap 并挂载到 Grafana。
 configMapGenerator:
   - name: aster-nsm-dashboard
     files:
       - aster-nsm-dashboard.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+        app.kubernetes.io/part-of: aster-lang
+      disableNameSuffixHash: true
+  - name: aster-api-dashboard
+    files:
+      - aster-api-dashboard.json
     options:
       labels:
         grafana_dashboard: "1"
