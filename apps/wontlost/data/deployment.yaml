@@ -21,6 +21,7 @@ spec:
         app: data-service
         app.kubernetes.io/name: data-service
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534

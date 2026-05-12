@@ -13,6 +13,7 @@ secrets/
 *.swp
 *.swo
 *.iml
+k3s.iml
 
 # OS
 .DS_Store

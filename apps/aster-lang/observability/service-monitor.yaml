@@ -1,0 +1,26 @@
+# aster-api Prometheus 抓取目标
+#
+# Quarkus 默认在 /q/metrics 暴露 Micrometer 指标
+# 详见 aster-api/src/main/resources/application.properties: quarkus.micrometer.export.prometheus.path
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: aster-api
+  namespace: aster-observability
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - aster-policy
+      - aster-cloud
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: aster-lang
+  endpoints:
+    - port: http
+      path: /q/metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true

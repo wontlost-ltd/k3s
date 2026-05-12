@@ -99,13 +99,174 @@ spec:
                 hosts:
                   - prometheus.aster-lang.cloud
 
-        # 禁用 Alertmanager
+        # Alertmanager - 生产环境必须启用告警
         alertmanager:
-          enabled: false
+          enabled: true
+          alertmanagerSpec:
+            replicas: 1
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65534
+              runAsGroup: 65534
+              fsGroup: 65534
+              seccompProfile:
+                type: RuntimeDefault
+            resources:
+              requests:
+                cpu: 20m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              group_by: ['namespace', 'alertname']
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 12h
+              receiver: 'null'
+              routes:
+                - matchers:
+                    - alertname = "Watchdog"
+                  receiver: 'null'
+                - matchers:
+                    - severity =~ "critical|warning"
+                  receiver: 'null'
+            receivers:
+              - name: 'null'
+          # 内置关键告警规则（pod 崩溃、OOM、高错误率）
+          additionalRulesForClusterRole: []
+        defaultRules:
+          create: true
+          rules:
+            alertmanager: true
+            etcd: false
+            configReloaders: true
+            general: true
+            k8s: true
+            kubeApiserverAvailability: false
+            kubeApiserverBurnrate: false
+            kubeApiserverHistogram: false
+            kubeApiserverSlos: false
+            kubeControllerManager: false
+            kubelet: true
+            kubeProxy: false
+            kubePrometheusGeneral: true
+            kubePrometheusNodeRecording: true
+            kubernetesApps: true
+            kubernetesResources: true
+            kubernetesStorage: true
+            kubernetesSystem: true
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+            kubeStateMetrics: true
+            network: true
+            node: true
+            nodeExporterAlerting: true
+            nodeExporterRecording: true
+            prometheus: true
+            prometheusOperator: true
 
-        # 禁用 Grafana
+        # Grafana — 启用并接入 Authentik SSO（generic OAuth2）
         grafana:
-          enabled: false
+          enabled: true
+          replicas: 1
+          podDisruptionBudget:
+            enabled: false
+          # 资源限制
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 200m, memory: 384Mi }
+          # 持久化数据（dashboard / 本地用户）
+          persistence:
+            enabled: true
+            size: 2Gi
+          # Sidecar 自动加载带标签的 ConfigMap dashboard
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              searchNamespace: ALL
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+            datasources:
+              enabled: true
+              label: grafana_datasource
+              labelValue: "1"
+              searchNamespace: ALL
+          # SSO 接入 Authentik（OAuth2 generic）
+          # client-id / client-secret 由 Authentik provider 创建后通过 ExternalSecret 注入
+          # 详见 aster-deploy/observability/SSO.md
+          grafana.ini:
+            server:
+              root_url: https://grafana.aster-lang.cloud
+            auth:
+              disable_login_form: false  # 保留本地 admin 兜底
+              oauth_auto_login: false
+            auth.generic_oauth:
+              enabled: true
+              name: "Authentik"
+              icon: signin
+              client_id: "$__file{/etc/secrets/grafana-oauth/client_id}"
+              client_secret: "$__file{/etc/secrets/grafana-oauth/client_secret}"
+              scopes: openid email profile
+              empty_scopes: false
+              auth_url: https://auth.aster-lang.cloud/application/o/authorize/
+              token_url: https://auth.aster-lang.cloud/application/o/token/
+              api_url: https://auth.aster-lang.cloud/application/o/userinfo/
+              # Authentik 把 group 放在 ID Token 的 "groups" claim
+              role_attribute_path: |
+                contains(groups[*], 'aster-admins') && 'GrafanaAdmin' ||
+                contains(groups[*], 'aster-editors') && 'Editor' ||
+                'Viewer'
+              allow_sign_up: true
+              use_pkce: true
+            users:
+              auto_assign_org: true
+              auto_assign_org_role: Viewer
+            security:
+              # cookie_secure 必须 true（Grafana 通过 https 暴露）
+              cookie_secure: true
+              cookie_samesite: lax
+              # disable_initial_admin_creation: false（保留 admin 兜底，Authentik 故障时可登录）
+          # 挂载 OAuth secret（来自 ExternalSecret）
+          extraSecretMounts:
+            - name: grafana-oauth-secret
+              mountPath: /etc/secrets/grafana-oauth
+              secretName: grafana-oauth
+              readOnly: true
+          # Ingress 暴露
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            hosts:
+              - grafana.aster-lang.cloud
+            tls:
+              - secretName: grafana-tls
+                hosts:
+                  - grafana.aster-lang.cloud
+          # Security hardening
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 472
+            runAsGroup: 472
+            fsGroup: 472
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # Grafana 需要写 plugins / data
+            capabilities:
+              drop:
+                - ALL
 
         # Prometheus Operator - manages CRDs（缩减资源）
         prometheusOperator:
@@ -245,6 +406,32 @@ spec:
                   remoteRef:
                     key: infrastructure/monitoring
                     property: basic_auth_users
+
+          # ExternalSecret for Grafana OAuth (Authentik)
+          # Vault path: secret/infrastructure/monitoring/grafana_oauth
+          # 需要在 Vault 写入 client_id / client_secret，由 Authentik provider 配置后产生
+          - apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: grafana-oauth
+              namespace: monitoring
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: vault-backend
+                kind: ClusterSecretStore
+              target:
+                name: grafana-oauth
+                creationPolicy: Owner
+              data:
+                - secretKey: client_id
+                  remoteRef:
+                    key: infrastructure/monitoring
+                    property: grafana_oauth_client_id
+                - secretKey: client_secret
+                  remoteRef:
+                    key: infrastructure/monitoring
+                    property: grafana_oauth_client_secret
 
   destination:
     server: https://kubernetes.default.svc

@@ -1,0 +1,240 @@
+{
+  "title": "Aster NSM & Counter Metrics",
+  "uid": "aster-nsm",
+  "tags": ["aster", "nsm", "pm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-30d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
+        "query": "SELECT DISTINCT tenant_id FROM pm_weekly_waadr ORDER BY tenant_id",
+        "includeAll": true,
+        "multi": true,
+        "current": { "value": "$__all", "text": "All" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "WAADR 周趋势 (北极星)",
+      "description": "每周被业务专家采纳的 AI 草稿规则数。详见 02-north-star-metric.md",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT week AS time, tenant_id AS metric, waadr AS value FROM pm_weekly_waadr WHERE $__timeFilter(week) AND tenant_id IN ($tenant) ORDER BY week",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "fillOpacity": 80 },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "P99 评估延迟（反指标 ≤ 0.2 s）",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(policy_evaluation_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P99",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(policy_evaluation_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.2 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "7 日回滚率（反指标 ≤ 15%）",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(increase(rule_rolled_back_total[7d])) / clamp_min(sum(increase(draft_published_total[7d])), 1)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.10 },
+              { "color": "red", "value": 0.15 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "LLM 成本 / 采纳草稿（¥, 反指标 ≤ 3.5）",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "(sum(increase(llm_tokens_total{kind=\"completion\"}[7d])) / 1000 * 0.43) / clamp_min(sum(increase(draft_published_total{source_kind=\"ai_draft_edited\"}[7d])), 1)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyCNY",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2.5 },
+              { "color": "red", "value": 3.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "平台 SLA（多窗口）",
+      "description": "1d/7d/30d 多窗口可用率。新部署初期 7d/30d 会偏低（无历史数据），以 1d 为主参考；30d 在部署满一个月后才有意义。阈值仅作用于 1d。",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "avg_over_time(up{job=\"aster-api\"}[1d])",
+          "legendFormat": "1d",
+          "refId": "A"
+        },
+        {
+          "expr": "avg_over_time(up{job=\"aster-api\"}[7d])",
+          "legendFormat": "7d",
+          "refId": "B"
+        },
+        {
+          "expr": "avg_over_time(up{job=\"aster-api\"}[30d])",
+          "legendFormat": "30d",
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.99 },
+              { "color": "green", "value": 0.995 }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "text", "value": null }
+                ]
+              }}
+            ]
+          },
+          {
+            "matcher": { "id": "byFrameRefID", "options": "C" },
+            "properties": [
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "text", "value": null }
+                ]
+              }}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "title": "Mixpanel 投递健康",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "rate(mixpanel_events_enqueued_total[5m])",
+          "legendFormat": "enqueued/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mixpanel_events_sent_total[5m])",
+          "legendFormat": "sent/s",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(mixpanel_events_dropped_total[5m])",
+          "legendFormat": "dropped/s",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(mixpanel_events_failed_total[5m])",
+          "legendFormat": "failed/s",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "LLM Token 用量（按模型）",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "sum by (model, kind) (rate(llm_tokens_total[5m]))",
+          "legendFormat": "{{model}} / {{kind}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# Aster 可观测性配置
+# 由 ApplicationSet aster-lang-apps 自动发现并部署
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aster-observability
+
+resources:
+  - namespace.yaml
+  - prometheus-rule.yaml
+  - slo-burn-rate.yaml
+  - service-monitor.yaml
+
+# Grafana dashboard ConfigMap
+# 当 monitoring 栈启用 Grafana（kube-prometheus-stack values: grafana.enabled=true）时，
+# Grafana sidecar 会自动发现带 grafana_dashboard=1 标签的 ConfigMap 并挂载。
+# 当前 Grafana 未启用：ConfigMap 仍合法存在，无副作用，待启用后无需再改。
+configMapGenerator:
+  - name: aster-nsm-dashboard
+    files:
+      - aster-nsm-dashboard.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+        app.kubernetes.io/part-of: aster-lang
+      disableNameSuffixHash: true

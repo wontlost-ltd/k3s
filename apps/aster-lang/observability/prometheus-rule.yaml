@@ -1,0 +1,154 @@
+# Aster NSM 反指标告警
+# 源自 aster-deploy/observability/prometheus/aster-alerts.yaml
+# Aster-deploy 是工程文档源；本文件是 ArgoCD 部署副本（保持二者一致由 PR review 把关）
+#
+# 告警生效需要：
+#   1. monitoring 命名空间下 kube-prometheus-stack 已运行（apps/infrastructure/monitoring）
+#   2. Prometheus Operator 的 ruleSelector 接受 release=prometheus 标签（默认配置）
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aster-nsm-rules
+  namespace: aster-observability
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    app.kubernetes.io/component: alerting
+    # release 标签让 kube-prometheus-stack 默认 ruleSelector 选中
+    release: prometheus
+spec:
+  groups:
+    - name: aster.nsm.counter-metrics
+      interval: 1m
+      rules:
+        # 反指标 1：7 日规则回滚率（PM 阈值 ≤ 0.15）
+        - alert: AsterHighRollbackRate
+          expr: |
+            (
+              sum(increase(rule_rolled_back_total[7d]))
+              / clamp_min(sum(increase(draft_published_total[7d])), 1)
+            ) > 0.15
+          for: 1h
+          labels:
+            severity: warning
+            team: product
+          annotations:
+            summary: "WAADR 反指标越界：7 日回滚率 > 15%"
+            description: |
+              过去 7 天回滚率达到 {{ $value | humanizePercentage }}，说明上线规则质量下降。
+              可能原因：AI 草稿质量下滑 / 审批流形同虚设 / 业务边界变化未沉淀
+              参考：aster-deploy/docs/pm/02-north-star-metric.md 反指标章节
+
+        # 反指标 2：P99 评估延迟（≤ 0.2 s）
+        - alert: AsterHighEvaluationLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(policy_evaluation_duration_seconds_bucket[5m])) by (le)
+            ) > 0.2
+          for: 10m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "P99 评估延迟超过 200ms（持续 10 分钟）"
+            description: |
+              当前 P99 = {{ $value | humanizeDuration }}
+              可能原因：DB 慢查询 / Truffle 解释器抖动 / 缓存失效
+
+        # 反指标 3：LLM 成本 / 采纳草稿（≤ ¥3.5）
+        - alert: AsterHighLlmCostPerWaadr
+          expr: |
+            (
+              sum(increase(llm_tokens_total{kind="completion"}[7d])) / 1000 * 0.43
+            ) / clamp_min(
+              (
+                sum(increase(draft_published_total{source_kind="ai_draft_edited"}[7d]))
+              ), 1
+            ) > 3.5
+          for: 6h
+          labels:
+            severity: warning
+            team: product
+          annotations:
+            summary: "每个采纳草稿的 LLM 成本超过 ¥3.5"
+            description: |
+              当前比率 ¥{{ $value | printf "%.2f" }}/采纳，PM 阈值 ¥3.5
+
+        # 平台指标：Mixpanel 投递健康
+        - alert: AsterMixpanelDeliveryDegraded
+          expr: |
+            (
+              sum(rate(mixpanel_events_dropped_total[5m]))
+              / clamp_min(sum(rate(mixpanel_events_enqueued_total[5m])), 1)
+            ) > 0.01
+          for: 30m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "Mixpanel 事件丢失率 > 1%"
+            description: |
+              可能原因：token 错误 / 网络问题 / 队列溢出 / 熔断已开
+              排查：mixpanel_events_failed_total 的增长趋势
+
+        # 平台指标：Mixpanel 已熔断
+        - alert: AsterMixpanelCircuitOpen
+          expr: |
+            rate(mixpanel_events_dropped_total[5m]) > 0
+            and on() rate(mixpanel_events_sent_total[5m]) == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "Mixpanel 投递完全失败（熔断）"
+            description: |
+              5 分钟内只有丢弃，没有成功发送。请检查 mixpanel_events_failed_total 与日志。
+
+    - name: aster.platform.sla
+      interval: 30s
+      rules:
+        # 1 天 SLA：新部署也能用，是主告警
+        - alert: AsterApiSlaBreachDay
+          expr: |
+            avg_over_time(up{job="aster-api"}[1d]) < 0.995
+          for: 1h
+          labels:
+            severity: critical
+            team: infra
+            window: "1d"
+          annotations:
+            summary: "aster-api 24 小时 SLA 跌破 99.5%"
+            description: "当前 1 天可用率 {{ $value | humanizePercentage }}"
+
+        # 30 天 SLA：仅在已运行 30 天以上才告警，避免新部署误报
+        - alert: AsterApiSlaBreachMonth
+          expr: |
+            avg_over_time(up{job="aster-api"}[30d]) < 0.995
+            and on() (time() - process_start_time_seconds{job="aster-api"}) > 30 * 86400
+          for: 6h
+          labels:
+            severity: warning
+            team: infra
+            window: "30d"
+          annotations:
+            summary: "aster-api 30 天 SLA 跌破 99.5%"
+            description: |
+              当前 30 天可用率 {{ $value | humanizePercentage }}。
+              注：仅在 aster-api 已运行 30 天以上才触发。
+
+    - name: aster.plan-gate
+      interval: 1m
+      rules:
+        - alert: AsterPlanGateLookupFailing
+          expr: |
+            sum(rate(http_client_requests_seconds_count{
+              uri=~".*/internal/tenant/.*/plan",status=~"5..|0"
+            }[5m])) > 0.1
+          for: 15m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "PlanGate 调用 aster-cloud 失败 > 0.1 req/s"
+            description: |
+              当前 fail-open 模式下业务不被阻塞，但 plan 升级生效会延迟到 5 min TTL 兜底

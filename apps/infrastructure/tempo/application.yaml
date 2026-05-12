@@ -1,0 +1,83 @@
+# Grafana Tempo + OTel Collector
+#
+# 接收 aster-api / aster-cloud 的 OTLP traces，存到 Tempo（单 Helm chart 部署）。
+# Grafana 自动加载 Tempo datasource（label: grafana_datasource=1）。
+#
+# 设计：
+#   - Tempo monolithic 模式（单 binary，足够 staging / 早期 prod）
+#   - OTel Collector deployment（独立 chart，对 OTLP gRPC 4317 暴露 ClusterIP）
+#   - aster-api 通过 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.tempo.svc:4317 写入
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: tempo
+    targetRevision: 1.10.0
+    helm:
+      releaseName: tempo
+      valuesObject:
+        tempo:
+          retention: 168h  # 7 天保留
+          memBallastSizeMbs: 256
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 1Gi }
+          # OTLP gRPC + HTTP 接收
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+        persistence:
+          enabled: true
+          size: 5Gi
+          accessModes: ["ReadWriteOnce"]
+        # Grafana datasource auto-discovery
+        extraObjects:
+          - apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: tempo-datasource
+              namespace: tempo
+              labels:
+                grafana_datasource: "1"
+            data:
+              datasource.yaml: |
+                apiVersion: 1
+                datasources:
+                  - name: Tempo
+                    type: tempo
+                    access: proxy
+                    url: http://tempo.tempo.svc:3100
+                    uid: tempo
+                    isDefault: false
+                    jsonData:
+                      httpMethod: GET
+                      tracesToLogs:
+                        datasourceUid: loki
+                        mappedTags:
+                          - key: aster.user_id
+                            value: user_id
+                        spanStartTimeShift: -1m
+                        spanEndTimeShift: 1m
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tempo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
