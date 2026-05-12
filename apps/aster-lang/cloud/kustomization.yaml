@@ -10,7 +10,8 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-  - ingress-deny-evaluate-source.yaml
+  # - ingress-deny-evaluate-source.yaml  # 已下线：与 CF Workers 上的 aster-cloud 架构冲突。
+  #   InternalCallerFilter + HMAC（aster-api 应用层）是充分的鉴权防御。
   - pdb.yaml
   # TODO: Re-enable when k3s kube-router cross-node network policy issue is resolved
   # See: https://github.com/k3s-io/k3s/issues - kube-router has bugs with NetworkPolicy
