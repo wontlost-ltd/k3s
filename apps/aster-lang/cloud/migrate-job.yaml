@@ -1,0 +1,72 @@
+# Aster Cloud Drizzle Migration Job
+#
+# 触发方式：
+#   1. ArgoCD Sync Wave + PreSync hook（每次 sync 自动跑）
+#   2. 手动：kubectl create job aster-cloud-migrate-$(date +%s) --from=cronjob/aster-cloud-migrate -n aster-cloud
+#   3. GH Actions on aster-cloud push to main（远程 kubectl create job from template）
+#
+# 幂等性：drizzle-kit migrate 通过 __drizzle_migrations 表跟踪已应用的迁移，
+# 重复运行只会跳过已应用的。
+#
+# 镜像构建：见 aster-cloud/Dockerfile.migrate，CI 推到 docker.io/wontlost/aster-cloud-migrate:<sha>
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: aster-cloud-migrate
+  namespace: aster-cloud
+  annotations:
+    # ArgoCD PreSync hook: 在主应用 sync 之前先跑迁移
+    # 失败则阻塞主应用 sync（避免 schema drift 导致 runtime 错误）
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  ttlSecondsAfterFinished: 86400  # 24h 后自动清理
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: aster-cloud-migrate
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: docker.io/wontlost/aster-cloud-migrate:latest
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aster-cloud-db-credentials
+                  key: database-url
+            - name: NODE_ENV
+              value: "production"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # tmpfs for node tmp/cache
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

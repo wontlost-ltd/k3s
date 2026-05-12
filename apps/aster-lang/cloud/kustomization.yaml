@@ -16,3 +16,6 @@ resources:
   # See: https://github.com/k3s-io/k3s/issues - kube-router has bugs with NetworkPolicy
   # - network-policy.yaml
   - external-secrets.yaml
+  # aster-cloud drizzle migration (PreSync hook + standalone runs)
+  - migrate-external-secret.yaml
+  - migrate-job.yaml
