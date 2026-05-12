@@ -254,10 +254,8 @@ spec:
               token_url: https://auth.aster-lang.cloud/application/o/token/
               api_url: https://auth.aster-lang.cloud/application/o/userinfo/
               # Authentik 把 group 放在 ID Token 的 "groups" claim
-              role_attribute_path: |
-                contains(groups[*], 'aster-admins') && 'GrafanaAdmin' ||
-                contains(groups[*], 'aster-editors') && 'Editor' ||
-                'Viewer'
+              # 单行 JMESPath（grafana.ini 不支持多行 value）
+              role_attribute_path: "contains(groups[*], 'aster-admins') && 'GrafanaAdmin' || contains(groups[*], 'aster-editors') && 'Editor' || 'Viewer'"
               allow_sign_up: true
               use_pkce: true
             users:
