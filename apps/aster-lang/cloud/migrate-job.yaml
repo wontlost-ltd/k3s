@@ -15,11 +15,12 @@ metadata:
   name: aster-cloud-migrate
   namespace: aster-cloud
   annotations:
-    # ArgoCD PreSync hook: 在主应用 sync 之前先跑迁移
-    # 失败则阻塞主应用 sync（避免 schema drift 导致 runtime 错误）
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded
-    argocd.argoproj.io/sync-wave: "-1"
+    # PostSync hook: 主应用 sync 完成后跑迁移
+    # 这样 ExternalSecret 已 reconcile 完毕，aster-cloud-db-credentials 必然存在。
+    # 迁移失败不阻塞 deployment（aster-cloud 跑在 CF，K8s 里也没 cloud deployment 要更新）
+    # 但迁移失败会让 ArgoCD app 标 Degraded，足够触发关注。
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded,HookFailed
 spec:
   ttlSecondsAfterFinished: 86400  # 24h 后自动清理
   backoffLimit: 2
