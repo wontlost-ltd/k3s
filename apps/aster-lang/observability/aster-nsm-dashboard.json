@@ -6,48 +6,14 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "1m",
-  "time": { "from": "now-30d", "to": "now" },
-  "templating": {
-    "list": [
-      {
-        "name": "tenant",
-        "label": "Tenant",
-        "type": "query",
-        "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
-        "query": "SELECT DISTINCT tenant_id FROM pm_weekly_waadr ORDER BY tenant_id",
-        "includeAll": true,
-        "multi": true,
-        "current": { "value": "$__all", "text": "All" }
-      }
-    ]
-  },
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
   "panels": [
-    {
-      "id": 1,
-      "title": "WAADR 周趋势 (北极星)",
-      "description": "每周被业务专家采纳的 AI 草稿规则数。详见 02-north-star-metric.md",
-      "type": "timeseries",
-      "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
-      "targets": [
-        {
-          "rawSql": "SELECT week AS time, tenant_id AS metric, waadr AS value FROM pm_weekly_waadr WHERE $__timeFilter(week) AND tenant_id IN ($tenant) ORDER BY week",
-          "format": "time_series",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": { "drawStyle": "bars", "fillOpacity": 80 },
-          "color": { "mode": "palette-classic" }
-        }
-      }
-    },
     {
       "id": 2,
       "title": "P99 评估延迟（反指标 ≤ 0.2 s）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "targets": [
         {
@@ -78,7 +44,7 @@
       "id": 3,
       "title": "7 日回滚率（反指标 ≤ 15%）",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
         {
@@ -104,7 +70,7 @@
       "id": 4,
       "title": "LLM 成本 / 采纳草稿（¥, 反指标 ≤ 3.5）",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "targets": [
         {
@@ -131,7 +97,7 @@
       "title": "平台 SLA（多窗口）",
       "description": "1d/7d/30d 多窗口可用率。新部署初期 7d/30d 会偏低（无历史数据），以 1d 为主参考；30d 在部署满一个月后才有意义。阈值仅作用于 1d。",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
         {
@@ -196,7 +162,7 @@
       "id": 6,
       "title": "Mixpanel 投递健康",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
       "targets": [
         {
@@ -225,7 +191,7 @@
       "id": 7,
       "title": "LLM Token 用量（按模型）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
       "targets": [
         {
