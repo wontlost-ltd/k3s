@@ -153,13 +153,29 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # R16-Major-1: 给 hot-plug 语言包 admin 上传一个可写挂载点。
+            # readOnlyRootFilesystem=true 让 /var/aster/* 默认不可写 ——
+            # HotPlugLexiconLoader 默认路径 /var/aster/lexicons/jars 无 emptyDir
+            # 时启动期 createDirectories 失败，admin upload 全部 IO error。
+            # emptyDir 是 ephemeral —— jar 在 pod 重启时丢失，operator 需重新
+            # POST /api/v1/admin/lexicons 上传。需要持久化时换 PVC（详见
+            # docs/runbooks/lexicon-recovery.md "Multi-replica + shared PVC"）。
+            - name: lexicon-hotplug
+              mountPath: /var/aster/lexicons/jars
           resources:
             requests:
               memory: 256Mi
               cpu: 100m
+              # R17-Suggestion-4 + R18-Minor-2：声明 ephemeral-storage request/limit。
+              # R18 把 request 从 1Gi 提到 3Gi —— 与 lexicon-hotplug emptyDir.sizeLimit 对齐，
+              # 确保 scheduler 在 admission 时就为 hot-plug 用量留出节点磁盘配额，
+              # 避免 pod 落到磁盘紧张的 node 上后 emptyDir 写满 → kubelet 立刻 evict。
+              # 4Gi limit = 3Gi hot-plug + 512MiB tmp（R18-Minor-3）+ headroom（日志 / writable layer）。
+              ephemeral-storage: 3Gi
             limits:
               memory: 512Mi
               cpu: 500m
+              ephemeral-storage: 4Gi
           livenessProbe:
             httpGet:
               path: /q/health/live
@@ -185,4 +201,14 @@ spec:
             failureThreshold: 30
       volumes:
         - name: tmp
-          emptyDir: {}
+          # R18-Minor-3：tmp 不设 sizeLimit 时默认是节点 ephemeral 的 50%，可能在
+          # lexicon-hotplug 触到自己的 3Gi 上限之前先吃掉 pod 4Gi 总 limit → kubelet
+          # 因 tmp 涨而 evict。给 tmp 显式 512MiB 上限，让两个 volume 的预算可预测。
+          emptyDir:
+            sizeLimit: 512Mi
+        # R16-Major-1: hot-plug 语言包目录。
+        # sizeLimit 限制 50 个语言包 jar * 50 MiB max + headroom；超过会让 Kubernetes
+        # evict pod 而非让 admin upload 写满 node 磁盘。
+        - name: lexicon-hotplug
+          emptyDir:
+            sizeLimit: 3Gi
