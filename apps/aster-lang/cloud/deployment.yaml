@@ -110,7 +110,15 @@ spec:
                 secretKeyRef:
                   name: aster-api-llm-credentials
                   key: model
-            # 安全配置：禁用 HMAC 签名验证（内部网络访问）
+            # R21-Critical-1：禁用全局 HMAC 签名 filter，并由各端点专用 filter 兜底：
+            #   /api/v1/policies/evaluate{,-json,/batch} → ApiKeyAuthFilter（API key 必填）
+            #   /api/v1/policies/{id}/rollback|versions  → ApiKeyAuthFilter（突变/历史鉴权）
+            #   /api/v1/policies/cache                  → ApiKeyAuthFilter（缓存清理鉴权）
+            #   /api/v1/policies/evaluate-source        → InternalCallerFilter（SSE 浏览器）
+            #   /api/v1/admin/lexicons*                 → LexiconAdminResource.verifyHmac
+            #   /api/v1/lexicons*                       → 匿名读（路径白名单豁免）
+            # 原因：浏览器 Monaco/AI complete/lexicon SSE 直连本服务无法持有 HMAC 密钥；
+            # 让全局 filter 失效不等于裸奔 —— 每个突变/付费端点都有独立 filter。
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
             # NSM 埋点 — Mixpanel HTTP 投递（详见 aster-deploy/docs/pm/03-telemetry-spec.md）

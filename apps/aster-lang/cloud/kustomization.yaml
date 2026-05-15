@@ -10,11 +10,19 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-  # - ingress-deny-evaluate-source.yaml  # 已下线：与 CF Workers 上的 aster-cloud 架构冲突。
-  #   InternalCallerFilter + HMAC（aster-api 应用层）是充分的鉴权防御。
+  # R21-Major-3: ingress-deny-evaluate-source.yaml 永久下线（不只是 TODO）。
+  # 决策理由：aster-cloud 部署在 Cloudflare Workers 上，不在同 k8s 集群内，
+  # 因此基于 ingress source IP 的 deny 中间件无法覆盖正确的 caller 集合。
+  # 替代方案：aster-api 应用层 InternalCallerFilter + HMAC（深度防御已足）。
+  # 详见 deployment.yaml 上 ASTER_SECURITY_SIGNATURE_ENABLED 注释。
+  # - ingress-deny-evaluate-source.yaml
   - pdb.yaml
-  # TODO: Re-enable when k3s kube-router cross-node network policy issue is resolved
-  # See: https://github.com/k3s-io/k3s/issues - kube-router has bugs with NetworkPolicy
+  # R21-Major-3: network-policy.yaml 因 k3s 上游 bug 暂停启用，**不是**未完成的安全姿态。
+  # 阻塞：https://github.com/k3s-io/k3s/issues - kube-router 处理跨节点
+  # combined namespaceSelector + podSelector 的 NetworkPolicy 有 deny-all
+  # 兜底变成"deny-all-including-traefik"的 bug（实测过，会让 ingress 全黑）。
+  # 当前替代防御层：应用层 RBAC + TenantFilter + ApiKeyAuthFilter + HMAC 多层鉴权。
+  # 升级条件：(a) k3s 升级到包含 kube-router patch 的版本，或 (b) 集群换 Calico CNI。
   # - network-policy.yaml
   - external-secrets.yaml
   # aster-cloud drizzle migration (PreSync hook + standalone runs)
