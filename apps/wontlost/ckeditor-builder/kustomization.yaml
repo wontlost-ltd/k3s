@@ -2,16 +2,18 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - namespace.yaml
-  - pvc.yaml
-  - external-secrets.yaml
-  - deployment.yaml
-  - service.yaml
-  - ingress.yaml
+- namespace.yaml
+- pvc.yaml
+- external-secrets.yaml
+- deployment.yaml
+- service.yaml
+- ingress.yaml
 
 # 镜像引用由应用仓库 (wontlost-ltd/vaadin-ckeditor-builder) 的 release.yml
 # 通过 `kustomize edit set image` 自动写入 immutable digest。
 # 初始值仅作占位，避免 ArgoCD 在首次 sync 时找不到 image 字段。
 images:
-  - name: wontlost/ckeditor-builder
-    newTag: latest
+- digest: sha256:998a037f7258d628ebea0b03d10257c107bdefc6ed6ee65dd76e9ba68779d9dc
+  name: wontlost/ckeditor-builder
+  newName: wontlost/ckeditor-builder
+  newTag: main
