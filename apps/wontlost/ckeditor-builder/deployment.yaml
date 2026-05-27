@@ -31,8 +31,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: ckeditor-builder
-          image: wontlost/ckeditor-builder:latest  # managed by ArgoCD + imagePullPolicy:Always ensures freshness
-          imagePullPolicy: Always
+          # image 字段不写 tag，由 kustomization.yaml 的 images: 段统一管理
+          # CI (release.yml) 通过 kustomize edit set image 写入 immutable digest
+          image: wontlost/ckeditor-builder
+          imagePullPolicy: IfNotPresent  # digest 不可变，无需 Always 强制拉
           ports:
             - containerPort: 8082
           envFrom:
@@ -57,19 +59,29 @@ spec:
             limits:
               memory: 512Mi
               cpu: 250m
+          # 探针走 Spring Boot Actuator，避免触发 Vaadin UI bootstrap
+          # liveness: JVM/web 容器存活；readiness: 含数据源等 Spring 组件就绪
           livenessProbe:
             httpGet:
-              path: /
+              path: /actuator/health/liveness
               port: 8082
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /
+              path: /actuator/health/readiness
               port: 8082
-            initialDelaySeconds: 30
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30  # 最长 150s 启动窗口，覆盖 Vaadin 前端预热
       volumes:
         - name: data
           persistentVolumeClaim:
