@@ -17,6 +17,7 @@ resources:
   # 详见 deployment.yaml 上 ASTER_SECURITY_SIGNATURE_ENABLED 注释。
   # - ingress-deny-evaluate-source.yaml
   - pdb.yaml
+  - hpa.yaml
   # R21-Major-3: network-policy.yaml 因 k3s 上游 bug 暂停启用，**不是**未完成的安全姿态。
   # 阻塞：https://github.com/k3s-io/k3s/issues - kube-router 处理跨节点
   # combined namespaceSelector + podSelector 的 NetworkPolicy 有 deny-all
