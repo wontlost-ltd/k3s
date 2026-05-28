@@ -10,7 +10,18 @@ metadata:
     app.kubernetes.io/name: aster-api
     app.kubernetes.io/part-of: aster-lang
 spec:
-  replicas: 1
+  # P1-R21 (audit): scaled 1 → 2 for HA. aster-api is stateless (Redis +
+  # Postgres external; Caffeine cache + striped locks tolerate 2 replicas).
+  # Known caveat: lexicon-hotplug emptyDir is per-pod; uploads must be
+  # repeated against each replica OR replaced with shared PVC (see
+  # docs/runbooks/lexicon-recovery.md). For now operator workflow already
+  # documented, so 2 replicas with rolling-update is acceptable.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0   # zero-downtime: never below replicas during rollout
   selector:
     matchLabels:
       app: aster-api
@@ -30,7 +41,14 @@ spec:
           type: RuntimeDefault
       containers:
         - name: aster-api
-          image: docker.io/wontlost/aster-api:jvm-latest  # managed by ArgoCD + imagePullPolicy:Always ensures freshness
+          # P1-R21 (audit): `:jvm-latest` is the floating staging tag.
+          # ArgoCD Image Updater (configured in argocd/applicationset.yaml)
+          # pins each ApplicationSet revision to a content digest at sync time;
+          # the YAML here is the template, not the runtime truth.
+          # Operators rolling back must use the digest from the ArgoCD UI,
+          # not this file. Audit-trail of "which image actually ran" comes
+          # from the Application's last-synced revision, not git.
+          image: docker.io/wontlost/aster-api:jvm-latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
