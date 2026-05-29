@@ -6,3 +6,4 @@ namespace: cloudflare
 resources:
   - deployment.yaml
   - external-secrets.yaml
+  - network-policy.yaml
