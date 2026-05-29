@@ -34,6 +34,10 @@ TARGETS=(
   "policy-api health          https://policy.aster-lang.dev/q/health                       200          -                           GET"
   "cloud root                 https://aster-lang.cloud/                                    200          -                           GET"
   "marketing root             https://aster-lang.dev/                                      200          -                           GET"
+  "lsp health                 https://lsp.aster-lang.dev/                                  404          -                           GET"
+  # R32：ckeditor-builder serves Vaadin UI; root path should serve the SPA shell.
+  # Probe via Spring Actuator health for deterministic 200.
+  "ckeditor health            https://ckeditor-builder.wontlost.com/actuator/health        200          -                           GET"
 )
 
 pass=0
