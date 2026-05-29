@@ -45,6 +45,11 @@ spec:
                 name: ckeditor-builder-credentials
           securityContext:
             allowPrivilegeEscalation: false
+            # R30+ audit P2：readOnlyRootFilesystem 暂留 false 的原因：
+            # Spring Boot 启动期会向 /tmp 写 native-images 缓存 + 解压
+            # nested-jar dependency，关掉会导致 boot 失败。下一步是改成
+            # readOnly + emptyDir volumeMount on /tmp，但需要先验证
+            # Spring Boot 3.x 的 layered-jar 行为。tracked: R31 backlog.
             readOnlyRootFilesystem: false
             capabilities:
               drop:

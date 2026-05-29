@@ -1,0 +1,56 @@
+# R30+ audit P2：cloudflare-tunnel namespace 之前完全没有 NetworkPolicy，
+# pod 可以向集群任意 namespace 发起 east-west 流量。
+#
+# 实际业务：cloudflared 只需要
+#   - egress: kube-dns（DNS）+ Cloudflare edge（443，被 deployment 自身管控）
+#     + 集群内被代理的服务 service IPs
+#   - ingress: 不需要（pod 是 outbound-only tunnel）
+#
+# 这里给一个 baseline default-deny + allow-egress-DNS-only。具体被代理的
+# 后端 service 由 cloudflared config 决定，allow-egress 由 ingress controller
+# 的 NetworkPolicy 在被代理侧放行（参见各 app 的 network-policy.yaml）。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflare-tunnel-default-deny
+  namespace: cloudflare
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # 入站：tunnel 是 outbound-only，没有 ingress
+  ingress: []
+  # 出站：仅 DNS + Cloudflare edge（443/TCP）+ 集群内 service IPs
+  # 注意：到 cloudflare.com 的 outbound 443 走集群外，CIDR 不可枚举；
+  # 这里放过所有 443/TCP outbound 是务实选择，限制类型与端口而非 CIDR。
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            # 整个 Internet 仅放 443/TCP；这是 cloudflared 的本质要求
+            cidr: 0.0.0.0/0
+            except:
+              # 不允许向集群 service CIDR 之外的 RFC1918 出包，避免被
+              # 当成 lateral-movement 跳板。集群 service CIDR 默认 10.43.0.0/16。
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # 集群内：cloudflared 代理的目标 service。明确放过 service CIDR。
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.0/16  # k3s default service CIDR
