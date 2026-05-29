@@ -1,0 +1,111 @@
+# R32 audit P0：ckeditor-builder namespace 之前没有任何 NetworkPolicy。
+#
+# IMPORTANT (rollout note)：本文件存在于 git 但 kustomization.yaml 暂未引用，
+# 即 ArgoCD 不会立即 apply。原因：2026-05-29 cloudflare-tunnel 同类型策略
+# 触发了生产 502 事件（详见 k3s/commit/4b64fb5）；我们要求每条 NetworkPolicy
+# 改动都伴随 post-deploy-smoke 覆盖。ckeditor-builder smoke 端点尚未加入
+# scripts/post-deploy-smoke.sh，待补齐后再把本文件加入 kustomization.yaml
+# 的 resources 列表。
+#
+# Spring Boot app 监听 8082，从 Traefik 接收 ingress，并需要：
+#   - 出 Postgres（cloudnative-pg svc，集群内）
+#   - 出 Oracle DB（外部，用 wallet 走 TLS）
+#   - 出 DNS（kube-system）
+#   - 出 npmjs.org / Cloudflare R2（CKEditor 构建产物上传）走外部 443
+#
+# 入站只允许 Traefik；出站显式列举。沿用 aster-lsp 已经验证可工作的
+# 模式（同样 Spring Boot + 外部 HTTPS 调用，没有 east-west 反向代理
+# 这一类被 0.0.0.0/0 except 规则误伤的场景）。
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: wontlost-ckeditor-builder
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ckeditor-builder-ingress
+  namespace: wontlost-ckeditor-builder
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: ckeditor-builder
+  policyTypes:
+    - Ingress
+  ingress:
+    # Traefik (kube-system) → :8082 web port
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8082
+    # Prometheus scrape from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8082
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ckeditor-builder-egress
+  namespace: wontlost-ckeditor-builder
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: ckeditor-builder
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Postgres in data-services namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data-services
+      ports:
+        - protocol: TCP
+          port: 5432
+    # External HTTPS (Oracle DB endpoint, npmjs, Cloudflare R2)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 1521  # Oracle TNS listener
