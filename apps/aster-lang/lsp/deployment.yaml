@@ -21,6 +21,9 @@ spec:
         app.kubernetes.io/name: aster-lsp
     spec:
       automountServiceAccountToken: false
+      # R30+ audit P1：显式 grace period，让 in-flight LSP 请求在 SIGTERM 后
+      # 有时间走完，避免 client（IDE）看到"半个补全"的截断响应。
+      terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001

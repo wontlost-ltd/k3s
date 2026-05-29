@@ -22,6 +22,9 @@ spec:
         app.kubernetes.io/name: ckeditor-builder
     spec:
       automountServiceAccountToken: false
+      # R30+ audit P1：Spring Boot Actuator + build pipeline 需要 grace
+      # 让 in-flight build 收尾，避免半成品 jar 写入 disk + 用户重试风暴。
+      terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
