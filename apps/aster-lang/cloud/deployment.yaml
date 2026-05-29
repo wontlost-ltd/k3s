@@ -164,6 +164,22 @@ spec:
                   name: aster-api-plan-gate-credentials
                   key: hmac-key
                   optional: true
+            # R31-4 Cloudflare Turnstile（per ADR-0012）。
+            # ENABLED=false 时 verifier 直接放行，零开销 —— 这就是默认状态。
+            # frontend 端 widget 完成 + Vault populated 后，把 ENABLED 改
+            # "true"。secretKeyRef.optional=true：缺 secret 时不挂 pod 启动，
+            # 启动期 fail-fast 由 TurnstileVerifier 内部处理（enabled+缺
+            # secret → 全部 reject）。
+            - name: ASTER_SECURITY_TRIAL_TURNSTILE_ENABLED
+              value: "false"
+            - name: ASTER_SECURITY_TRIAL_TURNSTILE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-trial-turnstile
+                  key: secret
+                  optional: true
+            - name: ASTER_SECURITY_TRIAL_TURNSTILE_TIMEOUT_MS
+              value: "3000"
             # Staging 工具端点 — 生产显式禁用（防御深度）
             - name: ASTER_STAGING_TELEMETRY_ENABLED
               value: "false"
