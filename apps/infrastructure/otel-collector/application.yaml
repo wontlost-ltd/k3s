@@ -39,6 +39,12 @@ spec:
           exporters:
             otlp/tempo:
               endpoint: tempo.tempo.svc:4317
+              # R31-6：cluster-internal egress 到 tempo.svc，留在 mesh 内。
+              # tls.insecure 不等于"无加密"，它表示"跳过 server cert 验证"；
+              # 由于 SVC 名是 k8s API server 颁发的，并不在 Let's Encrypt
+              # 链上，启 tls.insecure_skip_verify + cluster-internal traffic
+              # 的 trust 边界落在 NetworkPolicy + service mesh 上。
+              # 后续如果上 mTLS，把这里改成 insecure: false + ca_file。
               tls:
                 insecure: true
           service:

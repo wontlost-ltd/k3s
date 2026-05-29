@@ -45,12 +45,15 @@ spec:
                 name: ckeditor-builder-credentials
           securityContext:
             allowPrivilegeEscalation: false
-            # R30+ audit P2：readOnlyRootFilesystem 暂留 false 的原因：
-            # Spring Boot 启动期会向 /tmp 写 native-images 缓存 + 解压
-            # nested-jar dependency，关掉会导致 boot 失败。下一步是改成
-            # readOnly + emptyDir volumeMount on /tmp，但需要先验证
-            # Spring Boot 3.x 的 layered-jar 行为。tracked: R31 backlog.
-            readOnlyRootFilesystem: false
+            # R31-3：root filesystem 锁死。Spring Boot 3.x 的 layered-jar
+            # 在启动期只往 /tmp 写解压的 BOOT-INF/lib/* 和 Tomcat work dir，
+            # 不向源码目录写。这两条写路径都明确挂 emptyDir：
+            #   /tmp           — JVM / Spring Boot 默认临时区
+            #   /var/cache/jvm — GraalVM native-image 缓存（如果用 native）
+            # 实际行为：Spring Boot 不会向 BOOT-INF 写、Vaadin Flow 也只在
+            # /tmp 落 production-bundle 缓存。app/data 通过 PVC 已经写，
+            # 不在 root FS 上。完成 R31-3 readOnly hardening。
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -60,6 +63,11 @@ spec:
             - name: oracle-wallet
               mountPath: /app/wallet
               readOnly: true
+            # R31-3：Spring Boot + JVM 在 read-only rootfs 下需要的可写区
+            - name: tmp
+              mountPath: /tmp
+            - name: jvm-cache
+              mountPath: /var/cache/jvm
           resources:
             requests:
               memory: 256Mi
@@ -97,3 +105,12 @@ spec:
         - name: oracle-wallet
           secret:
             secretName: oracle-wallet
+        # R31-3：read-only rootfs 配套可写区。sizeLimit 防容器无限写 → OOM
+        # 节点 disk。256Mi 对 Spring Boot 解压 + 临时缓存绰绰有余，超过即
+        # 说明应用有写盘 anti-pattern，应当 alert。
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: jvm-cache
+          emptyDir:
+            sizeLimit: 128Mi
