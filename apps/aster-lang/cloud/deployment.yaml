@@ -156,8 +156,18 @@ spec:
             # plan 升级生效会延迟到 cache TTL 兜底（5min）。
             - name: ASTER_PLAN_GATE_ENABLED
               value: "true"
+            # R32 hotfix：aster-cloud BFF 部署在 Cloudflare Pages，不在
+            # k3s 集群内。原值 http://aster-cloud.aster-cloud.svc.cluster.local:3000
+            # 指向一个不存在的 Service，DNS NXDOMAIN 让 api-key verify
+            # 全部失败（reason=verify_unavailable），用户拿到的 ak_xxx
+            # 在 redis snapshot 没 hit 时无法回源核对。
+            #
+            # 真实 URL 走 cf 边缘。cloud-side 仍验 HMAC + X-Internal-Caller
+            # header，所以经 Internet 一段不影响安全契约。性能代价：
+            # 一次 cache-miss verify 多 ~50-100ms 边缘往返；后续命中
+            # Caffeine cache（TTL 5min）零开销。
             - name: ASTER_CLOUD_INTERNAL_URL
-              value: "http://aster-cloud.aster-cloud.svc.cluster.local:3000"
+              value: "https://aster-lang.cloud"
             - name: ASTER_PLAN_GATE_HMAC_KEY
               valueFrom:
                 secretKeyRef:
