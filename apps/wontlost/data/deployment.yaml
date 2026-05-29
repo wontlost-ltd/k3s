@@ -22,6 +22,9 @@ spec:
         app.kubernetes.io/name: data-service
     spec:
       automountServiceAccountToken: false
+      # R30+ audit P1：nginx 收 SIGTERM 默认立即关，给 30s 让 keep-alive
+      # 连接和静态资源 in-flight 请求收尾，避免 502 spikes during rolling.
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
