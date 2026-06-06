@@ -139,6 +139,13 @@ spec:
             # 让全局 filter 失效不等于裸奔 —— 每个突变/付费端点都有独立 filter。
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
+            # 限流可信 IP 源：本集群是 Cloudflare Tunnel-only（cloudflared 出站
+            # 连接，无公网 ingress IP，外部无法绕过 Cloudflare 直连 Traefik），
+            # 因此 Cloudflare edge 写入并净化的 X-Forwarded-For 可信。置 true 后
+            # 匿名限流按真实客户端 IP 计，而非折叠到 Traefik/tunnel 的内网 IP。
+            # 默认 false 是为非 tunnel 部署（如 on-prem 直连）保守起见。
+            - name: ASTER_RATELIMIT_TRUST_FORWARDED_HEADERS
+              value: "true"
             # NSM 埋点 — Mixpanel HTTP 投递（详见 aster-deploy/docs/pm/03-telemetry-spec.md）
             # Optional：Vault path secret/apps/aster-api-mixpanel 未配置时 pod 仍可启动，
             # 但 telemetry 不会生效（ASTER_MIXPANEL_TOKEN 为空时客户端自动禁用）。
