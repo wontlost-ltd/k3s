@@ -140,11 +140,20 @@ spec:
             - name: ASTER_SECURITY_SIGNATURE_ENABLED
               value: "false"
             # 限流可信 IP 源：本集群是 Cloudflare Tunnel-only（cloudflared 出站
-            # 连接，无公网 ingress IP，外部无法绕过 Cloudflare 直连 Traefik），
-            # 因此 Cloudflare edge 写入并净化的 X-Forwarded-For 可信。置 true 后
-            # 匿名限流按真实客户端 IP 计，而非折叠到 Traefik/tunnel 的内网 IP。
-            # 默认 false 是为非 tunnel 部署（如 on-prem 直连）保守起见。
+            # 连接，无公网 ingress IP，外部无法绕过 Cloudflare 直连 Traefik）。
+            # 真正可信的客户端 IP 源是边缘写入、单值、不可伪造的 CF-Connecting-IP
+            #（Cloudflare 对客户端自带的 X-Forwarded-For 是追加而非覆盖，XFF 首段
+            # 可伪造）——应用层已优先采用 CF-Connecting-IP。置 true 后匿名限流按
+            # 真实客户端 IP 计，而非折叠到 Traefik/tunnel 的内网 IP。默认 false
+            # 是为非 tunnel 部署（如 on-prem 直连）保守起见。
             - name: ASTER_RATELIMIT_TRUST_FORWARDED_HEADERS
+              value: "true"
+            # 与上面同一信任边界，但作用于 trial 端点（/evaluate-source）的 per-IP
+            # 限流。TrialEndpointGuard 读独立的 trust 开关，且 RateLimitFilter 对
+            # guarded trial 路径直接旁路 —— 若此处不打开，trial 的 minute/hour/
+            # concurrent per-IP 配额会全部折叠到 Traefik/tunnel 内网 IP，退化为
+            # 全站级限流。tunnel-only 拓扑下 CF-Connecting-IP 不可伪造，可信。
+            - name: ASTER_SECURITY_TRIAL_TRUST_XFF
               value: "true"
             # NSM 埋点 — Mixpanel HTTP 投递（详见 aster-deploy/docs/pm/03-telemetry-spec.md）
             # Optional：Vault path secret/apps/aster-api-mixpanel 未配置时 pod 仍可启动，
