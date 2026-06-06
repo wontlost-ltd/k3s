@@ -44,7 +44,8 @@ spec:
         # 会把副本缩回 2 与 HPA 拉锯。仅精确忽略 aster-api 这一个 Deployment 的
         # /spec/replicas，不影响同模板生成的其它 app（如 observability，其 Deployment
         # 名不同且无 HPA）。
-        - kind: Deployment
+        - group: apps
+          kind: Deployment
           name: aster-api
           jsonPointers:
             - /spec/replicas
