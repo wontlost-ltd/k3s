@@ -87,13 +87,18 @@ spec:
           # configs.params (controller.* keys) further down in this file —
           # not via direct env injection here, which would duplicate the
           # Helm chart's own envFrom references to argocd-cmd-params-cm.
+          # 内存上限从 768Mi 提到 2Gi：application-controller 在 768Mi 下被
+          # OOMKilled（exit137），重启后长期贴着上限（756/768Mi，98%），就绪探针
+          # 持续超时、全集群 reconcile 停滞。随被管资源/Application 数量增长，
+          # controller 的内存占用线性上升，768Mi 已不够。request 同步提到 512Mi
+          # 让调度器按真实占用预留，避免在紧张节点上被驱逐。
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: 300m
-              memory: 768Mi
+              memory: 2Gi
           containerSecurityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
