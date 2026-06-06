@@ -38,6 +38,16 @@ spec:
             - .spec.data[].remoteRef.conversionStrategy
             - .spec.data[].remoteRef.decodingStrategy
             - .spec.data[].remoteRef.metadataPolicy
+        # aster-api 的副本数由 HorizontalPodAutoscaler（apps/aster-lang/cloud/
+        # hpa.yaml，min2/max6）独占。git manifest 里的 replicas:2 只作为初始值/
+        # 占位，HPA 扩容后若不忽略此字段，ArgoCD 会持续判定 OutOfSync 且 selfHeal
+        # 会把副本缩回 2 与 HPA 拉锯。仅精确忽略 aster-api 这一个 Deployment 的
+        # /spec/replicas，不影响同模板生成的其它 app（如 observability，其 Deployment
+        # 名不同且无 HPA）。
+        - kind: Deployment
+          name: aster-api
+          jsonPointers:
+            - /spec/replicas
       syncPolicy:
         automated:
           prune: true
