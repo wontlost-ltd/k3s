@@ -55,3 +55,8 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          # 让上面的 ignoreDifferences 在 sync 时也生效：默认 selfHeal 仍会把
+          # 被忽略的字段（如 aster-api 的 /spec/replicas）按 git 值写回，与 HPA
+          # 形成 live-lock（selfHeal 写 2 → HPA 扩到 N → 再次判漂移 → 重试不止）。
+          # RespectIgnoreDifferences 让 sync 从应用清单中剔除被忽略字段，HPA 真正独占。
+          - RespectIgnoreDifferences=true
