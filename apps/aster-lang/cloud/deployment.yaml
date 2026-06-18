@@ -155,6 +155,19 @@ spec:
             # 全站级限流。tunnel-only 拓扑下 CF-Connecting-IP 不可伪造，可信。
             - name: ASTER_SECURITY_TRIAL_TRUST_XFF
               value: "true"
+            # 开启 trial endpoint guard（/evaluate-source 匿名访客）。默认 false →
+            # TrialEndpointGuard 启动即 return，从不设 TRIAL_GUARD_PASSED_PROP，
+            # TenantFilter 不会把 tenant 设为 "trial"，于是经 aster-cloud playground
+            # BFF（X-Tenant-Id: trial-playground）进来的请求落到 PlanGate → Free 计划
+            # → api_access_denied（playground Run 报错）。打开后 guard 通过 Origin/
+            # IP/body 三重校验即旁路 PlanGate，playground 可匿名执行。
+            # allowed-origins 默认已含 aster-lang.dev/.cloud（见 TrialEndpointGuard），
+            # 无需额外配。
+            # 注意 env 名是 ASTER_SECURITY_EVALUATE_SOURCE_TRIAL（非 ..._ENABLED）：
+            # application.properties 显式绑
+            #   aster.security.evaluate-source.trial.enabled=${ASTER_SECURITY_EVALUATE_SOURCE_TRIAL:false}
+            - name: ASTER_SECURITY_EVALUATE_SOURCE_TRIAL
+              value: "true"
             # NSM 埋点 — Mixpanel HTTP 投递（详见 aster-deploy/docs/pm/03-telemetry-spec.md）
             # Optional：Vault path secret/apps/aster-api-mixpanel 未配置时 pod 仍可启动，
             # 但 telemetry 不会生效（ASTER_MIXPANEL_TOKEN 为空时客户端自动禁用）。
