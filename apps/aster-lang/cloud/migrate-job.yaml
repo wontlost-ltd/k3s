@@ -24,7 +24,10 @@ metadata:
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:
   ttlSecondsAfterFinished: 86400  # 24h 后自动清理
-  backoffLimit: 0
+  # 给瞬时失败（DB 连接抖动、ExternalSecret 尚未 reconcile）2 次重试余地，
+  # 避免一击即 BackoffLimitExceeded → ArgoCD Failed Sync。migrate 本身幂等
+  # （__drizzle_migrations 追踪 + 所有迁移用 IF NOT EXISTS），重试安全。
+  backoffLimit: 2
   template:
     metadata:
       labels:
