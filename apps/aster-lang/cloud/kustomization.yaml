@@ -24,6 +24,9 @@ resources:
   # 兜底变成"deny-all-including-traefik"的 bug（实测过，会让 ingress 全黑）。
   # 当前替代防御层：应用层 RBAC + TenantFilter + ApiKeyAuthFilter + HMAC 多层鉴权。
   # 升级条件：(a) k3s 升级到包含 kube-router patch 的版本，或 (b) 集群换 Calico CNI。
+  # 已就绪：network-policy.yaml 现已全改 **namespace-only** peer 选择器（去掉所有
+  # peer 内的 podSelector，只保留 spec.podSelector 选目标 pod），不再触发上述 bug。
+  # 待 CNI 满足升级条件后，**直接取消下一行注释即可启用**，无需再改写策略。
   # - network-policy.yaml
   - external-secrets.yaml
   # aster-cloud drizzle migration (PreSync hook + standalone runs)
