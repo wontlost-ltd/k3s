@@ -66,8 +66,12 @@ spec:
       app: aster-api
   policyTypes:
     - Egress
+  # NOTE: every peer below uses **namespace-only** selectors (no combined
+  # namespaceSelector + podSelector in a single peer). kube-router mis-handles the
+  # combined form (deny-all-including-Traefik); namespace-only avoids it, so this
+  # policy is enforceable as soon as the CNI is upgraded — no rewrite needed.
   egress:
-    # Allow DNS resolution
+    # Allow DNS resolution (kube-system / CoreDNS)
     - ports:
         - protocol: UDP
           port: 53
@@ -77,41 +81,29 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-    # Allow PostgreSQL access
+    # Allow PostgreSQL access (data-services namespace, port-scoped)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: data-services
-          podSelector:
-            matchLabels:
-              cnpg.io/cluster: shared-postgres
       ports:
         - protocol: TCP
           port: 5432
-    # Allow Redis access
+    # Allow Redis access (data-services namespace, port-scoped)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: data-services
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: redis
       ports:
         - protocol: TCP
           port: 6379
         - protocol: TCP
           port: 26379
-    # Allow Vault access for secrets
+    # Allow Vault access for secrets (vault namespace, port-scoped)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: vault
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: vault
       ports:
         - protocol: TCP
           port: 8200
