@@ -247,6 +247,14 @@ spec:
             # If emergency access is needed, temporarily re-enable and use
             # argocd-initial-admin-secret (requires kubectl access to cluster)
             admin.enabled: "false"
+            # 专用 CI 账号（仅 apiKey，无 login/密码）——供 aster-cloud CI 触发 DB 迁移 sync。
+            # 权限见 rbac.policy.csv 的 ci-migrate（最小化：仅 aster-cloud app 的 get+sync）。
+            # 生成 token：argocd account generate-token --account ci-migrate
+            accounts.ci-migrate: apiKey
+            # 硬化（ArgoCD 官方强烈建议，v3.2+）：sync 到与 Application targetRevision 不同的
+            # revision 需要 override 权限。ci-migrate 只有 sync 无 override → 只能同步到 app 自身
+            # 声明的 revision，无法被滥用同步到任意 commit。CI 不再传 revision（走 app 的 main）。
+            application.sync.requireOverridePrivilegeForRevisionSync: "true"
             # ArgoCD URLs - Multi-domain access per DOMAIN_STRATEGY.md
             url: https://argocd.aster-lang.cloud
             additionalUrls: |
@@ -294,6 +302,13 @@ spec:
               # ROLE DEFINITIONS
               # ===========================================
               # role:admin - built-in, full access to everything
+
+              # ci-migrate 本地账号：仅 aster-cloud 一个 app 的 get + sync（CI 触发 DB 迁移）。
+              # ★ 直接绑到 subject（p, ci-migrate, ...）而非 g 组映射——ArgoCD 官方硬化建议：
+              #   本地账号用 g 绑角色会被同名 Authentik group/scope 继承（SSO 歧义）。
+              # 不给 delete/override/action，也不涉及其它 app、repo、cluster。
+              p, ci-migrate, applications, get, aster-lang/aster-cloud, allow
+              p, ci-migrate, applications, sync, aster-lang/aster-cloud, allow
 
               # role:developer - aster-lang project ONLY (view + manage)
               p, role:developer, applications, *, aster-lang/*, allow
