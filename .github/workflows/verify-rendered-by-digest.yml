@@ -1,0 +1,53 @@
+# verify-rendered-by-digest —— 断言受控镜像 kustomize 渲染必是 @sha256（P3-1 render guard）
+#
+# 统一 digest pin（k3s#4）Phase 3 P3-1。pullPolicy 已降为 IfNotPresent,其安全前提是
+# 「渲染出的 image 是不可变 @digest」。若 kustomization images transformer 失效（如 images
+# 块被删 / name 不匹配 / 有人改 deployment.yaml 回浮动 tag）,渲染会回落到 :jvm-latest/:latest
+# （=implicit）+ IfNotPresent → 可能静默用节点缓存旧层。本 guard 对**任何** cloud-manifest
+# 变更持续断言受控镜像必 render 成 @sha256,防此静默回落（Codex 审查 P3-1 must-fix）。
+#
+# ★对所有改动 apps/aster-lang/cloud/** 的 PR 跑（不止 image-pin PR）,故人手改 deployment
+#   回浮动 tag 也会被拦。用 base 侧可信 checkout,渲染其自身即可（不依赖 PR 内容信任）。
+
+name: verify-rendered-by-digest
+
+on:
+  pull_request:
+    paths:
+      - apps/aster-lang/cloud/**
+
+permissions:
+  contents: read
+
+jobs:
+  render-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert controlled images render by-digest
+        run: |
+          set -euo pipefail
+          DIR=apps/aster-lang/cloud
+          # kubectl 自带 kustomize；渲染 PR-head 树（本 PR 已 checkout head,受 verify-image-pin
+          # + push ruleset 限制,人改 deployment 也会被本 guard 拦）。
+          rendered="$(kubectl kustomize "$DIR")"
+          # 受控镜像清单（与 .github/image-pin/allowed-images.yaml 对齐）。
+          controlled="docker.io/wontlost/aster-api docker.io/wontlost/aster-cloud-migrate"
+          fail=0
+          for img in $controlled; do
+            # 该镜像必须以 @sha256: 形式出现,且**不得**以 :tag（非 digest）形式出现。
+            if grep -qE "image:[[:space:]]*${img}@sha256:[0-9a-f]{64}" <<<"$rendered"; then
+              echo ">> OK: ${img} 渲染为 @sha256"
+            else
+              echo "::error::${img} 未渲染成 @sha256（kustomization images transformer 失效？）"
+              fail=1
+            fi
+            # 显式拦浮动 tag 回落：出现 image: <img>:<tag>（非 @digest）即失败。
+            if grep -qE "image:[[:space:]]*${img}:[A-Za-z0-9._-]+([[:space:]]|$)" <<<"$rendered"; then
+              echo "::error::${img} 渲染出浮动 tag（非 @digest）→ IfNotPresent 下可能用缓存旧层"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || { echo "::error::render guard 失败 → 受控镜像未全部 by-digest"; exit 1; }
+          echo "✅ 所有受控镜像 render by-digest"

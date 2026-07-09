@@ -1,9 +1,10 @@
 # Aster Cloud Drizzle Migration Job
 #
 # 触发方式：
-#   1. ArgoCD Sync Wave + PreSync hook（每次 sync 自动跑）
+#   1. ArgoCD **PostSync** hook（每次 app sync 完成后自动跑；见下 annotations，非 PreSync）
 #   2. 手动：kubectl create job aster-cloud-migrate-$(date +%s) --from=cronjob/aster-cloud-migrate -n aster-cloud
-#   3. GH Actions on aster-cloud push to main（远程 kubectl create job from template）
+#   3. 统一 digest pin（k3s#4）：aster-cloud CI 的 image-pin PR 改 migrate digest → app sync →
+#      本 PostSync hook 按新 digest 跑；CI 的「Wait for migration applied」轮询 fail-loud（#187）
 #
 # 幂等性：drizzle-kit migrate 通过 __drizzle_migrations 表跟踪已应用的迁移，
 # 重复运行只会跳过已应用的。
@@ -45,13 +46,12 @@ spec:
       containers:
         - name: migrate
           # P1-R21 (audit): floating `:latest` for migrate Job.
-          # Same model as aster-api deployment.yaml — ArgoCD pins to digest
-          # at sync time. The git tag is the template; the truth is in
-          # `kubectl describe pod <migrate-pod>` after sync.
-          # imagePullPolicy: Always is required for `:latest` semantics —
-          # don't downgrade to IfNotPresent without first pinning the tag.
+          # 同 deployment.yaml：`:latest` 只是模板占位,kustomization images transformer
+          # rewrite 成 @sha256:<image-lock migrate digest>。部署真相在 kustomization。
+          # imagePullPolicy: IfNotPresent 安全因渲染出的是不可变 @digest（transformer 失效的
+          # 静默回落由 verify-rendered-by-digest.yml 持续断言防护）。
           image: docker.io/wontlost/aster-cloud-migrate:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: DATABASE_URL
               valueFrom:
