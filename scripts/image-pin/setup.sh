@@ -73,6 +73,13 @@ else
   echo "[dry-run] gh secret set IMAGE_PIN_APP_PRIVATE_KEY --repo $REPO < $PEM_PATH"
 fi
 
+# ── Part D2：启用仓库 auto-merge（image-pin-pr 的 gh pr merge --auto 前置）──
+# ★ 设计文档 §1 已记 k3s allow_auto_merge=false;不开则 image-pin-pr job 的 --auto 报
+#   「Auto merge is not allowed for this repository」而失败（实测 PR#12）。
+echo ""
+echo "== Part D2：启用 allow_auto_merge =="
+run gh api --method PATCH "repos/${REPO}" -f allow_auto_merge=true
+
 # ── Part E：填 ruleset 占位 + evaluate 导入 ──
 echo ""
 echo "== Part E: ruleset (enforcement=evaluate, 占位0→真实ID, review_count=${REVIEW_COUNT}) =="
