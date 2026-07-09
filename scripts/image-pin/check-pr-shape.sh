@@ -11,7 +11,11 @@
 # 环境变量：
 #   IMAGE_PIN_BOT_LOGIN   期望的 bot login（如 "aster-image-pin[bot]"）
 #   IMAGE_PIN_BOT_ID      期望的 bot numeric user id（锚点，防 login 改名/伪造）
-#   IMAGE_LOCK_PATH       允许改动的唯一路径（默认 apps/aster-lang/cloud/image-lock.yaml）
+#   IMAGE_LOCK_PATH       image-lock 路径（默认 apps/aster-lang/cloud/image-lock.yaml）
+#   KUSTOMIZATION_PATH    kustomization 路径（默认 apps/aster-lang/cloud/kustomization.yaml）
+#
+# Phase 3 keystone：image-pin PR **双写** image-lock（验签真相）+ kustomization（部署真相）。
+# 故白名单从"仅 image-lock"放宽为"仅这两个文件"，改任何其它路径仍拒。
 #
 # 退出码：0 = 是合法 image-pin PR；非 0 = 不是（workflow 据此决定是否发 success check）。
 set -euo pipefail
@@ -19,6 +23,7 @@ set -euo pipefail
 EVENT="${1:?usage: check-pr-shape.sh <pr-event.json> <changed-files.txt>}"
 CHANGED="${2:?usage: check-pr-shape.sh <pr-event.json> <changed-files.txt>}"
 LOCK_PATH="${IMAGE_LOCK_PATH:-apps/aster-lang/cloud/image-lock.yaml}"
+KUSTOMIZATION_PATH="${KUSTOMIZATION_PATH:-apps/aster-lang/cloud/kustomization.yaml}"
 
 die() { echo "::error::$*" >&2; exit 1; }
 command -v jq >/dev/null || die "jq 未安装"
@@ -49,12 +54,19 @@ fi
 head_ref="$(jq -r '.pull_request.head.ref // ""' "$EVENT")"
 [[ "$head_ref" == image-pin/* ]] || die "head 分支非 image-pin/*：$head_ref"
 
-# ── 改动文件必须**精确**只有 image-lock；触碰任何其它路径即拒 ──
+# ── 改动文件必须只在 {image-lock, kustomization} 白名单内；且 image-lock 必须被改 ──
 mapfile -t files < <(grep -v '^[[:space:]]*$' "$CHANGED" || true)
 [[ "${#files[@]}" -gt 0 ]] || die "PR 无改动文件"
+touched_lock=false
 for f in "${files[@]}"; do
-  [[ "$f" == "$LOCK_PATH" ]] \
-    || die "image-pin PR 只能改 ${LOCK_PATH}, 却改了 ${f} (触碰 .github/**, CODEOWNERS, allowed-images.yaml 等一律拒)"
+  case "$f" in
+    "$LOCK_PATH")          touched_lock=true ;;
+    "$KUSTOMIZATION_PATH") : ;;   # 允许（部署真相），一致性由 verify-image-pin.sh 校验
+    *) die "image-pin PR 只能改 ${LOCK_PATH} 和 ${KUSTOMIZATION_PATH}, 却改了 ${f} (触碰 .github/**, CODEOWNERS, allowed-images.yaml 等一律拒)" ;;
+  esac
 done
+# image-lock 是验签真相，必须被改（只改 kustomization 而不改 image-lock ＝ 绕过验签，拒）。
+[[ "$touched_lock" == "true" ]] \
+  || die "image-pin PR 必须改 ${LOCK_PATH}（验签真相）；只改 kustomization 会绕过验签"
 
 echo ">> PR 形状/来源合法：author=$author_login(id=$author_id,Bot) head=$head_ref 仅改 $LOCK_PATH"

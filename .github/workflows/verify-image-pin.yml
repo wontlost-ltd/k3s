@@ -57,17 +57,24 @@ jobs:
             scripts_present=false
             echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）→ 本 PR no-op"
           fi
-          if grep -qxF "$LOCK_PATH" /tmp/pr/changed-files.txt && [[ "$scripts_present" == "true" ]]; then
+          # ★ Codex 审查 Critical#1：严格路径触发 = image-lock **或** kustomization 任一被改。
+          # 否则"只改 kustomization 不改 image-lock"的 PR 会走 no-op success 绕过 check-pr-shape。
+          touches_pin=false
+          if grep -qxF "$LOCK_PATH" /tmp/pr/changed-files.txt \
+             || grep -qxF "apps/aster-lang/cloud/kustomization.yaml" /tmp/pr/changed-files.txt; then
+            touches_pin=true
+          fi
+          if [[ "$touches_pin" == "true" && "$scripts_present" == "true" ]]; then
             echo "touches_lock=true"  >> "$GITHUB_OUTPUT"
           else
             echo "touches_lock=false" >> "$GITHUB_OUTPUT"
           fi
         id: changed
 
-      # ── 分流 A：未改 image-lock 的 PR → no-op（发 success，不做验签）──
-      - name: No-op for non-image-lock PR
+      # ── 分流 A：未改 image-lock/kustomization 的 PR → no-op（发 success，不做验签）──
+      - name: No-op for non-image-pin PR
         if: steps.changed.outputs.touches_lock == 'false'
-        run: echo "本 PR 未改 $LOCK_PATH → verify-image-pin no-op（人工 PR 走其它 review 规则）"
+        run: echo "本 PR 未改 image-lock/kustomization → verify-image-pin no-op（人工 PR 走其它 review 规则）"
 
       # ── 分流 B：改了 image-lock → 严格路径 ──
       - name: Fetch PR-head image-lock as data (不 checkout head 代码)
@@ -76,13 +83,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # 只取 image-lock 这一个文件的 PR-head 版本作为数据；不 checkout head、不跑其脚本。
+          # 只取 image-lock + kustomization 的 PR-head 版本作为**数据**；不 checkout head、不跑其脚本。
           gh api "repos/${{ github.repository }}/contents/${LOCK_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
             --jq '.content' | base64 -d > /tmp/pr/head-image-lock.yaml
-          # 不 cat 未信任内容到日志（防 log-injection）；只打印摘要。
           echo "PR-head image-lock sha256: $(sha256sum /tmp/pr/head-image-lock.yaml | cut -d' ' -f1)"
-          # base 版本（可信 checkout 侧）作为 diff 基线；base 无该文件则空。
+          # Phase 3 keystone：取 head kustomization 做 digest 一致性校验（部署真相）。
+          gh api "repos/${{ github.repository }}/contents/apps/aster-lang/cloud/kustomization.yaml?ref=${{ github.event.pull_request.head.sha }}" \
+            --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
+          echo "PR-head kustomization sha256: $(sha256sum /tmp/pr/head-kustomization.yaml | cut -d' ' -f1)"
+          # base（可信 checkout 侧）作为 diff 基线；base 无该文件则空。
           cp "$LOCK_PATH" /tmp/pr/base-image-lock.yaml 2>/dev/null || echo 'images: []' > /tmp/pr/base-image-lock.yaml
+          cp apps/aster-lang/cloud/kustomization.yaml /tmp/pr/base-kustomization.yaml
 
       - name: Check PR shape (blocker2 纵深)
         if: steps.changed.outputs.touches_lock == 'true'
@@ -104,12 +115,10 @@ jobs:
         run: |
           set -euo pipefail
           YQ_VER=v4.44.3
-          YQ_SHA=b4b5a80866b3116a9e3f0a1e3c2c88d5b8e4e6dc4c0f6c8f3d1c4c7e8f9a0b1c  # 占位：导入前替换为官方 checksum
+          # 真实 sha256（yq_linux_amd64 v4.44.3，直接对二进制核实）。供应链固定，失败即中止。
+          YQ_SHA=a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
           curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VER}/yq_linux_amd64"
-          # checksum 校验（YQ_SHA 为占位时跳过并告警；SETUP.md 要求替换为真值）──
-          if [[ "$YQ_SHA" != *占位* ]] && ! echo "${YQ_SHA}  /tmp/yq" | sha256sum -c - 2>/dev/null; then
-            echo "::error::yq checksum 校验失败"; exit 1
-          fi
+          echo "${YQ_SHA}  /tmp/yq" | sha256sum -c - || { echo "::error::yq checksum 校验失败"; exit 1; }
           sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
 
@@ -119,10 +128,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}         # freshness 查源仓 HEAD，只读足够
           IMAGE_PIN_FRESHNESS: latest-only
         run: |
+          # 参数 4/5 = head/base kustomization：verify 内做 digest 一致性 + semantic-diff allowlist。
           bash scripts/image-pin/verify-image-pin.sh \
             .github/image-pin/allowed-images.yaml \
             /tmp/pr/base-image-lock.yaml \
-            /tmp/pr/head-image-lock.yaml
+            /tmp/pr/head-image-lock.yaml \
+            /tmp/pr/head-kustomization.yaml \
+            /tmp/pr/base-kustomization.yaml
+
+      # ── Phase 3 keystone 渲染层校验：kubectl kustomize 出的每个变更镜像必须是 @sha256 ──
+      # 用 base(可信) checkout 的其它 manifest + head 的 kustomization/image-lock（数据）。
+      # 只校验渲染结果含 by-digest（image-lock 的 digest 已在上一步验签）。
+      - name: Verify kustomize renders by-digest
+        if: steps.changed.outputs.touches_lock == 'true'
+        run: |
+          set -euo pipefail
+          # 把 head 的 kustomization + image-lock 覆盖到 base 树的对应位置（仅这两个数据文件），
+          # 其余 manifest 用可信 base 版本；不引入 head 的任何可执行/patch 变更。
+          cp /tmp/pr/head-kustomization.yaml apps/aster-lang/cloud/kustomization.yaml
+          cp /tmp/pr/head-image-lock.yaml    apps/aster-lang/cloud/image-lock.yaml
+          rendered="$(kubectl kustomize apps/aster-lang/cloud)"
+          # image-lock 转 JSON（数值标量转字符串防精度损坏），逐镜像取 image+digest。
+          lock_json="$(yq -o=json '(.. | select(tag=="!!int" or tag=="!!float"))|=tostring' /tmp/pr/head-image-lock.yaml)"
+          n="$(jq '.images | length' <<<"$lock_json")"
+          for k in $(seq 0 $((n - 1))); do
+            img="$(jq -r ".images[$k].image"  <<<"$lock_json")"
+            dig="$(jq -r ".images[$k].digest" <<<"$lock_json")"
+            # 每个镜像的渲染 image 必须是 name@sha256:<image-lock digest>。
+            grep -qF "${img}@${dig}" <<<"$rendered" \
+              || { echo "::error::kustomize 渲染未见 ${img}@${dig}（部署未 by-digest 该镜像）"; exit 1; }
+            echo ">> 渲染校验 OK：${img}@${dig}"
+          done
 
       # ── 发 check run 用 image-pin App token（使 required-check source = App, blocker2 X3）──
       # 无论 no-op 还是严格路径，只要走到这里(前面步骤未失败)即发 success；失败路径由 job 失败
@@ -130,10 +166,11 @@ jobs:
       - name: Mint image-pin App token
         id: apptoken
         if: ${{ always() && vars.IMAGE_PIN_APP_ID != '' }}
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.IMAGE_PIN_APP_ID }}
           private-key: ${{ secrets.IMAGE_PIN_APP_PRIVATE_KEY }}
+          permission-checks: write
 
       - name: Publish verify-image-pin check run (App source)
         if: ${{ always() && vars.IMAGE_PIN_APP_ID != '' }}

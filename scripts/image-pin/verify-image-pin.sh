@@ -12,9 +12,12 @@
 #   - 对 allowed-images 字段 + image-lock 的 image 做形状/字符集 fail-closed 校验。
 #
 # 用法：
-#   verify-image-pin.sh <allowed-images.yaml> <base-lock.yaml> <head-lock.yaml>
+#   verify-image-pin.sh <allowed-images.yaml> <base-lock.yaml> <head-lock.yaml> [head-kustomization.yaml]
 #     base-lock = PR base 分支（可信 main）的 image-lock；head-lock = PR head 的 image-lock。
 #     只对 head 中 digest/sourceSha 相对 base 发生变化（或 base 中不存在）的 image 做全量验签。
+#     head-kustomization（可选，Phase 3 keystone）= PR head 的 kustomization.yaml：
+#       提供则对每个变更 entry 校验 kustomization images[].digest == image-lock digest（部署真相
+#       与验签真相一致）。渲染层校验（kubectl kustomize 出 @sha256）由 workflow 做。
 # 依赖：cosign(>=v3.1.1)、yq、gh（freshness 查源仓 HEAD，需 GH_TOKEN 只读）、jq。
 # 环境变量：
 #   IMAGE_PIN_FRESHNESS=latest-only|off   默认 latest-only（Phase 1 决策）
@@ -23,9 +26,12 @@
 # 退出码：0 全过（含"无变更 entry"）；非 0 = fail-closed。
 set -euo pipefail
 
-ALLOWED="${1:?usage: verify-image-pin.sh <allowed-images.yaml> <base-lock.yaml> <head-lock.yaml>}"
-BASE_LOCK="${2:?usage: verify-image-pin.sh <allowed-images.yaml> <base-lock.yaml> <head-lock.yaml>}"
-HEAD_LOCK="${3:?usage: verify-image-pin.sh <allowed-images.yaml> <base-lock.yaml> <head-lock.yaml>}"
+USAGE="usage: verify-image-pin.sh <allowed> <base-lock> <head-lock> [head-kustomization] [base-kustomization]"
+ALLOWED="${1:?$USAGE}"
+BASE_LOCK="${2:?$USAGE}"
+HEAD_LOCK="${3:?$USAGE}"
+HEAD_KUSTOMIZATION="${4:-}"
+BASE_KUSTOMIZATION="${5:-}"
 FRESHNESS="${IMAGE_PIN_FRESHNESS:-latest-only}"
 
 die() { echo "::error::$*" >&2; exit 1; }
@@ -48,6 +54,40 @@ head_json="$(yq -o=json "$to_str" "$HEAD_LOCK")"
 base_json="$(yq -o=json "$to_str" "$BASE_LOCK" 2>/dev/null || echo '{"images":[]}')"
 [[ "$(jq -r '.images // "null"' <<<"$base_json")" != "null" ]] || base_json='{"images":[]}'
 
+# Phase 3 keystone：加载 head kustomization（若提供）用于 digest 一致性校验。
+kust_json='{"images":[]}'
+if [[ -n "$HEAD_KUSTOMIZATION" ]]; then
+  [[ -f "$HEAD_KUSTOMIZATION" ]] || die "找不到 head kustomization：$HEAD_KUSTOMIZATION"
+  kust_json="$(yq -o=json "$to_str" "$HEAD_KUSTOMIZATION")"
+
+  # ★ Codex 审查 Critical#2/#3：kustomization **语义 diff allowlist**。
+  # push ruleset 放开了 kustomization 整文件 → 必须在此证明 image-pin PR **只改了**
+  # images[].digest，其它字段（resources/patches/generators/namespace/images[].name…）
+  # 与 base 完全相同。否则攻击者可借 image-pin PR 改部署语义而 verify 放行。
+  # 实现：把两侧 kustomization 的**所有** images[].digest 归一化为占位后，要求全文 JSON 相等。
+  # ★ 语义 diff 用**原生** yq→json（不做 to_str），保持类型级严格比较（1 vs "1" 视为不等）——
+  #   Codex 复审建议：kustomization 无数值型 SHA 问题，类型级更严。
+  if [[ -n "$BASE_KUSTOMIZATION" ]]; then
+    [[ -f "$BASE_KUSTOMIZATION" ]] || die "找不到 base kustomization：$BASE_KUSTOMIZATION"
+    base_kust_raw="$(yq -o=json '.' "$BASE_KUSTOMIZATION")"
+    head_kust_raw="$(yq -o=json '.' "$HEAD_KUSTOMIZATION")"
+    norm='(.images[]?.digest) = "__NORM__"'
+    base_norm="$(jq -S "$norm" <<<"$base_kust_raw")"
+    head_norm="$(jq -S "$norm" <<<"$head_kust_raw")"
+    if [[ "$base_norm" != "$head_norm" ]]; then
+      echo "::error::kustomization 除 images[].digest 外有其它变更（禁止：image-pin PR 只能改 digest，不得改 resources/patches/namespace 等部署语义）"
+      diff <(echo "$base_norm") <(echo "$head_norm") | head -40 >&2 || true
+      die "kustomization semantic-diff 校验失败 → fail-closed"
+    fi
+    info "kustomization semantic-diff OK（仅 images[].digest 变更）"
+  else
+    # 无 base kustomization 传入：无法做语义 diff。生产必须传（workflow 会传）；此处 fail-closed。
+    [[ "$FRESHNESS" == "off" ]] \
+      || die "提供了 head-kustomization 但缺 base-kustomization → 无法做 semantic-diff（生产必须两侧都传）"
+    info "  （freshness=off 单测：跳过 kustomization semantic-diff）"
+  fi
+fi
+
 OIDC_ISSUER="$(jq -r '.oidcIssuer // "null"' <<<"$allowed_json")"
 [[ -n "$OIDC_ISSUER" && "$OIDC_ISSUER" != "null" ]] || die "allowed-images 缺 oidcIssuer"
 
@@ -67,7 +107,13 @@ for i in $(seq 0 $((head_count - 1))); do
   if [[ -n "$base_entry" ]]; then
     base_digest="$(jq -r '.digest' <<<"$base_entry")"
     base_sha="$(jq -r '.sourceSha' <<<"$base_entry")"
+    # ★ Codex 复审建议：runId-only 变更（digest/sourceSha 不变）应拒绝——保护 audit 元数据
+    #   完整性，防止在不重新验签的情况下改 provenance runId。
+    base_run="$(jq -r '.runId // ""' <<<"$base_entry")"
+    head_run="$(jq -r '.runId // ""' <<<"$entry")"
     if [[ "$base_digest" == "$digest" && "$base_sha" == "$source_sha" ]]; then
+      [[ "$base_run" == "$head_run" ]] \
+        || die "entry[$i] ${image} 只改了 runId 而 digest/sourceSha 未变（禁止：runId 变更须伴随重新验签的 digest/sourceSha）"
       info "entry[$i] $image 未变更，跳过（既有 bootstrap 状态）"
       continue
     fi
@@ -98,6 +144,18 @@ for i in $(seq 0 $((head_count - 1))); do
   # ── image-lock 值形状（digest sha256、sourceSha 40hex，拒种子/占位混入生产）──
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::entry[$i] digest 形状非法：$digest"; fail=1; continue; }
   [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::entry[$i] sourceSha 非 40-hex（种子/占位不得进生产）：$source_sha"; fail=1; continue; }
+
+  # ── Phase 3 keystone：kustomization digest 一致性（部署真相 == 验签真相）──
+  # 提供了 head kustomization 时：本镜像在 kustomization.images 里必须存在且 digest 与 image-lock
+  # 相等。否则"验签通过的 digest"与"实际部署的 digest"可能不一致 → 打穿 by-digest 保证。
+  if [[ -n "$HEAD_KUSTOMIZATION" ]]; then
+    kust_digest="$(jq -r --arg img "$image" '.images[]? | select(.name == $img) | .digest // empty' <<<"$kust_json")"
+    [[ -n "$kust_digest" ]] \
+      || { echo "::error::entry[$i] ${image} 在 kustomization.images 中缺失（部署不会 by-digest 该镜像）"; fail=1; continue; }
+    [[ "$kust_digest" == "$digest" ]] \
+      || { echo "::error::entry[$i] kustomization digest(${kust_digest}) != image-lock digest(${digest})（部署真相与验签真相不一致）"; fail=1; continue; }
+    info "  kustomization 一致性 OK（deploy digest == verified digest）"
+  fi
 
   cert_identity="https://github.com/${source_repo}/.github/workflows/${workflow_file}@${source_ref}"
 

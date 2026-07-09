@@ -1,5 +1,5 @@
 {
-  "_comment": "push ruleset —— 禁止改动受保护路径进入任何分支 (blocker2 X1/X6). image-pin PR 因此只能改 image-lock.yaml；改 .github/**、CODEOWNERS(三处)、kustomization.yaml 一律被 push 层拦截，与 verify workflow 冗余(纵深)。allowed-images.yaml 在 .github/image-pin/ 下已被 .github/** 覆盖。★bypass_actors：仅 break-glass admin(RepositoryRole actor_id=5, bypass_mode=always)——admin 可绕过本 push 限制以维护 .github/**(如更新本 workflow 自身)，image-pin App 绝不在此列。admin 改这些路径仍受 main branch ruleset 的 require_pull_request 约束(须走 PR)。file_path_restriction 用 fnmatch。",
+  "_comment": "push ruleset —— 禁止改动受保护路径进入任何分支 (blocker2 X1/X6). image-pin PR 只能改 image-lock.yaml + kustomization.yaml；改 .github/**、CODEOWNERS(三处) 一律被 push 层拦截。★Phase 3 keystone：kustomization.yaml 从本限制**移除**(image-pin PR 须双写它作部署真相)——其**子字段**语义(只允许 images[].digest 变、且 == image-lock digest)由 verify-image-pin.sh 校验，push ruleset 只能限整文件路径故无法表达子字段，交 verify 层。allowed-images.yaml 在 .github/image-pin/ 下已被 .github/** 覆盖。★bypass_actors：仅 break-glass admin(RepositoryRole actor_id=5, bypass_mode=always)，image-pin App 绝不在此列。admin 改这些路径仍受 main branch ruleset require_pull_request 约束。file_path_restriction 用 fnmatch。",
   "name": "image-pin-protected-paths",
   "target": "push",
   "enforcement": "active",
@@ -14,8 +14,7 @@
           ".github/**",
           "CODEOWNERS",
           ".github/CODEOWNERS",
-          "docs/CODEOWNERS",
-          "apps/aster-lang/cloud/kustomization.yaml"
+          "docs/CODEOWNERS"
         ]
       }
     }
