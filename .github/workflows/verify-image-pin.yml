@@ -166,9 +166,10 @@ jobs:
       - name: Mint image-pin App token
         id: apptoken
         if: ${{ always() && vars.IMAGE_PIN_APP_ID != '' }}
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
-          app-id: ${{ vars.IMAGE_PIN_APP_ID }}
+          # client-id 取代已弃用的 app-id（create-github-app-token@v3 弃用警告）。
+          client-id: ${{ vars.IMAGE_PIN_APP_CLIENT_ID }}
           private-key: ${{ secrets.IMAGE_PIN_APP_PRIVATE_KEY }}
           permission-checks: write
 
