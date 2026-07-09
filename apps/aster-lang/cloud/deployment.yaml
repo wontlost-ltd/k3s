@@ -41,15 +41,16 @@ spec:
           type: RuntimeDefault
       containers:
         - name: aster-api
-          # P1-R21 (audit): `:jvm-latest` is the floating staging tag.
-          # ArgoCD Image Updater (configured in argocd/applicationset.yaml)
-          # pins each ApplicationSet revision to a content digest at sync time;
-          # the YAML here is the template, not the runtime truth.
-          # Operators rolling back must use the digest from the ArgoCD UI,
-          # not this file. Audit-trail of "which image actually ran" comes
-          # from the Application's last-synced revision, not git.
+          # 统一 digest pin（k3s#4）：此 `:jvm-latest` 只是模板占位——kustomization.yaml 的
+          # images transformer 在 kustomize build 时把它 rewrite 成 @sha256:<image-lock digest>
+          # （由源仓 CI 的 image-pin PR 双写 image-lock+kustomization,verify-image-pin 验签）。
+          # 部署真相 = kustomization images[].digest;此行不是 runtime truth。
+          # ⚠️ imagePullPolicy: IfNotPresent 依赖「渲染出的 image 是不可变 @digest」。若 transformer
+          #    失效（如 images 块被删）会回落到 :jvm-latest（=implicit）+ IfNotPresent → 可能用节点
+          #    缓存旧层。故有 .github/workflows/verify-rendered-by-digest.yml 持续断言受控镜像必须
+          #    render 成 @sha256,防此静默回落。
           image: docker.io/wontlost/aster-api:jvm-latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http
