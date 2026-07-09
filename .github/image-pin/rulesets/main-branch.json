@@ -24,7 +24,7 @@
       "parameters": {
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
-          { "context": "verify-image-pin", "integration_id": 0 }
+          { "context": "verify-image-pin", "integration_id": 4253193 }
         ]
       }
     },

@@ -39,16 +39,20 @@ command -v jq >/dev/null || die "需要 jq"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RULESET_DIR="$SCRIPT_DIR/../../.github/image-pin/rulesets"
 
-# ── 校验 App 确实装在 REPO 上，且 slug 与我们假设一致 ──
+# ── 校验 App 确实装在 REPO 所属 org，且 slug 与我们假设一致 ──
+# 注意：repos/{repo}/installation 需 App JWT 鉴权（user token 会 401），故走
+# orgs/{org}/installations 按 app_id 过滤（user token + org owner 可读）。
 echo "== 校验 App 安装 =="
-inst="$(gh api "repos/${REPO}/installation" 2>/dev/null)" \
-  || die "取 ${REPO} 的 App 安装失败：确认 App 已安装到该仓、且你的 gh 有 admin 权限"
-inst_app_id="$(jq -r '.app_id' <<<"$inst")"
+ORG="${REPO%%/*}"
+inst="$(gh api "orgs/${ORG}/installations" \
+          --jq ".installations[]? | select(.app_id==${APP_ID})" 2>/dev/null)" \
+  || die "读 orgs/${ORG}/installations 失败：确认你是 ${ORG} 的 org owner 且 gh 已登录"
+[[ -n "$inst" ]] \
+  || die "org ${ORG} 未找到 app_id=${APP_ID} 的安装：确认 App 已安装到该 org（并选中 ${REPO}）"
 app_slug="$(jq -r '.app_slug' <<<"$inst")"
-[[ "$inst_app_id" == "$APP_ID" ]] \
-  || die "REPO 上安装的 App id=$inst_app_id 与传入 APP_ID=$APP_ID 不符（是否装了别的 App？）"
+installation_id="$(jq -r '.id' <<<"$inst")"
 bot_login="${app_slug}[bot]"
-echo "  App slug=$app_slug  →  bot login=$bot_login"
+echo "  App slug=$app_slug  installation_id=$installation_id  →  bot login=$bot_login"
 
 # ── 取 bot 的 numeric user id（IMAGE_PIN_BOT_ID）──
 enc_login="${bot_login/\[/%5B}"; enc_login="${enc_login/\]/%5D}"
@@ -71,7 +75,7 @@ fi
 
 # ── Part E：填 ruleset 占位 + evaluate 导入 ──
 echo ""
-echo "== Part E：ruleset（enforcement=evaluate，占位0→真实ID，review_count=$REVIEW_COUNT）=="
+echo "== Part E: ruleset (enforcement=evaluate, 占位0→真实ID, review_count=${REVIEW_COUNT}) =="
 tmp="$(mktemp -d)"
 
 jq --argjson id "$APP_ID" --argjson rc "$REVIEW_COUNT" '
@@ -99,8 +103,8 @@ done
 rm -rf "$tmp"
 
 echo ""
-echo "完成（APPLY=$APPLY）。下一步："
+echo "完成 (APPLY=${APPLY}). 下一步:"
 echo "  1. 看 k3s Settings → Rules → Rule Insights，确认 evaluate 无误伤。"
 echo "  2. 用真实签名 image-lock PR 冒烟（见 SETUP.md §4）。"
 echo "  3. 全绿后把三 ruleset enforcement 从 evaluate 改 active。"
-echo "  review_count=$REVIEW_COUNT（0=bot 无人审 auto-merge；改前见 SETUP.md §4b）。"
+echo "  review_count=${REVIEW_COUNT} (0=bot 无人审 auto-merge; 改前见 SETUP.md §4b)."
