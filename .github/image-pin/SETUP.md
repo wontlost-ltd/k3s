@@ -11,20 +11,54 @@ ruleset JSON）已随本 PR 提交，但以下动作需 **GitHub org/repo 管理
 
 ## 1. 注册 image-pin GitHub App
 
-创建一个 **GitHub App**（org 级），仅安装到需要的仓：
-- **安装范围**：`wontlost-ltd/k3s`（开 PR / 发 check）+ 源仓 `aster-cloud/aster-api`、
-  `aster-cloud/aster-cloud`（Phase 2 跨仓开 PR 时需要；Phase 1 仅 k3s 即可）。
-- **Repository 权限（最小）**：
+> ★ 跨 org 事实（重要）：源仓在 org **`aster-cloud`**，k3s 在 org **`wontlost-ltd`**（两个不同
+> org）。GitHub App 归属单一 org，默认只能**安装**到同 org 的仓。故：
+> - **App 归属 `wontlost-ltd`**（与 k3s 同 org），**只安装到 `wontlost-ltd/k3s`**。
+> - **不**安装到 `aster-cloud/*`。Phase 2 源仓 CI 是把本 App 的 **App ID + private key 存为
+>   源仓自己的 secret**，用 `actions/create-github-app-token` 面向 **k3s 安装** 换取 token 再
+>   开 PR —— 靠 **token 跨 org**，不是靠跨 org 安装。Phase 1 只碰 `wontlost-ltd`。
+
+在 `https://github.com/organizations/wontlost-ltd/settings/apps` → **New GitHub App**
+（需 `wontlost-ltd` **org owner** 权限）：
+- **名称**：`aster-image-pin`（→ bot login `aster-image-pin[bot]`）；Homepage 填 k3s URL。
+- **Webhook**：取消勾选 Active（不需要 webhook）。
+- **Repository 权限（最小）**，其余全 No access：
   - `Contents: Read and write`（开 image-pin/* 分支、commit image-lock）
   - `Pull requests: Read and write`（开 PR + enable auto-merge）
-  - `Checks: Read and write`（发 verify-image-pin check run）
-  - `Metadata: Read-only`
-- **绝不授予**：`Administration`、`Repository rules`、任何 bypass。
-- 生成 **private key**，记下 **App ID** 与安装后的 **Integration actor id**。
+  - `Checks: Read and write`（发 verify-image-pin check run，使 required-check source=App）
+  - `Metadata: Read-only`（基线，自动选）
+- **绝不授予**：`Administration`、`Repository rules`、`Workflows`、`Actions`、任何 Organization 权限、任何 bypass。
+- **Where can this App be installed**：Only on this account。
+- 创建后：记 **App ID**；Generate a private key（下载 .pem，仅此一次可见）。
+- **Install App** → `wontlost-ltd` → Only select repositories → **k3s** → Install。
+- 安装后取 IDs：`gh api repos/wontlost-ltd/k3s/installation --jq '{app_id,app_slug,id}'`；
+  bot user id：`gh api 'users/aster-image-pin%5Bbot%5D' --jq '{login,id,type}'`。
+  ruleset `Integration` bypass 的 actor_id = **App ID**（与 app_id 同）。
+- 以上 IDs 交给 `setup.sh` 自动完成 Part D+E（见上）。
 
 > Integration actor id 取法：`gh api repos/wontlost-ltd/k3s/installation --jq '.app_id'` 得 App ID；
 > ruleset bypass 用的 actor_id 是该 App 的 **integration id**，可在 ruleset UI 加 bypass 时选中该 App 后
 > `gh api repos/wontlost-ltd/k3s/rulesets/<id> --jq '.bypass_actors'` 回读确认。
+
+## 半自动：Part D+E 用 setup.sh 一键做
+
+Part A-C（UI 注册 App + 生成 pem + 装到 k3s）手动做完后，Part D（vars/secrets）+ Part E
+（ruleset 填占位 + evaluate 导入）可用脚本：
+
+```bash
+# 先 dry-run 预览（默认不改任何东西）：
+scripts/image-pin/setup.sh <APP_ID> /path/to/aster-image-pin.pem
+# 确认无误后真正执行：
+APPLY=1 scripts/image-pin/setup.sh <APP_ID> /path/to/aster-image-pin.pem
+# 若要人工审 bot PR（默认 0=无人审 auto-merge，见 §4b）：
+APPLY=1 IMAGE_PIN_REVIEW_COUNT=1 scripts/image-pin/setup.sh <APP_ID> /path/to/pem
+```
+
+脚本会：校验 App 确实装在 k3s（app_id 匹配）→ 自动取 bot login/id → 写 4 个 vars/secret →
+填 ruleset 占位（integration_id/bypass actor_id=App ID）→ 以 **evaluate** 模式导入三 ruleset。
+它 fail-closed：App 未装或 id 不符即中止，不改任何东西。
+
+下面 §2-§3 是脚本背后的手动等价步骤（供理解/排障）。
 
 ## 2. 配置仓库 Variables / Secrets（`wontlost-ltd/k3s`）
 
