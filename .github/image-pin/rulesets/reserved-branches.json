@@ -1,0 +1,20 @@
+{
+  "_comment": "reserved branch ruleset —— 防他人占用 image-pin/* 分支名 (blocker2 X6). 只允许 image-pin App 创建/更新 image-pin/* 分支，防攻击者推一个 image-pin/* 分支冒充自动发布。★★ bypass_actors[0].actor_id 现为占位 0，导入前必须替换成 image-pin App 的 integration id（见 SETUP.md §3）。",
+  "name": "image-pin-reserved-branches",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/image-pin/**"],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [
+    { "actor_type": "Integration", "actor_id": 0, "bypass_mode": "always" }
+  ],
+  "rules": [
+    { "type": "creation" },
+    { "type": "update" },
+    { "type": "non_fast_forward" }
+  ]
+}
