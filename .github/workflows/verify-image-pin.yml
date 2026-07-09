@@ -48,7 +48,16 @@ jobs:
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
             --paginate --jq '.[].filename' > /tmp/pr/changed-files.txt
           echo "改动文件："; cat /tmp/pr/changed-files.txt
-          if grep -qxF "$LOCK_PATH" /tmp/pr/changed-files.txt; then
+          # 验签脚本只从**可信 base 侧**运行（不信 PR 改动的验签器代码）。若 base 尚无这些
+          # 脚本（引入本机制的 bootstrap PR 自身），则无法在此 PR 上验签 → no-op（安全：
+          # 此时 ruleset 仍 evaluate，且脚本一旦入 main，后续 image-pin PR 即走严格路径）。
+          if [[ -f scripts/image-pin/verify-image-pin.sh && -f scripts/image-pin/check-pr-shape.sh ]]; then
+            scripts_present=true
+          else
+            scripts_present=false
+            echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）→ 本 PR no-op"
+          fi
+          if grep -qxF "$LOCK_PATH" /tmp/pr/changed-files.txt && [[ "$scripts_present" == "true" ]]; then
             echo "touches_lock=true"  >> "$GITHUB_OUTPUT"
           else
             echo "touches_lock=false" >> "$GITHUB_OUTPUT"
