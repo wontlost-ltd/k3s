@@ -18,13 +18,11 @@
 #   ruleset 应保持 evaluate（dry-run）而非 active，避免用种子值 fail-closed 卡死。
 
 version: 1
-
 images:
   - image: docker.io/wontlost/aster-api
-    digest: sha256:761caa326cba1885a5dd220fc8ffd0a36a088fdb947ea826089953a2db626c89
-    sourceSha: UNVERIFIED-SEED   # Phase 2 首个 CI PR 覆盖为真实 github.sha
-    runId: UNVERIFIED-SEED
-
+    digest: sha256:0de862f84dbb365a29f20a4ada0d72ebb71179d392d0bfd0a343b6f8a9561761
+    sourceSha: 074585129f6c7bd6b08c734e18bf5d07647f65cc # Phase 2 首个 CI PR 覆盖为真实 github.sha
+    runId: "29003940110"
   - image: docker.io/wontlost/aster-cloud-migrate
     digest: sha256:b0a44fc89cfde925386633ad38d72996845394315b6dc3a760fd280dd87fb9cb
     sourceSha: UNVERIFIED-SEED
