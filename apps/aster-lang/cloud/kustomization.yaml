@@ -32,3 +32,15 @@ resources:
   # aster-cloud drizzle migration (PreSync hook + standalone runs)
   - migrate-external-secret.yaml
   - migrate-job.yaml
+
+# 统一镜像 digest pin 设计 A′ Phase 3（keystone）：把 image-lock 的 digest 接进 kustomize
+# 原生 images transformer，让 Deployment/Job 渲染 image@sha256:<digest> 而非浮动 tag。
+# 这是**部署真相**；验签/溯源真相在 image-lock.yaml（含 sourceSha/runId）。二者由 Phase 2 CI
+# 同一 PR 双写，k3s verify-image-pin 校验两文件 digest 一致。
+# ⚠️ 初值 = 2026-07-09 三方核实的当前生产 digest（registry jvm-latest == 运行 pod imageID ==
+# image-lock 种子）＝等价渲染，上线零部署变化。真实值由后续 image-pin PR 更新。
+images:
+  - name: docker.io/wontlost/aster-api
+    digest: sha256:761caa326cba1885a5dd220fc8ffd0a36a088fdb947ea826089953a2db626c89
+  - name: docker.io/wontlost/aster-cloud-migrate
+    digest: sha256:b0a44fc89cfde925386633ad38d72996845394315b6dc3a760fd280dd87fb9cb

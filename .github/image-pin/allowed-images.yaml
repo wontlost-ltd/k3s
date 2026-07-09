@@ -1,0 +1,32 @@
+# 受控镜像验签策略数据表（image-pin 信任根）
+#
+# 统一镜像 digest pin 设计 v2（A′）Phase 1 —— 见 wontlost-ltd/k3s#4、
+# aster-api/.claude/analysis/unified-digest-pin-design.md（§7）、blocker1/blocker2 spike。
+#
+# ★ 这是**信任根**：verify-image-pin workflow 从本表取 image repo / cosign 验签身份，
+#   **绝不**从 PR 内容取。本文件受 push ruleset 保护（禁 image-pin PR 修改），只走人工流程。
+#
+# 每个 entry 定义一个受控镜像及其**唯一合法来源仓 + workflow 身份**。verifier 对
+# image-lock 里出现的每个镜像，按 `image` 精确匹配到本表 entry，再用其字段做 cosign verify。
+# 表里没有的镜像出现在 image-lock → 直接拒（未知来源不放行）。
+
+version: 1
+
+# cosign 验签统一常量（OIDC issuer 对所有 GitHub Actions 签发的 keyless 证书一致）。
+oidcIssuer: https://token.actions.githubusercontent.com
+
+images:
+  # ── aster-api 主镜像 ──────────────────────────────────────────────
+  - image: docker.io/wontlost/aster-api
+    sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud，非 wontlost-ltd）
+    workflowFile: deploy.yml                  # 唯一合法签发 workflow
+    sourceRef: refs/heads/main                # 唯一合法 ref（只信 main 构建）
+    # verifier 据此拼 --certificate-identity：
+    #   https://github.com/{sourceRepo}/.github/workflows/{workflowFile}@{sourceRef}
+    # 并加 --certificate-github-workflow-{repository,ref,sha} 约束（sha 来自 image-lock）。
+
+  # ── aster-cloud-migrate 迁移镜像 ──────────────────────────────────
+  - image: docker.io/wontlost/aster-cloud-migrate
+    sourceRepo: aster-cloud/aster-cloud       # 不同源仓 / 不同身份（Q2：分别验签）
+    workflowFile: ci.yml
+    sourceRef: refs/heads/main

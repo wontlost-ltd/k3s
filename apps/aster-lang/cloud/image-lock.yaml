@@ -1,0 +1,31 @@
+# 镜像 digest pin（image-lock）—— 机器维护，唯一可由 image-pin PR 修改的文件
+#
+# 统一镜像 digest pin 设计 v2（A′）Phase 1 —— 见 wontlost-ltd/k3s#4。
+# 每个 entry 把一个受控镜像 pin 到不可变 digest，并记录该 digest 的构建来源
+# （sourceSha/runId），供 verify-image-pin workflow 做 cosign 验签 + freshness 校验。
+#
+# 写入规则（Phase 2 起）：源仓 CI 构建+签名后开 image-pin/* PR，只改本文件。
+# verify-image-pin 对每 entry 校验：
+#   1. image 在 .github/image-pin/allowed-images.yaml 白名单内
+#   2. cosign verify {image}@{digest} 绑定源仓 workflow 身份 + --certificate-github-workflow-sha={sourceSha}
+#   3. freshness（latest-only）：sourceSha == 源仓 sourceRef 当前 HEAD（gh api，非 PR 内容）
+# 全过 → auto-merge → ArgoCD selfHeal sync → 按 @digest 部署/迁移。
+#
+# ⚠️ 种子说明：下面的 digest 是 2026-07-09 手动读取的**当前生产** manifest-list digest，
+#   但其 sourceSha 未知（aster-api deploy.yml 尚未记录源 SHA；migrate 刚在 Phase 0 补签）。
+#   故 sourceSha 标 `UNVERIFIED-SEED`。**第一个真正通过 verify 的 pin** 由 Phase 2 的
+#   CI PR 写入（digest+sourceSha 成对、可验签）。在 Phase 2 接通前，verify-image-pin
+#   ruleset 应保持 evaluate（dry-run）而非 active，避免用种子值 fail-closed 卡死。
+
+version: 1
+
+images:
+  - image: docker.io/wontlost/aster-api
+    digest: sha256:761caa326cba1885a5dd220fc8ffd0a36a088fdb947ea826089953a2db626c89
+    sourceSha: UNVERIFIED-SEED   # Phase 2 首个 CI PR 覆盖为真实 github.sha
+    runId: UNVERIFIED-SEED
+
+  - image: docker.io/wontlost/aster-cloud-migrate
+    digest: sha256:b0a44fc89cfde925386633ad38d72996845394315b6dc3a760fd280dd87fb9cb
+    sourceSha: UNVERIFIED-SEED
+    runId: UNVERIFIED-SEED
