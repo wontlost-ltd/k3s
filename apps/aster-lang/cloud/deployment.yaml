@@ -129,6 +129,13 @@ spec:
                 secretKeyRef:
                   name: aster-api-llm-credentials
                   key: model
+            # BYOK 自定义 Provider URL allowlist（GA 纯白名单，防 SSRF）。用户在 ai-keys 页填的
+            # 自定义 providerUrl 只有命中此列表（或官方 api.openai.com/api.anthropic.com 内置）才用于
+            # 推理，否则 fail-closed。逗号分隔，支持 host / host:port / https://host/path。
+            # right.codes = 平台默认 rightcode(OpenAI-compatible) 网关，放行 host 供 BYOK 指向
+            # （host-only：pathPrefix 空 → 匹配该 host 下任意 path，如 /codex/v1、/v1）。
+            - name: ASTER_LLM_BYOK_ENDPOINT_ALLOWLIST
+              value: "right.codes"
             # R21-Critical-1：禁用全局 HMAC 签名 filter，并由各端点专用 filter 兜底：
             #   /api/v1/policies/evaluate{,-json,/batch} → ApiKeyAuthFilter（API key 必填）
             #   /api/v1/policies/{id}/rollback|versions  → ApiKeyAuthFilter（突变/历史鉴权）
