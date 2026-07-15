@@ -20,8 +20,16 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
+      # ★2026-07-15：maxUnavailable 0→1（放宽严格零停机）。根因：本集群欠配
+      # （4×VM.Standard.A1.Flex 1 OCPU/6GB，节点内存 54-76%）。maxUnavailable:0
+      # 要求先起第 3 个 512Mi surge pod 才换旧 pod，但内存压力下 scheduler 排不下
+      # surge pod → Pending → 旧 pod 因 maxUnavailable:0 不能先下 → 卡死过
+      # progressDeadlineSeconds → "exceeded progress deadline"。
+      # 改 maxUnavailable:1 后滚动更新先下 1 个旧 pod 腾出内存再起新 pod，不需 surge
+      # 余量。代价：滚动瞬间只剩 1 个可用 replica（HPA 期间短暂降容），换取 rollout
+      # 能在欠配集群上完成。根治=扩容 worker（见 OCI 诊断）；扩容后可回 maxUnavailable:0。
       maxSurge: 1
-      maxUnavailable: 0   # zero-downtime: never below replicas during rollout
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: aster-api
