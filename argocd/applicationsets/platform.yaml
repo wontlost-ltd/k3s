@@ -21,6 +21,9 @@ spec:
           # P0-2: kube-prometheus-stack（Prometheus + Grafana + AlertManager）
           - name: monitoring
             namespace: argocd
+          # S2-0: cosign-verified digest admission（policy-controller）
+          - name: policy-controller
+            namespace: cosign-system
   template:
     metadata:
       name: 'platform-{{ .name }}'
