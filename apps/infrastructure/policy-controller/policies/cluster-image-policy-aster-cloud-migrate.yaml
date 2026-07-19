@@ -1,0 +1,17 @@
+# digest-verify CIP：aster-cloud-migrate
+# 信任根：sourceRepo aster-cloud/aster-cloud, workflowFile ci.yml, sourceRef refs/heads/main。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-cloud-migrate
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-cloud-migrate@sha256:**"
+  authorities:
+    - keyless:
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subject: https://github.com/aster-cloud/aster-cloud/.github/workflows/ci.yml@refs/heads/main
+  mode: enforce
