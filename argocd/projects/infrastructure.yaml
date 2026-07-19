@@ -19,6 +19,8 @@ spec:
     # Tracing — Tempo (Grafana) + OpenTelemetry Collector
     - 'https://grafana.github.io/helm-charts'
     - 'https://open-telemetry.github.io/opentelemetry-helm-charts'
+    # Sigstore policy-controller（S2-0 cosign admission）
+    - 'https://sigstore.github.io/helm-charts'
   destinations:
     # ArgoCD namespace for self-management
     - namespace: argocd
@@ -57,6 +59,9 @@ spec:
     - namespace: tempo
       server: https://kubernetes.default.svc
     - namespace: otel-system
+      server: https://kubernetes.default.svc
+    # policy-controller namespace（S2-0）
+    - namespace: cosign-system
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     # Namespace creation (for CreateNamespace=true)
@@ -118,6 +123,11 @@ spec:
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
+    # Sigstore policy CRDs（S2-0；webhook/CRD/ClusterRole 组已在上方白名单）
+    - group: policy.sigstore.dev
+      kind: ClusterImagePolicy
+    - group: policy.sigstore.dev
+      kind: TrustRoot
   # Explicit namespaced resource allowlist for security
   namespaceResourceWhitelist:
     # Core workloads

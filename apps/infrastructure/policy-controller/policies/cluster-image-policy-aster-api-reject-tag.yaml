@@ -1,0 +1,17 @@
+# tag-fail CIP：aster-api（闭 unresolved-tag TOCTOU）
+# 不可解析 tag → mutation 跳过保留 repo:tag → 命中此 :** glob → static fail 无条件拒。
+# 可解析 tag → mutation 变 digest → ref.Name() 丢 tag → 只命中 digest CIP，不命中此。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-api-reject-tag
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-api:**"
+  authorities:
+    - static:
+        action: fail
+        message: "受控仓 aster-api 只允许 cosign-verified digest；tag 形式（含不可解析 tag）一律拒绝（S2-0 TOCTOU 闭合）"
+  mode: enforce
