@@ -5,21 +5,68 @@ policy，**不解锁签字、非 runtime binding 证明**。
 
 ## 启用（贴 namespace 标签 = opt-in 主闸）
 
-policy-controller 只拦贴 `policy.sigstore.dev/include=true` 的 namespace。首版只启用 aster-cloud：
+policy-controller 只拦贴 `policy.sigstore.dev/include=true` 的 namespace。首版只启用 aster-cloud。
 
-    kubectl label namespace aster-cloud policy.sigstore.dev/include=true
+★**贴标签前必须先在临时测试 namespace 里跑完整 admission smoke-test**（wave 健康门只保证
+CRD established + controller Deployment Ready，**不保证** webhook 端到端可调；而且如果直接
+在**未贴标签**的 aster-cloud 里提交测试 pod，namespace opt-in 主闸未打开、webhook 根本不会
+被调用——已签/未签镜像都会放行，测出来的是「假绿」，不代表 enforce 生效）。
 
-★**贴标签前先过 admission smoke-test**（确认 apiserver 能调 webhook；wave 健康门只保证 CRD established + controller Deployment Ready，不保证 webhook 端到端可调）：
+### Smoke-test 步骤（临时 namespace，六态齐验）
 
-    # 在 aster-cloud 提交一个已知已签 digest 的临时 pod，确认放行；提交未签的，确认被拒（enforce）。
+1. 建一个**临时的、已贴标签**的测试 namespace（不要复用 aster-cloud，避免在验证阶段就把真实
+   workload 暴露给未经验证的 webhook 配置）：
 
-## 标签监控（★手工标签的静默失效风险）
+       kubectl create namespace s2-admission-smoke
+       kubectl label namespace s2-admission-smoke policy.sigstore.dev/include=true
 
-namespace 重建后标签消失 → S2-0 静默关闭。必须配告警：
+2. 在 `s2-admission-smoke` 里依次提交六态测试 pod，**每一态都要检查 admission 响应
+   （`kubectl apply` 的 stderr/exit code，或 `kubectl get events`）或最终 PodSpec 落地的镜像
+   引用，不能只看 Pod 是否变成 Running**（Running 不能证明 admission 真的拦截了——如果 webhook
+   没生效，未签镜像一样能 Running）：
 
-    # 定期断言标签存在，缺失即告警（示例，接入现有 Prometheus/alert）：
+   | # | 场景 | 镜像形态 | 预期 admission 结果 |
+   |---|------|----------|----------------------|
+   | 1 | 已签 digest | `docker.io/wontlost/aster-api@sha256:<已签摘要>` | 通过（cosign 验签成功） |
+   | 2 | 未签 digest | `docker.io/wontlost/aster-api@sha256:<未签摘要>` | 拒绝（enforce，digest-verify CIP 命中） |
+   | 3 | 已签可解析 tag | `docker.io/wontlost/aster-api:<已签 tag>` | 通过（mutation 解析成 digest 后命中 digest-verify CIP，验签成功） |
+   | 4 | 未签可解析 tag | `docker.io/wontlost/aster-api:<未签 tag>` | 拒绝（mutation 解析成 digest 后命中 digest-verify CIP，验签失败） |
+   | 5 | 不存在/不可解析 tag | `docker.io/wontlost/aster-api:<不存在的 tag>` | 拒绝（`resolveDigest` 失败保留 `repo:tag` 形态，命中 tag-fail CIP，无条件拒，闭 TOCTOU） |
+   | 6 | 不匹配受控仓的镜像 | 任意不在信任根里的第三方镜像 | 放行（`no-match-policy: allow`，灰度副闸；不代表验签通过，只是未纳管） |
+
+   六态全部与预期一致才算 smoke-test 通过。
+
+3. 通过后清理临时 namespace：
+
+       kubectl delete namespace s2-admission-smoke
+
+4. **确认六态全部符合预期之后，再**给 aster-cloud 贴 opt-in 标签：
+
+       kubectl label namespace aster-cloud policy.sigstore.dev/include=true
+
+## 标签监控（★上线前阻塞项——手工标签的静默失效风险，本 PR 未落地实现）
+
+namespace 重建后标签消失 → S2-0 静默关闭，且**不会报错、不会有任何 admission 日志**（webhook
+根本不会被调用）。这是**上线前的硬性阻塞项**，本 PR 只诚实标注该缺口，**不提供监控实现**：
+
+- 落地约束（上线前必须满足，缺一不可）：
+  - 执行体：一个独立的 CronJob（或等价的 PrometheusRule + 现有 Alertmanager 规则），**不能**
+    依赖 policy-controller 自身的健康信号（controller 健康不代表标签还在）。
+  - 检查周期：≤5 分钟一次（标签消失到告警触发的窗口越短，静默关闭的暴露面越小）。
+  - 检查内容：至少两类缺失都要单独告警——
+    1. `aster-cloud` namespace 本身不存在或被删（比标签缺失更严重，说明整个 opt-in 主体消失）；
+    2. namespace 存在但 `policy.sigstore.dev/include` 标签缺失或值不为 `true`。
+  - 告警名/渠道：接入现有 Prometheus/Alertmanager（沿用本仓库已有告警接入方式，不新增告警
+    通道）；告警名建议 `S2AdmissionOptInLabelMissing`，severity 至少 `warning`（因为故障态是
+    静默放行未签镜像，属于安全闸失效，不是单纯的可用性问题）。
+  - 验证：告警演练（人为摘标签后确认在检查周期内收到告警）是 §「staging 动态门清单」里已列的
+    上线前必跑项，与本节是同一件事的两面（本节定约束，动态门清单定验收）。
+
+在上述监控真正落地并通过告警演练之前，**不能**认为标签的持续有效性有保障；运维只能靠人工
+定期用下面的一次性命令自查（**这不是监控，只是本 PR 范围内可给出的临时手工核查手段**）：
+
     kubectl get ns aster-cloud -o jsonpath='{.metadata.labels.policy\.sigstore\.dev/include}' | grep -q true \
-      || echo "ALERT: aster-cloud 缺 policy.sigstore.dev/include 标签，S2-0 已静默关闭"
+      || echo "手工核查发现：aster-cloud 缺 policy.sigstore.dev/include 标签，S2-0 已静默关闭（非自动告警，需人工定期执行）"
 
 ## failurePolicy 阶段化（首版 Ignore → 达门槛切 Fail）
 
