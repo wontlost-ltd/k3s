@@ -1,0 +1,66 @@
+# Sigstore policy-controller Application（S2-0 cosign-verified digest admission）
+#
+# 单个 Application，multi-source：
+#   source[0] = Helm chart（装 CRD + controller + webhook + config ConfigMap）
+#   source[1] = Git policies/（4 个 ClusterImagePolicy，标 sync-wave "2"）
+# App 内两阶段 wave：chart 全资源默认 wave 0 → CIP wave 2（CRD established 后才 apply）。
+#
+# ★S2-0 是 artifact-deployment policy，不解锁签字、非 runtime binding 证明。
+# ★信任根单源 .github/image-pin/allowed-images.yaml；CIP 由 verify-cip-sync.sh 守漂移。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: policy-controller
+  namespace: argocd
+  annotations:
+    # 早于业务 app、晚于核心 infra
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  sources:
+    # ── source[0]：policy-controller Helm chart ──
+    - repoURL: https://sigstore.github.io/helm-charts
+      chart: policy-controller
+      targetRevision: 0.10.6
+      helm:
+        releaseName: policy-controller
+        valuesObject:
+          # webhook 故障态放行（首版；达门槛后切 Fail，见 runbook）
+          webhookConfig:
+            failurePolicy: Ignore
+          # ns 内不匹配任何 CIP 的镜像放行（灰度副闸）
+          configData:
+            no-match-policy: allow
+          # leases-cleanup 镜像 digest pin（供应链：默认 latest-dev 可变 tag）
+          # ★实测键路径为 leasescleanup.image.{repository,version}（非 brief 猜测的
+          #   .name；chart 0.10.6 真实 values 与 webhook.image 同构，version 字段
+          #   放 sha256 digest）。digest 取自
+          #   `docker manifest inspect cgr.dev/chainguard/kubectl:latest-dev` 的
+          #   linux/arm64 manifest（已核对含 linux/arm64，集群为 Ampere A1 arm64）。
+          # ★★P0-1 修复（final review 实证）：leases-cleanup 的 image helper 用
+          #   `printf "%s:%s" repository version`（冒号拼接，不同于 controller 镜像
+          #   helper 的 `@` 拼接）。若 version 直接放 `sha256:<hex>` 会渲染成非法引用
+          #   `repo:sha256:<hex>`（双冒号）。正确写法：repository 结尾带 `@sha256`，
+          #   version 只放纯 hex，两者冒号拼接后得到合法的 `repo@sha256:<hex>`。
+          #   已用 `helm template sigstore/policy-controller --version 0.10.6` 实测
+          #   验证渲染结果为 `cgr.dev/chainguard/kubectl@sha256:c4e8204...`。
+          leasescleanup:
+            image:
+              repository: cgr.dev/chainguard/kubectl@sha256
+              version: c4e8204aeb70b0f705533119faa264554bce82b9a76af0c78b6798b8971ebcfd
+    # ── source[1]：4 个 ClusterImagePolicy ──
+    - repoURL: https://github.com/wontlost-ltd/k3s.git
+      targetRevision: main
+      path: apps/infrastructure/policy-controller/policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cosign-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
