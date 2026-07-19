@@ -39,10 +39,17 @@ spec:
           #   放 sha256 digest）。digest 取自
           #   `docker manifest inspect cgr.dev/chainguard/kubectl:latest-dev` 的
           #   linux/arm64 manifest（已核对含 linux/arm64，集群为 Ampere A1 arm64）。
+          # ★★P0-1 修复（final review 实证）：leases-cleanup 的 image helper 用
+          #   `printf "%s:%s" repository version`（冒号拼接，不同于 controller 镜像
+          #   helper 的 `@` 拼接）。若 version 直接放 `sha256:<hex>` 会渲染成非法引用
+          #   `repo:sha256:<hex>`（双冒号）。正确写法：repository 结尾带 `@sha256`，
+          #   version 只放纯 hex，两者冒号拼接后得到合法的 `repo@sha256:<hex>`。
+          #   已用 `helm template sigstore/policy-controller --version 0.10.6` 实测
+          #   验证渲染结果为 `cgr.dev/chainguard/kubectl@sha256:c4e8204...`。
           leasescleanup:
             image:
-              repository: cgr.dev/chainguard/kubectl
-              version: sha256:c4e8204aeb70b0f705533119faa264554bce82b9a76af0c78b6798b8971ebcfd
+              repository: cgr.dev/chainguard/kubectl@sha256
+              version: c4e8204aeb70b0f705533119faa264554bce82b9a76af0c78b6798b8971ebcfd
     # ── source[1]：4 个 ClusterImagePolicy ──
     - repoURL: https://github.com/wontlost-ltd/k3s.git
       targetRevision: main
