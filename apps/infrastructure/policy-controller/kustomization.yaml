@@ -1,0 +1,5 @@
+# ApplicationSet path 渲染入口：只声明 Application CR 本身。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - application.yaml
