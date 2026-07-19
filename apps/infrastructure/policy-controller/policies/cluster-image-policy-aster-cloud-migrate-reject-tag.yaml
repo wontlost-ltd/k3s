@@ -1,0 +1,15 @@
+# tag-fail CIP：aster-cloud-migrate（闭 unresolved-tag TOCTOU）
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-cloud-migrate-reject-tag
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-cloud-migrate:**"
+  authorities:
+    - static:
+        action: fail
+        message: "受控仓 aster-cloud-migrate 只允许 cosign-verified digest；tag 形式一律拒绝（S2-0 TOCTOU 闭合）"
+  mode: enforce
