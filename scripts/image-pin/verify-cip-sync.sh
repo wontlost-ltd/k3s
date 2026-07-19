@@ -9,7 +9,9 @@
 #   - 4 份全 mode: enforce。
 #   - ★字段收紧（防缩域字段漂移盲区）：
 #     - digest-verify CIP 的 .spec 只允许 images/authorities/mode 三键（不许加
-#       match 等缩小作用域的额外字段）；authorities[0] 只允许 keyless 键。
+#       match 等缩小作用域的额外字段）；authorities[0] 只允许 keyless 键；
+#       keyless 只允许 identities 键；identities[0] 只允许 issuer,subject 键
+#       （禁止 subjectRegExp/issuerRegExp 等正则字段与精确值并存的 OR 扩权旁路）。
 #     - tag-fail CIP 的 authorities[0] 只允许 static 键。
 #     - 全部 CIP 的 apiVersion == policy.sigstore.dev/v1beta1、
 #       kind == ClusterImagePolicy、sync-wave 注解 == "2"。
@@ -97,6 +99,10 @@ while [[ $i -lt $repo_count ]]; do
   # ★缩域字段漂移防护：.spec 只许 images/authorities/mode 三键；authorities[0] 只许 keyless 键
   [[ "$(cip_keys "$dv" '.spec')" == "authorities,images,mode" ]]  || fail "${dv} .spec 出现多余/缺失键(期望恰 authorities,images,mode)"
   [[ "$(cip_keys "$dv" '.spec.authorities[0]')" == "keyless" ]]   || fail "${dv} authorities[0] 出现多余/缺失键(期望恰 keyless)"
+  # ★OR 扩权旁路防护：keyless 只许 identities 键；identity 只许 issuer,subject 精确匹配键
+  #   （禁止 subjectRegExp/issuerRegExp 等正则字段与精确值并存造成的授权扩域）
+  [[ "$(cip_keys "$dv" '.spec.authorities[0].keyless')" == "identities" ]] || fail "${dv} keyless 出现多余/缺失键(期望恰 identities)"
+  [[ "$(cip_keys "$dv" '.spec.authorities[0].keyless.identities[0]')" == "issuer,subject" ]] || fail "${dv} keyless.identities[0] 出现多余/缺失键(期望恰 issuer,subject，防 Regexp 字段 OR 扩权)"
 
   # ── tag-fail CIP ──
   [[ "$(cip_field "$tf" '.spec.images | length')" == "1" ]]        || fail "$tf images 非恰 1 项"
