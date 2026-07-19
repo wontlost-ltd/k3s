@@ -130,6 +130,25 @@ func TestTailStarGlobOvermatchesPrefix(t *testing.T) {
 	}
 }
 
+// TestMutationWritebackForm 佐证 mutation 实际写回的中间形态 `repo:tag@sha256:...`
+// （Mutating resolvePodSpec 保留 tag 并追加 digest）经规范化后命中 digest CIP、
+// 不命中 tag-fail CIP —— 即可解析 tag 的合法镜像不会被 tag-fail 误拒。
+func TestMutationWritebackForm(t *testing.T) {
+	for _, repo := range []string{"wontlost/aster-api", "wontlost/aster-cloud-migrate"} {
+		digestCIP := compileGlob("index.docker.io/" + repo + "@sha256:**")
+		tagFailCIP := compileGlob("index.docker.io/" + repo + ":**")
+		// mutation 写回形态：repo:tag@sha256:digest
+		writeback := "index.docker.io/" + repo + ":jvm-latest" + digest
+		nm := normalizeName(writeback)
+		if !digestCIP.MatchString(nm) {
+			t.Errorf("mutation 写回形态应命中 digest CIP: %s (Name=%s)", writeback, nm)
+		}
+		if tagFailCIP.MatchString(nm) {
+			t.Errorf("mutation 写回形态不应命中 tag-fail CIP(否则合法镜像误拒): %s (Name=%s)", writeback, nm)
+		}
+	}
+}
+
 // TestTagFailCIPGlobMatchesUnresolvedTag 佐证 TOCTOU 闭合：tag-fail CIP 的
 // `<repo>:**` glob 命中「仍为 tag 形式」的受控仓镜像（不可解析 tag、mutation
 // 跳过后保留的 repo:tag），从而由 static{action:fail} 无条件拒（见 §6）。
