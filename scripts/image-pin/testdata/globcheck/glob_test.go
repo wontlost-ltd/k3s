@@ -129,3 +129,28 @@ func TestTailStarGlobOvermatchesPrefix(t *testing.T) {
 		t.Error("尾部 ** glob 预期误纳 aster-api-malicious（本测试记录该风险，故设计用 @sha256:**）")
 	}
 }
+
+// TestTagFailCIPGlobMatchesUnresolvedTag 佐证 TOCTOU 闭合：tag-fail CIP 的
+// `<repo>:**` glob 命中「仍为 tag 形式」的受控仓镜像（不可解析 tag、mutation
+// 跳过后保留的 repo:tag），从而由 static{action:fail} 无条件拒（见 §6）。
+// 同时验证它**不**命中 digest 形式（可解析 tag mutation 后变 digest，只该命中
+// digest CIP，不该被 tag-fail CIP 误拒）。
+func TestTagFailCIPGlobMatchesUnresolvedTag(t *testing.T) {
+	for _, repo := range []string{"wontlost/aster-api", "wontlost/aster-cloud-migrate"} {
+		re := compileGlob("index.docker.io/" + repo + ":**")
+		// 应命中：仍为 tag 形式（含未指定 tag→:latest 默认）。
+		for _, tag := range []string{
+			"docker.io/" + repo + ":jvm-latest",
+			"docker.io/" + repo,        // 无 tag → normalize 补 :latest
+			"index.docker.io/" + repo + ":doesnotexist",
+		} {
+			if !re.MatchString(normalizeName(tag)) {
+				t.Errorf("tag-fail CIP 应命中 tag 形式但未命中: %s (Name=%s)", tag, normalizeName(tag))
+			}
+		}
+		// 不应命中：digest 形式（mutation 后的合法镜像，不该被 tag-fail 误拒）。
+		if re.MatchString(normalizeName("docker.io/" + repo + digest)) {
+			t.Errorf("tag-fail CIP 不应命中 digest 形式: %s", repo)
+		}
+	}
+}
