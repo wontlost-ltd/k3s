@@ -1,0 +1,31 @@
+package main
+
+import ("fmt"; "os"; "globtest/glob")
+
+func main() {
+	// candidate globs to evaluate
+	globs := []string{
+		"index.docker.io/wontlost/aster-api",
+		"index.docker.io/wontlost/aster-api**",
+		"index.docker.io/wontlost/aster-api@sha256:**",
+		"index.docker.io/wontlost/aster-api:**",
+	}
+	images := []struct{ label, img string }{
+		{"digest-docker.io",       "docker.io/wontlost/aster-api@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+		{"digest-index.docker.io", "index.docker.io/wontlost/aster-api@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+		{"digest-shortname",       "wontlost/aster-api@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+		{"tag-latest",             "docker.io/wontlost/aster-api:jvm-latest"},
+		{"PREFIX-malicious",       "docker.io/wontlost/aster-api-malicious@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+		{"other-registry",         "ghcr.io/wontlost/aster-api@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+	}
+	for _, g := range globs {
+		fmt.Printf("\n### glob = %q\n", g)
+		for _, it := range images {
+			m, err := glob.Match(g, it.img)
+			if err != nil { fmt.Printf("  %-22s ERR %v\n", it.label, err); continue }
+			mark := "no "; if m { mark = "YES" }
+			fmt.Printf("  %-22s %s   (%s)\n", it.label, mark, it.img)
+		}
+	}
+	_ = os.Args
+}
