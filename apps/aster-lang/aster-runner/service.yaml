@@ -1,0 +1,22 @@
+# runner-launcher Service（S2-1a-2 Slice-2b-launch）
+# ★Cloudflare Tunnel 路由目标：dashboard 配的 tunnel ingress 把 /api/v1/runner/launch
+#   路由到本 ClusterIP（带外 dashboard 步，无 in-repo YAML——见 factbase C10）。
+#   tunnel 引用格式如 http://runner-launcher.aster-runner.svc.cluster.local:80。
+apiVersion: v1
+kind: Service
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+  labels:
+    app.kubernetes.io/name: runner-launcher
+    app.kubernetes.io/component: launcher
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: runner-launcher
+  ports:
+    - name: http
+      port: 80
+      targetPort: http # 指向 Deployment 容器的 named port http（8080）
+      protocol: TCP

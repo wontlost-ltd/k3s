@@ -1,0 +1,19 @@
+# runner-launcher RoleBinding：SA runner-launcher → Role runner-launcher（S2-1a-2 Slice-2b-launch）
+# ★命名空间级绑定（RoleBinding 非 ClusterRoleBinding）：权限只在 aster-runner ns 生效。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+  labels:
+    app.kubernetes.io/name: runner-launcher
+    app.kubernetes.io/component: launcher
+    app.kubernetes.io/part-of: aster-lang
+subjects:
+  - kind: ServiceAccount
+    name: runner-launcher
+    namespace: aster-runner
+roleRef:
+  kind: Role
+  name: runner-launcher
+  apiGroup: rbac.authorization.k8s.io

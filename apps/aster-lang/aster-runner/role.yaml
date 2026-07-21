@@ -1,0 +1,37 @@
+# runner-launcher 最小 Role（S2-1a-2 Slice-2b-launch）
+# ★安全一等件（spec §3b 威胁模型 / Fork F）：集群首个建 Job 的 SA，权限**严格最小**——
+#   verb 逐一对应 launcher Go 代码（orchestrator/run.go）实际的 client-go 调用，无一多余（Codex 审）：
+#   - batch/jobs：create（run.go:37 建 Job）、get（run.go:121 poll 终态 condition）、
+#     delete（run.go:54 失败/超时清理非终态 Job）。★不含 list/watch——poll 用具名 Get 非 list。
+#   - pods：list（run.go:143 按 job-name label 找 Job 派生的 Pod）。★不含 get/watch——直接 list 取。
+#   - pods/log：get（run.go:163 GetLogs 读 runner stdout envelope，Fork C 读协议）。
+#   - configmaps：create（run.go:62 per-invocation request.json）。★不含 delete——ConfigMap 靠
+#     owner-ref 到 Job 由 k8s 垃圾回收器级联删（launcher 不主动删 ConfigMap，delete Job 即够）。
+# ★明确不含：pods/attach（Fork C 用 stdin 文件注入非 attach）、pods/exec、secrets、
+#   jobs/pods 的 list/watch（未用）、任何 cluster-scope（本对象是 Role 非 ClusterRole，仅 aster-runner ns）。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+  labels:
+    app.kubernetes.io/name: runner-launcher
+    app.kubernetes.io/component: launcher
+    app.kubernetes.io/part-of: aster-lang
+rules:
+  # 编排 runner Job 生命周期（create/get 终态/delete 清理——无 list/watch）。
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "delete"]
+  # 按 job-name label 找 Job 派生的 Pod（list——无 get/watch）。
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # 读 runner stdout envelope（Fork C envelope 读协议）。
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # per-invocation request.json ConfigMap（owner-ref 到 Job，k8s GC 级联删——launcher 只 create 不 delete）。
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
