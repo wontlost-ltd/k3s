@@ -30,3 +30,12 @@ images:
     sourceRepo: aster-cloud/aster-cloud       # 不同源仓 / 不同身份（Q2：分别验签）
     workflowFile: ci.yml
     sourceRef: refs/heads/main
+
+  # ── aster-replay-runner runner 镜像（S2-1a-2 Slice-2b）─────────────
+  # runner 由 in-cluster launcher 运行时启动的临时 Job 运行，源仓同 aster-api
+  # 但独立 workflow（aster-replay-runner-deploy.yml）签发。verify-cip-sync 的
+  # 2N 契约要求本条与两 runner CIP 同在（3 仓 → 6 CIP）。
+  - image: docker.io/wontlost/aster-replay-runner
+    sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
+    workflowFile: aster-replay-runner-deploy.yml
+    sourceRef: refs/heads/main
