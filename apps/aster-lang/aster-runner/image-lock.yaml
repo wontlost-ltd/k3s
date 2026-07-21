@@ -1,0 +1,23 @@
+# 镜像 digest pin（image-lock）—— runner 命名空间专属（S2-1a-2 Slice-2b）
+#
+# ★与 cloud/image-lock.yaml 分离（Fork A 拍板）：runner 镜像由 in-cluster launcher
+#   在运行时启动，不属于 aster-cloud 的 kustomize build，故其 pin 落 runner-ns。
+#
+# 写入规则：runner 源仓 CI（aster-replay-runner-deploy.yml）构建+签名后，image-pin 步
+#   传 LOCK_PATH 指向本文件，只改本文件的 runner entry（digest/sourceSha/runId）。
+#   verify-image-pin 对本 entry 校验：
+#     1. image 在 .github/image-pin/allowed-images.yaml 白名单内（须先加 runner 条，见 Task 4）
+#     2. cosign verify {image}@{digest} 绑定源仓 workflow 身份 + sourceSha
+#     3. freshness：sourceSha == 源仓 refs/heads/main 当前 HEAD
+#
+# ⚠️ 种子说明：下面是**占位 entry**——digest 为全零占位、sourceSha=UNVERIFIED-SEED。
+#   第一个真正通过 verify 的 pin 由 Slice-2b-launch 的首个 runner CI PR 写入
+#   （digest+sourceSha 成对、可验签）。在此之前 verify-image-pin 对 runner 镜像
+#   应保持 evaluate（dry-run），避免用占位值 fail-closed。
+
+version: 1
+images:
+  - image: docker.io/wontlost/aster-replay-runner
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    sourceSha: UNVERIFIED-SEED # Slice-2b-launch 首个 CI PR 覆盖为真实 github.sha
+    runId: "0"

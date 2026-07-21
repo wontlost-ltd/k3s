@@ -17,6 +17,11 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: aster-observability
       server: https://kubernetes.default.svc
+    # aster-runner：in-cluster runner-launcher 服务与其临时 runner Job 的命名空间
+    # （S2-1a-2 Slice-2b）。ApplicationSet 自动发现 apps/aster-lang/aster-runner/
+    # 会生成 App aster-runner，须在此白名单否则 ArgoCD 拒 sync。
+    - namespace: aster-runner
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
