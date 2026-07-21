@@ -1,8 +1,22 @@
 # Aster Runner 命名空间 + launcher 微服务（S2-1a-2 Slice-2b-launch）
 # 由 ApplicationSet aster-lang-apps 自动发现并部署（apps/aster-lang/*/kustomization.yaml）。
-# 2b-seed 只建 namespace；2b-launch 加入 launcher Deployment/SA/Role/RoleBinding/Service/ExternalSecret。
+# 2b-seed 只建 namespace；2b-launch 加入 launcher SA/Role/RoleBinding/Service/ExternalSecret。
 # ★network-policy.yaml 默认注释禁用（k3s kube-router caveat），故不列入 resources——
 #   待确认集群 CNI 支持 NetworkPolicy enforce 后再解注释并加入。
+#
+# ★★deployment.yaml **暂不列入 resources**（合入门，承 admission 铁律）：
+#   sigstore policy-controller 在 **admission 时校验 Deployment 的 pod 模板镜像**（非仅运行 Pod——
+#   POLICY_CONTROLLER_RUNBOOK:95「Pod/Deployment/Job/... 全被拦」）。launcher 镜像现是占位全零
+#   digest（无 cosign 签名，CI 未跑），Deployment 一提交即被 admission 拒（no signatures found）。
+#   replicas:0 **不解此**——admission 拦的是 Deployment 对象本身，与 replica 数无关（我先前误判）。
+#   故 launcher Deployment 待其镜像真 build+签后再加入 resources。此前先部署
+#   SA/Role/Service/ExternalSecret（无镜像=admission 安全）。
+#   ★解门须**两个 PR**（image-pin PR 的 semantic-diff 只许改 images[].digest，禁改 resources/replicas）：
+#     (1) launcher image-pin PR 写真签名 digest 到 images 段 + image-lock；(2) Vault 建 hmac secret；
+#     (3) 独立解门 PR 加回 deployment.yaml + replicas 0→1（kustomize images transformer 用真 digest
+#         覆写 Deployment 占位→admission 过）；(4) admission 六态 smoke-test。
+#   ★注意：此前 ExternalSecret 因 Vault 无 aster-runner-launcher-hmac 会显 **Degraded**（诚实反映
+#     secret 未 provision，非 sync 失败——App 能 sync，只健康态 Degraded 直到 Vault 就绪）。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -13,13 +27,14 @@ resources:
   - serviceaccount.yaml
   - role.yaml
   - rolebinding.yaml
-  - deployment.yaml
   - service.yaml
   - external-secrets.yaml
+  # - deployment.yaml   # ← 待 launcher 镜像 build+签后加入（见上「合入门」）
 
 # ★launcher 镜像 digest（部署真相）：image-pin 脚本改写此段的 digest，k3s verify 校验 == image-lock。
-#   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）。
-#   RUNNER_IMAGE_DIGEST（runner 镜像）不在此——那走 deployment.yaml env 的第三写目标（Unit 6 Task 6.3）。
+#   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）——故 deployment.yaml 暂不部署
+#   期间**保留**本 images 条（脚本按 .images[].name 计数，不依赖 deployment 在 resources 里；kustomize
+#   容忍未被引用的 images 条）。launcher 首个 CI PR 写真 digest 到此 + image-lock。
 images:
   - name: docker.io/wontlost/aster-runner-launcher
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
