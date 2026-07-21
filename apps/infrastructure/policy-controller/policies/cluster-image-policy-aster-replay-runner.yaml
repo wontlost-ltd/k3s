@@ -1,0 +1,18 @@
+# digest-verify CIP：aster-replay-runner（S2-1a-2 Slice-2b）
+# 信任根：sourceRepo aster-cloud/aster-api, workflowFile aster-replay-runner-deploy.yml,
+#   sourceRef refs/heads/main（对齐 aster-replay-runner-deploy.yml 的 cosign identity-regexp）。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-replay-runner
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-replay-runner@sha256:**"
+  authorities:
+    - keyless:
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subject: https://github.com/aster-cloud/aster-api/.github/workflows/aster-replay-runner-deploy.yml@refs/heads/main
+  mode: enforce

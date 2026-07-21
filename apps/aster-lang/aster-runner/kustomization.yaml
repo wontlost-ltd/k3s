@@ -1,0 +1,11 @@
+# Aster Runner 命名空间脚手架（S2-1a-2 Slice-2b-seed）
+# 由 ApplicationSet aster-lang-apps 自动发现并部署（apps/aster-lang/*/kustomization.yaml）。
+# 本 slice 先只建 namespace；launcher Deployment/SA/Role/Service 等 manifests 在
+# Slice-2b-launch 加入本 kustomization 的 resources。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aster-runner
+
+resources:
+  - namespace.yaml
