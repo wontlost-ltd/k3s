@@ -18,8 +18,10 @@ spec:
     - namespace: aster-observability
       server: https://kubernetes.default.svc
     # aster-runner：in-cluster runner-launcher 服务与其临时 runner Job 的命名空间
-    # （S2-1a-2 Slice-2b）。ApplicationSet 自动发现 apps/aster-lang/aster-runner/
-    # 会生成 App aster-runner，须在此白名单否则 ArgoCD 拒 sync。
+    # （S2-1a-2 Slice-2b）。★目录名须是短名 runner（apps/aster-lang/runner/）——ApplicationSet
+    # 模板 namespace='aster-{{segments 2}}' 会自动加 aster- 前缀派生 App dest ns=aster-runner
+    # （与 cloud→aster-cloud/lsp→aster-lsp 同约定）。目录若命名 aster-runner 会派生双前缀
+    # aster-aster-runner 与本白名单不符 → ArgoCD 拒 sync。
     - namespace: aster-runner
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
