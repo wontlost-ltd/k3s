@@ -1,0 +1,55 @@
+# runner-launcher NetworkPolicy（S2-1a-2 Slice-2b-launch）
+# ★k3s kube-router caveat（承 cloud kustomization 惯例）：k3s 默认 CNI 对 NetworkPolicy 的
+#   enforce 存在已知边界（部分 egress/ipBlock 语义未完全 enforce）。为避免「以为 enforce 生效」
+#   的安全假象，本 policy 默认注释禁用——待确认集群 CNI 支持后再启用（届时从 kustomization
+#   resources 引入并解注释）。若集群已用支持 NetworkPolicy 的 CNI（如 Calico），可直接启用。
+#
+# 期望语义（启用后）：
+#   - ingress：只允许来自 cloudflare namespace 的 cloudflared Pod 访问 8080（tunnel 是唯一入口）。
+#   - egress：允许 DNS（53）+ kube-apiserver（建 Job/读 log）；其余默认拒绝。
+#
+# apiVersion: networking.k8s.io/v1
+# kind: NetworkPolicy
+# metadata:
+#   name: runner-launcher
+#   namespace: aster-runner
+#   labels:
+#     app.kubernetes.io/name: runner-launcher
+#     app.kubernetes.io/part-of: aster-lang
+# spec:
+#   podSelector:
+#     matchLabels:
+#       app.kubernetes.io/name: runner-launcher
+#   policyTypes:
+#     - Ingress
+#     - Egress
+#   ingress:
+#     # 只允许 cloudflared（tunnel）访问 launcher 8080。
+#     - from:
+#         - namespaceSelector:
+#             matchLabels:
+#               kubernetes.io/metadata.name: cloudflare
+#           podSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: cloudflared
+#       ports:
+#         - protocol: TCP
+#           port: 8080
+#   egress:
+#     # DNS 解析。
+#     - to:
+#         - namespaceSelector: {}
+#       ports:
+#         - protocol: UDP
+#           port: 53
+#         - protocol: TCP
+#           port: 53
+#     # kube-apiserver（建 Job/读 log）——apiserver IP 因集群而异，此处放行全部 TCP 443 到 default ns
+#     #   的 kubernetes Service（启用时按实际 apiserver endpoint 收窄）。
+#     - to:
+#         - namespaceSelector:
+#             matchLabels:
+#               kubernetes.io/metadata.name: default
+#       ports:
+#         - protocol: TCP
+#           port: 443
