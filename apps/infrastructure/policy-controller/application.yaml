@@ -57,6 +57,37 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: cosign-system
+  # ★ignoreDifferences：policy-controller 自身的 defaulting/mutating webhook 会给它管理的对象
+  #   注入运行时默认字段——ArgoCD git-vs-live 比对因此对**每个** CIP + 两个 webhook config 恒显
+  #   OutOfSync（含 S2-0 就有的 aster-api/migrate CIP，非本 slice 引入）。
+  # ★★只忽略 controller 注入的**具体元素**，绝不忽略整棵 static/matchExpressions（Codex 抓：
+  #   忽略整 static 会遮蔽 reject-tag CIP 的 action:fail/message；忽略整 matchExpressions 会遮蔽
+  #   namespace opt-in 主闸 policy.sigstore.dev/include——那样 ArgoCD 不再守这两条安全边界=回归）。
+  #   用 jq select() 精确定位 controller 注入项：
+  #     - CIP keyless authority 的 name（自动 authority-0）+ keyless.url（Fulcio 默认）——限定 keyless，
+  #       不碰 static authority（reject-tag 的 action/message 仍被 ArgoCD 守）。
+  #     - webhook namespaceSelector 里 knative 注入的排除项（webhooks.knative.dev/exclude DoesNotExist）——
+  #       只忽略这一元素，policy.sigstore.dev/include 主闸仍被守。
+  ignoreDifferences:
+    - group: policy.sigstore.dev
+      kind: ClusterImagePolicy
+      jqPathExpressions:
+        # controller 给每个 authority（keyless 与 static 皆然）自动命名 authority-0——忽略该 name，
+        # 但**只忽略 .name 这一叶字段**，绝不碰 static.action/static.message（reject-tag 安全字段仍被守）。
+        - '.spec.authorities[]?.name'
+        # 只忽略 keyless authority 的 Fulcio 默认 url（不碰 static authority）。
+        - '.spec.authorities[]? | select(.keyless != null) | .keyless.url'
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: policy.sigstore.dev
+      jqPathExpressions:
+        # 只忽略 knative 注入的排除项，保留 policy.sigstore.dev/include opt-in 主闸的守护。
+        - '.webhooks[]?.namespaceSelector.matchExpressions[]? | select(.key == "webhooks.knative.dev/exclude" and .operator == "DoesNotExist")'
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: policy.sigstore.dev
+      jqPathExpressions:
+        - '.webhooks[]?.namespaceSelector.matchExpressions[]? | select(.key == "webhooks.knative.dev/exclude" and .operator == "DoesNotExist")'
   syncPolicy:
     automated:
       prune: true
@@ -64,3 +95,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      # ★让 ignoreDifferences 在 sync 时也生效（否则 selfHeal 仍会把被忽略字段按 git 值写回 →
+      #   与 controller 的 defaulting 拉锯，形成 live-lock）。承 aster-lang App 同款用法。
+      - RespectIgnoreDifferences=true
