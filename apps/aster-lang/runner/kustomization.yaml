@@ -1,22 +1,24 @@
 # Aster Runner 命名空间 + launcher 微服务（S2-1a-2 Slice-2b-launch）
 # 由 ApplicationSet aster-lang-apps 自动发现并部署（apps/aster-lang/*/kustomization.yaml）。
-# 2b-seed 只建 namespace；2b-launch 加入 launcher SA/Role/RoleBinding/Service/ExternalSecret。
+# 2b-seed 只建 namespace；2b-launch 先部署脚手架 SA/Role/RoleBinding/Service。
 # ★network-policy.yaml 默认注释禁用（k3s kube-router caveat），故不列入 resources——
 #   待确认集群 CNI 支持 NetworkPolicy enforce 后再解注释并加入。
 #
-# ★★deployment.yaml **暂不列入 resources**（合入门，承 admission 铁律）：
-#   sigstore policy-controller 在 **admission 时校验 Deployment 的 pod 模板镜像**（非仅运行 Pod——
-#   POLICY_CONTROLLER_RUNBOOK:95「Pod/Deployment/Job/... 全被拦」）。launcher 镜像现是占位全零
-#   digest（无 cosign 签名，CI 未跑），Deployment 一提交即被 admission 拒（no signatures found）。
-#   replicas:0 **不解此**——admission 拦的是 Deployment 对象本身，与 replica 数无关（我先前误判）。
-#   故 launcher Deployment 待其镜像真 build+签后再加入 resources。此前先部署
-#   SA/Role/Service/ExternalSecret（无镜像=admission 安全）。
+# ★★deployment.yaml + external-secrets.yaml **暂不列入 resources**（合入门，两者是「运行的 launcher」
+#   一个逻辑单元，一并延后到解门）：
+#   (A) deployment.yaml：sigstore policy-controller 在 **admission 时校验 Deployment 的 pod 模板镜像**
+#       （非仅运行 Pod——POLICY_CONTROLLER_RUNBOOK:95「Pod/Deployment/Job/... 全被拦」）。launcher 镜像
+#       现是占位全零 digest（无 cosign 签名，CI 未跑），Deployment 一提交即被 admission 拒。replicas:0
+#       **不解此**——admission 拦的是 Deployment 对象本身，与 replica 数无关（先前误判）。
+#   (B) external-secrets.yaml：其 Vault path apps/aster-runner-launcher 尚未 provision，ESO 报
+#       「Secret does not exist」→ App Degraded。此 secret 仅被 deployment 的 secretKeyRef 消费
+#       （无 Deployment 时无人用它），故与 Deployment 同进退。
+#   此前只部署 namespace/SA/Role/RoleBinding/Service（无镜像无 secret 依赖=admission 安全 + App Healthy）。
 #   ★解门须**两个 PR**（image-pin PR 的 semantic-diff 只许改 images[].digest，禁改 resources/replicas）：
-#     (1) launcher image-pin PR 写真签名 digest 到 images 段 + image-lock；(2) Vault 建 hmac secret；
-#     (3) 独立解门 PR 加回 deployment.yaml + replicas 0→1（kustomize images transformer 用真 digest
-#         覆写 Deployment 占位→admission 过）；(4) admission 六态 smoke-test。
-#   ★注意：此前 ExternalSecret 因 Vault 无 aster-runner-launcher-hmac 会显 **Degraded**（诚实反映
-#     secret 未 provision，非 sync 失败——App 能 sync，只健康态 Degraded 直到 Vault 就绪）。
+#     (1) launcher image-pin PR 写真签名 digest 到 images 段 + image-lock；(2) Vault 建
+#         apps/aster-runner-launcher（hmac-key），同值写 cloud ASTER_RUNNER_LAUNCHER_HMAC_KEY；
+#     (3) 独立解门 PR 加回 deployment.yaml + external-secrets.yaml + replicas 0→1（kustomize images
+#         transformer 用真 digest 覆写 Deployment 占位→admission 过）；(4) admission 六态 smoke-test。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -28,8 +30,9 @@ resources:
   - role.yaml
   - rolebinding.yaml
   - service.yaml
-  - external-secrets.yaml
-  # - deployment.yaml   # ← 待 launcher 镜像 build+签后加入（见上「合入门」）
+  # 待解门加回（见上「合入门」——launcher 镜像真签 + Vault secret 就绪后）：
+  # - deployment.yaml
+  # - external-secrets.yaml
 
 # ★launcher 镜像 digest（部署真相）：image-pin 脚本改写此段的 digest，k3s verify 校验 == image-lock。
 #   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）——故 deployment.yaml 暂不部署
