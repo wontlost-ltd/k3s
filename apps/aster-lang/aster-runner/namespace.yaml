@@ -1,0 +1,14 @@
+# Aster Runner 命名空间
+# 承载 in-cluster runner-launcher 服务与其创建的临时 runner Job（S2-1a-2 Slice-2b）。
+# 与 aster-cloud BFF 命名空间隔离：launcher/runner 的 SA/RBAC 不与 BFF 混用。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aster-runner
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    app.kubernetes.io/component: runner
+    # sigstore policy-controller admission opt-in 主闸（POLICY_CONTROLLER_RUNBOOK：
+    # 只拦贴此标签的 namespace）。★贴此标签前必须先在临时 namespace 跑完六态
+    # admission smoke-test（见本计划 Task 5 手动步骤）；标签丢失=admission 静默关闭。
+    policy.sigstore.dev/include: "true"
