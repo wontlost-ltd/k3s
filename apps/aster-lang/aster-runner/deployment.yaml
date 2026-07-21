@@ -1,0 +1,95 @@
+# runner-launcher Deployment（S2-1a-2 Slice-2b-launch）
+# in-cluster Go 微服务：收 cloud（经 Cloudflare Tunnel）的 HMAC 请求 → 建 digest-pinned
+# runner Job → 回传 envelope。硬化模板镜像 cloudflare-tunnel/deployment.yaml。
+# ★与 cloudflared 差异：launcher 需 API access（建 Job/读 log），故 automountServiceAccountToken:true
+#   + 专用最小 Role（见 role.yaml）。cloudflared 无 API access（automount:false）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+  labels:
+    app.kubernetes.io/name: runner-launcher
+    app.kubernetes.io/component: launcher
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runner-launcher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runner-launcher
+        app.kubernetes.io/component: launcher
+        app.kubernetes.io/part-of: aster-lang
+    spec:
+      # ★launcher 需 k8s API（建 Job/读 Pod log）——与 cloudflared 相反，须挂 SA token。
+      serviceAccountName: runner-launcher
+      automountServiceAccountToken: true
+
+      # Pod 级安全硬化（镜像 cloudflared L29-35）。
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: runner-launcher
+          # ★launcher 自己的 pinned 镜像（由 aster-runner-launcher-deploy.yml 签发+pin）。
+          #   placeholder digest——launcher 镜像 image-pin 会覆写为真实 digest（Unit 6）。
+          image: docker.io/wontlost/aster-runner-launcher@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # PORT：与 containerPort 一致。
+            - name: PORT
+              value: "8080"
+            # RUNNER_NAMESPACE：与代码常量 runnerNamespace 一致（main.go 会一致性校验）。
+            - name: RUNNER_NAMESPACE
+              value: aster-runner
+            # ★Fork A：runner 镜像 digest 载体。placeholder——image-pin 脚本第三写目标 patch 此 value
+            #   （runner workflow 的 image-pin 步指向本 Deployment 的此 env，见 Unit 6 Task 6.3）。
+            - name: RUNNER_IMAGE_DIGEST
+              value: sha256:0000000000000000000000000000000000000000000000000000000000000000
+            # ★HMAC key 隔离（绝不 fallback 到 plan-gate key）：从专用 secret 读。
+            - name: ASTER_RUNNER_LAUNCHER_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-runner-launcher-hmac
+                  key: hmac-key
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          # 容器级安全硬化（镜像 cloudflared L62-67）。
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # 健康探针 → /healthz（main.go 装配的探针端点）。
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+      terminationGracePeriodSeconds: 30
