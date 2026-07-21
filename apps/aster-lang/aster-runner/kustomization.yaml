@@ -1,7 +1,8 @@
-# Aster Runner 命名空间脚手架（S2-1a-2 Slice-2b-seed）
+# Aster Runner 命名空间 + launcher 微服务（S2-1a-2 Slice-2b-launch）
 # 由 ApplicationSet aster-lang-apps 自动发现并部署（apps/aster-lang/*/kustomization.yaml）。
-# 本 slice 先只建 namespace；launcher Deployment/SA/Role/Service 等 manifests 在
-# Slice-2b-launch 加入本 kustomization 的 resources。
+# 2b-seed 只建 namespace；2b-launch 加入 launcher Deployment/SA/Role/RoleBinding/Service/ExternalSecret。
+# ★network-policy.yaml 默认注释禁用（k3s kube-router caveat），故不列入 resources——
+#   待确认集群 CNI 支持 NetworkPolicy enforce 后再解注释并加入。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -9,3 +10,16 @@ namespace: aster-runner
 
 resources:
   - namespace.yaml
+  - serviceaccount.yaml
+  - role.yaml
+  - rolebinding.yaml
+  - deployment.yaml
+  - service.yaml
+  - external-secrets.yaml
+
+# ★launcher 镜像 digest（部署真相）：image-pin 脚本改写此段的 digest，k3s verify 校验 == image-lock。
+#   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）。
+#   RUNNER_IMAGE_DIGEST（runner 镜像）不在此——那走 deployment.yaml env 的第三写目标（Unit 6 Task 6.3）。
+images:
+  - name: docker.io/wontlost/aster-runner-launcher
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

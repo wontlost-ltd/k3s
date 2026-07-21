@@ -39,3 +39,12 @@ images:
     sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
     workflowFile: aster-replay-runner-deploy.yml
     sourceRef: refs/heads/main
+
+  # ── aster-runner-launcher 镜像（S2-1a-2 Slice-2b-launch）─────────────
+  # in-cluster runner-launcher 微服务镜像，源仓同 aster-api 但独立 workflow
+  # （aster-runner-launcher-deploy.yml）签发。★verify-cip-sync 的 2N 契约因本条从
+  # 3 仓/6 CIP 升为 4 仓/8 CIP——须与两 launcher CIP 原子同落。
+  - image: docker.io/wontlost/aster-runner-launcher
+    sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
+    workflowFile: aster-runner-launcher-deploy.yml
+    sourceRef: refs/heads/main
