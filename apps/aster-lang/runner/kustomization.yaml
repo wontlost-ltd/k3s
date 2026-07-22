@@ -21,9 +21,7 @@
 #         transformer 用真 digest 覆写 Deployment 占位→admission 过）；(4) admission 六态 smoke-test。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: aster-runner
-
 resources:
   - namespace.yaml
   - serviceaccount.yaml
@@ -33,11 +31,10 @@ resources:
   # 待解门加回（见上「合入门」——launcher 镜像真签 + Vault secret 就绪后）：
   # - deployment.yaml
   # - external-secrets.yaml
-
 # ★launcher 镜像 digest（部署真相）：image-pin 脚本改写此段的 digest，k3s verify 校验 == image-lock。
 #   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）——故 deployment.yaml 暂不部署
 #   期间**保留**本 images 条（脚本按 .images[].name 计数，不依赖 deployment 在 resources 里；kustomize
 #   容忍未被引用的 images 条）。launcher 首个 CI PR 写真 digest 到此 + image-lock。
 images:
   - name: docker.io/wontlost/aster-runner-launcher
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:36aa07f1204a66fa315e915d4c2a7f981e61447931a0bc22122628f6adc31692
