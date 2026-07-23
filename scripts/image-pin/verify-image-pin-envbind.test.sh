@@ -4,6 +4,12 @@
 #   (2) env value != image-lock digest → fail-closed。
 #   (3) deployment 除该 env value 外有其它字段变更（夹带）→ semantic-diff fail-closed。
 #   (4) verifier 忽略 PR 供的 selector，只用 base 侧硬编码 selector（恶意 selector 无效）。
+#   (5) ★Task A4 Blocker 1 回归：env-bound entry 但完全未提供 HEAD_DEPLOYMENT（载体缺失）
+#       → fail-closed（不得因参数缺失而跳过）。
+#   (6) ★Task A4 Blocker 1 回归（核心反例）：kustomization-bound entry 但完全未提供
+#       HEAD_KUSTOMIZATION（载体缺失）→ fail-closed。这正是 Codex 复现的生产级绕过：
+#       runner launcher lock-only PR 不带 kustomization 时，此前会静默跳过一致性检查而
+#       exit 0；本用例证明修复后必须非零退出并报确定性错误。
 # ★离线测：FRESHNESS=off + 无 cosign（用 deployBinding=env 但把 cosign 步骤经 freshness=off 短路
 #   不可行——cosign 仍会跑）。故本 harness 用一个**不在 allowed-images 白名单**触发不了 cosign？不行。
 #   正解：本 harness 只验 env-binding 的**结构逻辑**（env value 读取 + 一致性 + semantic-diff），
@@ -196,9 +202,47 @@ else
 fi
 rm -rf "$T"
 
+echo "=== Test 5: env-bound entry 但完全未提供 HEAD_DEPLOYMENT（载体缺失）→ fail-closed（不得跳过）==="
+T="$(mktemp -d)"
+make_allowed env             > "$T/allowed.yaml"
+make_base_lock               > "$T/base-lock.yaml"
+make_head_lock "$DIGEST" "$SHA40" > "$T/head-lock.yaml"
+# 第 6/7 参数（HEAD_DEPLOYMENT/BASE_DEPLOYMENT）全部留空——模拟 workflow 因 PR 未改
+# runner/deployment.yaml 而没抓到部署真相文件的场景（Blocker 1 的 env-bound 对称面）。
+out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
+  "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "" "" "" "" 2>&1)"
+rc=$?
+if [[ "$rc" != "0" ]] && grep -q "::error::.*未提供 head-deployment" <<<"$out"; then
+  pass "env-bound 载体缺失（未传 HEAD_DEPLOYMENT）→ 非零退出 + 报载体缺失错误（fail-closed，不跳过）"
+else
+  fail "env-bound 载体缺失未 fail-closed（rc=$rc）：$(echo "$out" | tail -3)"
+fi
+rm -rf "$T"
+
+echo "=== Test 6（★核心反例，Codex Blocker 1）: kustomization-bound entry 但完全未提供 HEAD_KUSTOMIZATION（载体缺失）→ fail-closed ==="
+# 这正是 Codex 本地复现的生产级绕过：runner launcher（kustomization-bound）lock-only PR，
+# workflow 因未改 runner/kustomization.yaml 而不抓 head-kustomization → 旧版 verifier 在
+# HEAD_KUSTOMIZATION 为空时静默跳过一致性检查、直接 exit 0（签名+fresh 的新 digest 放行，
+# 而实际 kustomization 仍指向旧 digest）。本用例断言修复后必须非零退出并报确定性错误。
+T="$(mktemp -d)"
+make_allowed kustomization        > "$T/allowed.yaml"
+make_base_lock                    > "$T/base-lock.yaml"
+make_head_lock "$DIGEST" "$SHA40" > "$T/head-lock.yaml"
+# 第 4/5 参数（HEAD_KUSTOMIZATION/BASE_KUSTOMIZATION）全部留空，第 6/7（deployment）也留空
+# ——因为本 entry 是 kustomization-bound，不该被要求提供 deployment 参数。
+out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
+  "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "" "" "" "" 2>&1)"
+rc=$?
+if [[ "$rc" != "0" ]] && grep -q "::error::.*未提供 head-kustomization" <<<"$out"; then
+  pass "kustomization-bound 载体缺失（未传 HEAD_KUSTOMIZATION）→ 非零退出 + 报载体缺失错误（Codex 反例已修复）"
+else
+  fail "★Blocker 1 未修复：kustomization-bound 载体缺失仍未 fail-closed（rc=$rc）：$(echo "$out" | tail -5)"
+fi
+rm -rf "$T"
+
 echo ""
 if [[ "$FAILED" == "0" ]]; then
-  echo "全部通过（env 一致性 + semantic-diff allowlist + fail-closed + selector 不可绕）。"; exit 0
+  echo "全部通过（env 一致性 + semantic-diff allowlist + fail-closed + selector 不可绕 + 载体缺失 fail-closed）。"; exit 0
 else
   echo "存在失败用例，见上方 ✗。"; exit 1
 fi

@@ -7,7 +7,9 @@
 # ★ Codex 审查修正（Critical 1/4）：**不加 `paths` 过滤**。因为 `verify-image-pin` 是 main
 #   全局 required check，若只在 image-lock 变更时触发，则改别的文件的人工 PR 永远产生不了该
 #   check → 死锁。故本 workflow 对**所有** PR 运行：
-#     - 未改 image-lock  → 发 verify-image-pin success(no-op)，人工 PR 正常走其它 review 规则。
+#     - 未改 image-lock/kustomization/deployment 受控路径 → 发 verify-image-pin success(no-op)，
+#       人工 PR 正常走其它 review 规则。
+#     - 改了受控路径但 base 侧验签脚本缺失 → fail-closed（Task A4 Blocker 3；不再 no-op）。
 #     - 只改 image-lock  → 严格 shape + cosign + freshness，仅验证变更 entry(base vs head)。
 #     - image-lock + 其它 → shape 检查拒 → 发 failure check。
 
@@ -53,17 +55,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr
+          # ★Task A4 Blocker 2 修正：GitHub PR files API 对 renamed 文件只把新路径放进
+          #   `.filename`，旧路径在 `.previous_filename`。若只取 `.filename`，把受控路径（如
+          #   runner/image-lock.yaml）重命名走会让 detection 漏检该 rename-away 动作
+          #   （旧路径消失、新路径非受控 → pin_flavor=none → no-op）。故 changed-files 必须
+          #   同时收纳 `.filename` 与 `.previous_filename`（rename 场景下两者都要能命中受控路径判定，
+          #   使 rename-away 仍进 strict path，由 check-pr-shape 的 whitelist 拒掉多余/异常路径）。
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-            --paginate --jq '.[].filename' > /tmp/pr/changed-files.txt
-          echo "改动文件："; cat /tmp/pr/changed-files.txt
+            --paginate --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr/changed-files.txt
+          echo "改动文件（含 rename 的 previous_filename）："; cat /tmp/pr/changed-files.txt
           # 验签脚本只从**可信 base 侧**运行（不信 PR 改动的验签器代码）。若 base 尚无这些
-          # 脚本（引入本机制的 bootstrap PR 自身），则无法在此 PR 上验签 → no-op（安全：
-          # 此时 ruleset 仍 evaluate，且脚本一旦入 main，后续 image-pin PR 即走严格路径）。
+          # 脚本（引入本机制的 bootstrap PR 自身），则无法在此 PR 上验签。
           if [[ -f scripts/image-pin/verify-image-pin.sh && -f scripts/image-pin/check-pr-shape.sh ]]; then
             scripts_present=true
           else
             scripts_present=false
-            echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）→ 本 PR no-op"
+            echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）"
           fi
           # ★★detection 泛化（信任洞闭合）：识别 cloud 路径**或** runner 路径。
           #   任一 image-lock 被改 → strict path。改 kustomization/deployment 而不改对应 image-lock
@@ -84,7 +91,17 @@ jobs:
             fi
             pin_flavor=runner
           fi
-          if [[ "$pin_flavor" != "none" && "$scripts_present" == "true" ]]; then
+          # ★Task A4 Blocker 3 修正：pin 路径被命中（pin_flavor != none）但 base 侧脚本缺失，
+          #   曾经直接 no-op success——对永久安全关键 workflow 这是 fail-open（脚本若因任何原因
+          #   在 main 上缺失/被删，pin PR 即可不经验签合入）。现在改为：脚本缺失且命中 pin 路径
+          #   → 直接失败（非 no-op）；只有真正的非 pin PR（pin_flavor==none）才允许 no-op。
+          #   bootstrap 首次引入机制这一特殊场景需要人工例外（跳过分支保护/手动合并），不再由
+          #   本 workflow 自动放行。
+          if [[ "$pin_flavor" != "none" && "$scripts_present" == "false" ]]; then
+            echo "::error::PR 命中 image-pin 受控路径（pin_flavor=$pin_flavor），但 base 侧验签脚本缺失 → fail-closed（非 no-op）。若为首次引入机制的 bootstrap PR，须走人工例外流程，不由本 workflow 自动放行。"
+            exit 1
+          fi
+          if [[ "$pin_flavor" != "none" ]]; then
             echo "touches_lock=true"  >> "$GITHUB_OUTPUT"
           else
             echo "touches_lock=false" >> "$GITHUB_OUTPUT"

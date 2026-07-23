@@ -11,13 +11,21 @@
 #   - policy 查表用 `jq --arg`（数据面）而非把 PR 字符串拼进 yq 表达式（防表达式注入）。
 #   - 对 allowed-images 字段 + image-lock 的 image 做形状/字符集 fail-closed 校验。
 #
+# ★ Task A4 审查修正（68→，Blocker 1）：
+#   - kustomization/deployment 载体参数**不再是"可选、缺则跳过"**——changed entry 的
+#     `deployBinding` 决定它必须验证哪个部署真相载体：kustomization-bound entry 缺
+#     head-kustomization、env-bound entry 缺 head-deployment，均 fail-closed（硬错误），
+#     绝不静默跳过。"载体缺失"≠"无需验证"，这是本次修正的核心不变量。
+#
 # 用法：
 #   verify-image-pin.sh <allowed-images.yaml> <base-lock.yaml> <head-lock.yaml> [head-kustomization.yaml]
 #     base-lock = PR base 分支（可信 main）的 image-lock；head-lock = PR head 的 image-lock。
 #     只对 head 中 digest/sourceSha 相对 base 发生变化（或 base 中不存在）的 image 做全量验签。
-#     head-kustomization（可选，Phase 3 keystone）= PR head 的 kustomization.yaml：
-#       提供则对每个变更 entry 校验 kustomization images[].digest == image-lock digest（部署真相
-#       与验签真相一致）。渲染层校验（kubectl kustomize 出 @sha256）由 workflow 做。
+#     head-kustomization（Phase 3 keystone）= PR head 的 kustomization.yaml：
+#       对每个 kustomization-bound 的变更 entry，本参数为**必需**（缺失即 fail-closed），
+#       校验 kustomization images[].digest == image-lock digest（部署真相与验签真相一致）。
+#       渲染层校验（kubectl kustomize 出 @sha256）由 workflow 做。
+#     head-deployment（同理）= env-bound 变更 entry 的**必需**参数，见下方 6/7 号参数说明。
 # 依赖：cosign(>=v3.1.1)、yq、gh（freshness 查源仓 HEAD，需 GH_TOKEN 只读）、jq。
 # 环境变量：
 #   IMAGE_PIN_FRESHNESS=latest-only|off   默认 latest-only（Phase 1 决策）
@@ -163,16 +171,20 @@ for i in $(seq 0 $((head_count - 1))); do
 
   if [[ "$binding" == "kustomization" ]]; then
     # ── Phase 3 keystone：kustomization digest 一致性（部署真相 == 验签真相）──
-    # 提供了 head kustomization 时：本镜像在 kustomization.images 里必须存在且 digest 与 image-lock
-    # 相等。否则"验签通过的 digest"与"实际部署的 digest"可能不一致 → 打穿 by-digest 保证。
-    if [[ -n "$HEAD_KUSTOMIZATION" ]]; then
-      kust_digest="$(jq -r --arg img "$image" '.images[]? | select(.name == $img) | .digest // empty' <<<"$kust_json")"
-      [[ -n "$kust_digest" ]] \
-        || { echo "::error::entry[$i] ${image} 在 kustomization.images 中缺失（部署不会 by-digest 该镜像）"; fail=1; continue; }
-      [[ "$kust_digest" == "$digest" ]] \
-        || { echo "::error::entry[$i] kustomization digest(${kust_digest}) != image-lock digest(${digest})（部署真相与验签真相不一致）"; fail=1; continue; }
-      info "  kustomization 一致性 OK（deploy digest == verified digest）"
-    fi
+    # ★Codex Blocker 1 修正（68→）：缺 HEAD_KUSTOMIZATION 曾静默跳过本一致性检查——
+    #   若本 PR 只改了 image-lock（未触发 workflow 抓 kustomization），一个 kustomization-bound
+    #   entry 的部署真相就从未被验证，签名+fresh 的新 digest 即可放行而实际部署仍指向旧 digest。
+    #   "载体缺失"必须 fail-closed（硬错误），绝不能等同于"无需验证"而 continue 到下一 entry。
+    [[ -n "$HEAD_KUSTOMIZATION" ]] \
+      || { echo "::error::entry[$i] ${image} 是 kustomization-bound 但未提供 head-kustomization（无法校验部署真相，fail-closed）"; fail=1; continue; }
+    # 本镜像在 kustomization.images 里必须存在且 digest 与 image-lock 相等。否则"验签通过的 digest"
+    # 与"实际部署的 digest"可能不一致 → 打穿 by-digest 保证。
+    kust_digest="$(jq -r --arg img "$image" '.images[]? | select(.name == $img) | .digest // empty' <<<"$kust_json")"
+    [[ -n "$kust_digest" ]] \
+      || { echo "::error::entry[$i] ${image} 在 kustomization.images 中缺失（部署不会 by-digest 该镜像）"; fail=1; continue; }
+    [[ "$kust_digest" == "$digest" ]] \
+      || { echo "::error::entry[$i] kustomization digest(${kust_digest}) != image-lock digest(${digest})（部署真相与验签真相不一致）"; fail=1; continue; }
+    info "  kustomization 一致性 OK（deploy digest == verified digest）"
   else
     # ── env-binding：runner Deployment 的 RUNNER_IMAGE_DIGEST env value == image-lock digest ──
     # ★用 base 侧硬编码 ENV_BIND_SELECTOR（不信 PR 供的 selector），读 head deployment 的 env value，
