@@ -1,0 +1,30 @@
+# 部署策略（deploy-policy）—— runner 命名空间专属（S2-1a-2 Slice-2b）
+#
+# ★与 image-lock.yaml 分离（Codex 审拍板）：本文件承载**部署策略**事实，image-lock 只承载
+#   **镜像 pin**事实（digest/sourceSha/runId）。两者数据模型不混：
+#     - image-lock 是 image-pin 受控路径（RUNNER_LOCK_PATH），只许 image-pin bot 改 3 字段、
+#       只走签名验证形状；人工在其中加策略字段会被 image-pin shape 门当非法 PR 拒。
+#     - 本文件**不在**任何 image-pin 门控路径（非 *_LOCK_PATH/*_KUST_PATH/*_DEPLOY_PATH）→
+#       改本文件的人工 PR 走普通 review，verify-image-pin 判 pin_flavor=none → no-op 放行。
+#
+# ── deferredImages：显式声明「已 pin 但 Deployment 显式移出 kustomization resources、尚未真部署」的镜像 ──
+#
+# render-guard（verify-image-pin.yml「Verify kustomize renders by-digest」步）语义：
+#   kustomization-bound 镜像若**未**在 render 输出出现 → 默认 fail-closed（防 Deployment 意外移出
+#   resources 被静默放过）。**唯有**在本文件 deferredImages 显式列出的镜像才豁免 render 校验
+#   （不部署=无需 render by-digest）。render-guard **从可信 base 侧**读本文件（非 PR head）——
+#   deferral 是 main 既定状态，PR 不得在本次变更中新声明豁免绕过 render（防偷加）。
+#
+# ★go-live 闭环（launcher 真部署时）：
+#   1. kustomization.yaml 取消注释 `- deployment.yaml`（+ external-secrets.yaml），replicas 0→1。
+#   2. **同 PR 从本 deferredImages 删除 launcher 条**——合并后下次 render-guard 读 base 无此豁免
+#      → 强制 launcher 真渲染成 @digest（防「加回 deployment 但仍标 deferred」的漏 render 缝）。
+#   （Codex 注：删豁免的当次 PR 读旧 base 仍豁免，下一次检查才强制；go-live PR 本身仍受
+#    verify-image-pin.sh 的 kust_digest==image-lock digest 一致性校验，且其目的即让 launcher 真渲染。）
+
+version: 1
+deferredImages:
+  # launcher：镜像已 pin（image-lock 有 entry），但其 Deployment 显式 deferred 出 kustomization
+  #   resources（go-live 门）。故不出现在 render 输出，render-guard 对其跳过 render 校验。
+  - image: docker.io/wontlost/aster-runner-launcher
+    reason: "Deployment deferred out of kustomization resources（go-live 门：等真部署 + Vault secret + tunnel 路由）"

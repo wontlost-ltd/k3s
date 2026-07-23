@@ -37,6 +37,9 @@ env:
   RUNNER_LOCK_PATH: apps/aster-lang/runner/image-lock.yaml
   RUNNER_DEPLOY_PATH: apps/aster-lang/runner/deployment.yaml
   RUNNER_KUST_PATH: apps/aster-lang/runner/kustomization.yaml
+  # 部署策略文件（deferredImages 显式豁免列表）——**不在** image-pin 门控 pin 路径，故改本文件的
+  #   人工 PR 判 pin_flavor=none → no-op。render-guard 从**可信 base 侧**读它决定 render 豁免。
+  RUNNER_DEPLOY_POLICY_PATH: apps/aster-lang/runner/deploy-policy.yaml
 
 jobs:
   verify:
@@ -151,12 +154,18 @@ jobs:
               cp "$RUNNER_KUST_PATH" /tmp/pr/base-kustomization.yaml
               echo "runner kustomization-bound(launcher)：取 kustomization 数据"
             fi
+            # ★render 豁免策略只从**可信 base 侧**读（非 PR head）——deferral 是 main 既定状态，
+            #   PR 不得在本次变更中新声明豁免绕过 render。base 无该文件则空列表（无豁免）。
+            cp "$RUNNER_DEPLOY_POLICY_PATH" /tmp/pr/base-deploy-policy.yaml 2>/dev/null \
+              || echo 'deferredImages: []' > /tmp/pr/base-deploy-policy.yaml
           else
             # kustomization-binding（cloud）：取 head cloud/kustomization.yaml（数据）+ base（可信侧）。
             gh api "repos/${{ github.repository }}/contents/${CLOUD_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
               --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
             echo "PR-head kustomization sha256: $(sha256sum /tmp/pr/head-kustomization.yaml | cut -d' ' -f1)"
             cp "$CLOUD_KUST_PATH" /tmp/pr/base-kustomization.yaml
+            # cloud 树无 deferral（launcher 才有）；render-guard 无条件读该文件，故置空列表兜底。
+            echo 'deferredImages: []' > /tmp/pr/base-deploy-policy.yaml
           fi
 
       - name: Check PR shape (blocker2 纵深，binding-mode aware)
@@ -268,15 +277,32 @@ jobs:
           #   image-lock 转 JSON（数值标量转字符串防精度损坏）。
           lock_json="$(yq -o=json '(.. | select(tag=="!!int" or tag=="!!float"))|=tostring' /tmp/pr/head-image-lock.yaml)"
           kust_json="$(yq -o=json '.' /tmp/pr/head-kustomization.yaml)"
+          # ★render 豁免（deferredImages）从**可信 base 侧 deploy-policy.yaml** 读（非 PR head，也非
+          #   image-lock）：(1) 从 head 读=PR 可偷加豁免绕 render；(2) 放 image-lock=人工加策略字段被
+          #   image-pin shape 门当非法 PR 拒 + 污染 pin 数据模型。deferral 是部署策略事实、是 main 既定
+          #   状态，PR 不得在本次变更中新声明豁免。deploy-policy.yaml 不在 pin 门控路径，人工改它走普通
+          #   review（pin_flavor=none → no-op）。
+          deferred_json="$(yq -o=json '.' /tmp/pr/base-deploy-policy.yaml)"
           n="$(jq '.images | length' <<<"$lock_json")"
           for k in $(seq 0 $((n - 1))); do
             img="$(jq -r ".images[$k].image"  <<<"$lock_json")"
             dig="$(jq -r ".images[$k].digest" <<<"$lock_json")"
+            # 该镜像是否在 base deploy-policy 的 deferredImages 显式列出（按镜像名匹配）。
+            deferred="$(jq -r --arg img "$img" '([.deferredImages[]? | select(.image == $img)] | length) > 0' <<<"$deferred_json")"
             # 该镜像若不在 kustomization.images（env-bound，如 aster-replay-runner）→ 不参与静态渲染，跳过。
             in_kust="$(jq -r --arg img "$img" '[.images[]? | select(.name == $img)] | length' <<<"$kust_json")"
             [[ "$in_kust" == "1" ]] || { echo ">> ${img} 非 kustomization-bound（不进静态渲染），跳过 render 校验"; continue; }
+            # ★显式 deferred（deploy-policy.yaml deferredImages 列出，Codex 审：仅**显式**才豁免）——
+            #   镜像 pin 正确但其 Deployment 显式移出 kustomization resources（go-live 门），不被渲染引用、
+            #   不出现在 render 输出。故不强制它 render by-digest；其 pin 一致性仍由前面 verify-image-pin.sh
+            #   的 kust_digest==image-lock digest 守。★未在 deferredImages 列出的镜像若不渲染 → 下方 grep
+            #   失败 fail-closed（防「Deployment 意外移出 resources」被静默放过——不是无条件跳过未渲染镜像）。
+            if [[ "$deferred" == "true" ]]; then
+              echo ">> ${img} 在 base deploy-policy.deferredImages 显式列出（Deployment deferred 出 kustomization，go-live 门）→ 跳过 render 校验（pin 一致性仍由 kust_digest==digest 守）"
+              continue
+            fi
             grep -qF "${img}@${dig}" <<<"$rendered" \
-              || { echo "::error::kustomize 渲染未见 ${img}@${dig}（部署未 by-digest 该镜像）"; exit 1; }
+              || { echo "::error::kustomize 渲染未见 ${img}@${dig}（部署未 by-digest；若为显式 deferred 须在 deploy-policy.yaml 的 deferredImages 列出该镜像）"; exit 1; }
             echo ">> 渲染校验 OK：${img}@${dig}"
           done
 
