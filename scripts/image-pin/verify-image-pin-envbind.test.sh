@@ -94,13 +94,20 @@ make_deployment "$DIGEST" "" > "$T/head-deploy.yaml"
 make_deployment "sha256:0000000000000000000000000000000000000000000000000000000000000000" "" > "$T/base-deploy.yaml"
 out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
   "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "" "" "$T/head-deploy.yaml" "$T/base-deploy.yaml" 2>&1)"
-# ★修正（brief 原式 `grep -qi "env value.*!=\|deployment semantic-diff"` 会误命中成功行
-#   "deployment semantic-diff OK（...）"，导致本应 PASS 的用例被误判 FAIL）。
-#   改为只匹配 `::error::` 前缀的 env-binding 失败行，不命中 info 的 OK 行。
-if grep -q "::error::.*RUNNER_IMAGE_DIGEST env value" <<<"$out" || grep -q "::error::.*deployment semantic-diff" <<<"$out"; then
-  fail "env 一致时不应报 env-binding 错（实际报了：$(grep '::error::.*\(RUNNER_IMAGE_DIGEST env value\|deployment semantic-diff\)' <<<"$out" | head -1)）"
+# ★非 vacuous 正向断言（Codex 抓）：不能只断言「无 env-binding 错」——那样脚本若提前退出
+#   （缺工具/解析错，根本没进 env 分支）也会误判 PASS。必须断言 env 分支的**两个成功标记都出现**，
+#   证明 env-binding 一致性检查 + deployment semantic-diff 都**真的执行且通过**：
+#     line 189 "env-binding 一致性 OK（RUNNER_IMAGE_DIGEST env == verified digest）"
+#     line 208 "deployment semantic-diff OK（仅 RUNNER_IMAGE_DIGEST env value 变更）"
+#   同时确认无 env-binding 失败行（双向：既到达又通过）。
+if ! grep -q "env-binding 一致性 OK" <<<"$out"; then
+  fail "env 分支未到达/未通过——缺成功标记「env-binding 一致性 OK」（疑脚本提前退出，vacuous）；输出：$(echo "$out" | tail -3)"
+elif ! grep -q "deployment semantic-diff OK" <<<"$out"; then
+  fail "deployment semantic-diff 未执行/未通过——缺「deployment semantic-diff OK」；输出：$(echo "$out" | tail -3)"
+elif grep -q "::error::.*RUNNER_IMAGE_DIGEST env value" <<<"$out" || grep -q "::error::.*deployment semantic-diff" <<<"$out"; then
+  fail "env 一致却仍报 env-binding 错：$(grep '::error::.*\(RUNNER_IMAGE_DIGEST env value\|deployment semantic-diff\)' <<<"$out" | head -1)"
 else
-  pass "env value 一致 → 未触发 env-binding fail-closed（放行到 cosign）"
+  pass "env 分支真到达且两标记通过（env-binding 一致性 OK + deployment semantic-diff OK）"
 fi
 rm -rf "$T"
 
@@ -139,9 +146,59 @@ else
 fi
 rm -rf "$T"
 
+# ── Test 4：恶意攻击者把正确 digest 藏进**别的 env 名**，RUNNER_IMAGE_DIGEST 留错值 ──
+# 证明 verifier 只用 base 侧硬编码 selector 读 RUNNER_IMAGE_DIGEST（不被 PR 内容误导去读别处）：
+# head deployment 里加一条 name==DECOY_DIGEST value==正确 digest，但 RUNNER_IMAGE_DIGEST value==错值
+# → 硬编码 selector 只取 RUNNER_IMAGE_DIGEST（错值）→ env value != image-lock digest → fail-closed。
+echo "=== Test 4: 正确 digest 藏进别的 env 名 + RUNNER_IMAGE_DIGEST 留错值 → 硬编码 selector 只读 RUNNER_IMAGE_DIGEST → fail-closed ==="
+make_deployment_decoy() {  # $1=RUNNER_IMAGE_DIGEST(错值)  $2=DECOY_DIGEST(正确值,藏别处)
+  cat <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runner-launcher
+  template:
+    spec:
+      containers:
+        - name: runner-launcher
+          image: docker.io/wontlost/aster-runner-launcher@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DECOY_DIGEST
+              value: $2
+            - name: RUNNER_IMAGE_DIGEST
+              value: $1
+EOF
+}
+T="$(mktemp -d)"
+make_allowed env             > "$T/allowed.yaml"
+make_base_lock               > "$T/base-lock.yaml"
+make_head_lock "$DIGEST" "$SHA40" > "$T/head-lock.yaml"
+# RUNNER_IMAGE_DIGEST=错值（全零），正确 DIGEST 藏进 DECOY_DIGEST。
+make_deployment_decoy "sha256:0000000000000000000000000000000000000000000000000000000000000000" "$DIGEST" > "$T/head-deploy.yaml"
+make_deployment "sha256:0000000000000000000000000000000000000000000000000000000000000000" "" > "$T/base-deploy.yaml"
+out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
+  "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "" "" "$T/head-deploy.yaml" "$T/base-deploy.yaml" 2>&1)"
+rc=$?
+# 硬编码 selector 只读 RUNNER_IMAGE_DIGEST（错值全零 != image-lock 真 digest）→ 必 fail-closed；
+# 绝不能因「正确 digest 藏在 DECOY_DIGEST」而放行（那才是 selector 被绕）。
+if [[ "$rc" != "0" ]] && grep -q "::error::.*RUNNER_IMAGE_DIGEST env value" <<<"$out"; then
+  pass "藏在别 env 的正确 digest 不被采信 → RUNNER_IMAGE_DIGEST 错值触发 fail-closed（selector 不可绕）"
+else
+  fail "★恶意绕过未拦：正确 digest 藏 DECOY_DIGEST 却放行（rc=$rc）——selector 可能被绕！输出：$(echo "$out" | tail -3)"
+fi
+rm -rf "$T"
+
 echo ""
 if [[ "$FAILED" == "0" ]]; then
-  echo "全部通过（env value 一致性 + semantic-diff allowlist + fail-closed）。"; exit 0
+  echo "全部通过（env 一致性 + semantic-diff allowlist + fail-closed + selector 不可绕）。"; exit 0
 else
   echo "存在失败用例，见上方 ✗。"; exit 1
 fi
