@@ -21,6 +21,7 @@ images:
     sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud，非 wontlost-ltd）
     workflowFile: deploy.yml                  # 唯一合法签发 workflow
     sourceRef: refs/heads/main                # 唯一合法 ref（只信 main 构建）
+    deployBinding: kustomization      # 静态部署镜像：pin 落 cloud/kustomization images transformer
     # verifier 据此拼 --certificate-identity：
     #   https://github.com/{sourceRepo}/.github/workflows/{workflowFile}@{sourceRef}
     # 并加 --certificate-github-workflow-{repository,ref,sha} 约束（sha 来自 image-lock）。
@@ -30,6 +31,7 @@ images:
     sourceRepo: aster-cloud/aster-cloud       # 不同源仓 / 不同身份（Q2：分别验签）
     workflowFile: ci.yml
     sourceRef: refs/heads/main
+    deployBinding: kustomization      # 静态部署镜像：pin 落 cloud/kustomization images transformer
 
   # ── aster-replay-runner runner 镜像（S2-1a-2 Slice-2b）─────────────
   # runner 由 in-cluster launcher 运行时启动的临时 Job 运行，源仓同 aster-api
@@ -39,6 +41,7 @@ images:
     sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
     workflowFile: aster-replay-runner-deploy.yml
     sourceRef: refs/heads/main
+    deployBinding: env                # ★env-bound：runner 由 launcher 运行时经 Deployment env RUNNER_IMAGE_DIGEST 注入，pin 落该 env value（非 kustomization）
 
   # ── aster-runner-launcher 镜像（S2-1a-2 Slice-2b-launch）─────────────
   # in-cluster runner-launcher 微服务镜像，源仓同 aster-api 但独立 workflow
@@ -48,3 +51,4 @@ images:
     sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
     workflowFile: aster-runner-launcher-deploy.yml
     sourceRef: refs/heads/main
+    deployBinding: kustomization      # 静态部署镜像：launcher 在 runner/kustomization images transformer
