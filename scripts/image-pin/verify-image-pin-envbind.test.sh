@@ -240,9 +240,118 @@ else
 fi
 rm -rf "$T"
 
+# ── Test 7（★:121 修四态之 (d)，防我首版回归）：entry 未变 + 载体缺失 → 跳过（PASS，不 fail-closed）──
+# 场景：launcher-only image-pin PR（只 bump launcher，kustomization-bound）时，runner（env-bound）
+#   entry 的 image-lock digest/sourceSha 未变，且 PR 未碰 runner/deployment.yaml → workflow 不抓
+#   head-deployment → HEAD_DEPLOYMENT 空。此时**不得**因载体缺失 fail-closed（该载体本 PR 没碰，
+#   base==head，无需重验）——否则每个 launcher-only PR 都会误被未变 runner 条挡住（我首版的 bug）。
+echo "=== Test 7（★:121 (d) 防回归）: entry 未变（真实形状值）+ 载体缺失 → 跳过放行（不 fail-closed）==="
+# ★Codex 复审建议：用**真实形状**的 digest+40hex sourceSha（非种子）验 case (d)，避免把"未变种子可进
+#   生产"固化成期望行为。base==head（同真值）→ entry_changed=false；载体未提供 → (d) skip。
+T="$(mktemp -d)"
+make_allowed env             > "$T/allowed.yaml"
+# base==head：真实 digest（64hex）+ 真实 sourceSha（40hex），逐字节相同 → entry 未变。
+make_head_lock "$DIGEST" "$SHA40" > "$T/base-lock.yaml"
+cp "$T/base-lock.yaml"            "$T/head-lock.yaml"
+# 载体参数全空（PR 未碰 deployment）。
+out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
+  "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "" "" "" "" 2>&1)"
+rc=$?
+# 未变 + 载体缺失 → 应放行（rc==0），且明确报「跳过」而非载体缺失错误。
+if [[ "$rc" == "0" ]] && ! grep -q "::error::" <<<"$out"; then
+  pass "entry 未变（真值）+ 载体缺失 → 跳过放行（rc=0，无 error；launcher-only PR 不被未变 runner 条误挡）"
+else
+  fail "★首版回归重现：entry 未变 + 载体缺失却未放行（rc=$rc）：$(echo "$out" | tail -3)"
+fi
+rm -rf "$T"
+
+# ── Test 8（★:121 修核心，堵洞1）：entry 未变 + 载体已提供 + 载体被篡改 → 仍 fail-closed ──
+# 场景：Bot PR 把 runner image-lock entry 的 digest/sourceSha 留原值（entry_changed=false），但在
+#   同一 PR 里改了 deployment（replicas 0→9）。旧版对未变 entry 整体 continue → deployment
+#   semantic-diff 从不跑 → 部署语义篡改放行。修复后：载体已提供 → 无条件跑 semantic-diff → 拦下。
+echo "=== Test 8（★:121 堵洞1）: entry 未变 + 载体已提供 + deployment 夹带 replicas 改 → semantic-diff fail-closed ==="
+T="$(mktemp -d)"
+make_allowed env             > "$T/allowed.yaml"
+make_base_lock               > "$T/base-lock.yaml"
+# head-lock == base-lock（digest 不变）→ entry_changed=false；但提供被篡改的 deployment（replicas 9）。
+make_base_lock               > "$T/head-lock.yaml"
+# base-lock 的 digest 是全零占位，故 deployment 的 RUNNER_IMAGE_DIGEST 须 == 全零才过一致性；
+#   head-deploy 把 env value 留全零（一致性过）但夹带 replicas: 9（semantic-diff 必拦）。
+ZERO="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+make_deployment "$ZERO" "replicas: 9" > "$T/head-deploy.yaml"
+make_deployment "$ZERO" "replicas: 0" > "$T/base-deploy.yaml"
+out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
+  "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "" "" "$T/head-deploy.yaml" "$T/base-deploy.yaml" 2>&1)"
+rc=$?
+if [[ "$rc" != "0" ]] && grep -q "deployment semantic-diff" <<<"$out"; then
+  pass "entry 未变但载体被篡改（replicas 0→9）→ semantic-diff 仍跑并 fail-closed（:121 洞1 已堵）"
+else
+  fail "★:121 洞1 未堵：entry 未变时 deployment 篡改被放过（rc=$rc）：$(echo "$out" | tail -3)"
+fi
+rm -rf "$T"
+
+# ── Test 9（★:121 修核心，堵洞2 kustomization 对称面）：──
+# entry 未变（image-lock digest 不变）+ kustomization 已提供 + kustomization.images digest 与 image-lock
+#   不一致 → 一致性检查仍跑 → fail-closed。旧版：未变 entry continue → 循环内 kust_digest==image-lock
+#   一致性从不跑；而循环外 kustomization semantic-diff 把所有 images[].digest 归一化（允许改 digest）
+#   → 部署真相偏离验签真相仍放行。
+echo "=== Test 9（★:121 堵洞2）: entry 未变 + kustomization 已提供 + kust digest≠image-lock → 一致性 fail-closed ==="
+make_kust() {  # $1=launcher digest（kustomization.images 里的）
+  cat <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+images:
+  - name: docker.io/wontlost/aster-runner-launcher
+    digest: $1
+EOF
+}
+make_allowed_kust() {  # kustomization-bound launcher entry
+  cat <<EOF
+version: 1
+oidcIssuer: https://token.actions.githubusercontent.com
+images:
+  - image: docker.io/wontlost/aster-runner-launcher
+    sourceRepo: aster-cloud/aster-api
+    workflowFile: aster-runner-launcher-deploy.yml
+    sourceRef: refs/heads/main
+    deployBinding: kustomization
+EOF
+}
+make_lock_launcher() {  # $1=digest $2=sourceSha
+  cat <<EOF
+version: 1
+images:
+  - image: docker.io/wontlost/aster-runner-launcher
+    digest: $1
+    sourceSha: $2
+    runId: "7"
+EOF
+}
+T="$(mktemp -d)"
+GOOD="sha256:$(printf 'c%.0s' $(seq 1 64))"
+EVIL="sha256:$(printf 'd%.0s' $(seq 1 64))"
+make_allowed_kust > "$T/allowed.yaml"
+# image-lock（base==head，entry 未变，digest=GOOD 合法 40+64 形状）。
+make_lock_launcher "$GOOD" "$SHA40" > "$T/base-lock.yaml"
+cp "$T/base-lock.yaml" "$T/head-lock.yaml"
+# kustomization 已提供，但其 images digest = EVIL ≠ image-lock 的 GOOD → 一致性必拦。
+make_kust "$EVIL"  > "$T/head-kust.yaml"
+make_kust "$GOOD"  > "$T/base-kust.yaml"
+out="$(IMAGE_PIN_FRESHNESS=off bash "$VERIFY" \
+  "$T/allowed.yaml" "$T/base-lock.yaml" "$T/head-lock.yaml" "$T/head-kust.yaml" "$T/base-kust.yaml" "" "" 2>&1)"
+rc=$?
+if [[ "$rc" != "0" ]] && grep -q "kustomization digest.*!=.*image-lock digest" <<<"$out"; then
+  pass "entry 未变但 kustomization digest 偏离 image-lock → 一致性仍跑并 fail-closed（:121 洞2 已堵）"
+else
+  fail "★:121 洞2 未堵：entry 未变时 kustomization digest 偏离被放过（rc=$rc）：$(echo "$out" | tail -3)"
+fi
+rm -rf "$T"
+
 echo ""
 if [[ "$FAILED" == "0" ]]; then
-  echo "全部通过（env 一致性 + semantic-diff allowlist + fail-closed + selector 不可绕 + 载体缺失 fail-closed）。"; exit 0
+  echo "全部通过（env 一致性 + semantic-diff allowlist + fail-closed + selector 不可绕 + 载体缺失 fail-closed + :121 四态分派两洞）。"; exit 0
 else
   echo "存在失败用例，见上方 ✗。"; exit 1
 fi

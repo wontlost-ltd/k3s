@@ -118,7 +118,24 @@ for i in $(seq 0 $((head_count - 1))); do
   digest="$(jq -r '.digest' <<<"$entry")"
   source_sha="$(jq -r '.sourceSha' <<<"$entry")"
 
-  # ── 只验证**变化的** entry：head 的 (digest,sourceSha) 与 base 同名 image 一致则跳过 ──
+  # ── entry 是否变化：head 的 (digest,sourceSha) 与 base 同名 image 是否一致 ──
+  # ★ Codex 审 :121 载体 bug 修（两处对称洞）：旧版对未变 entry 整体 `continue`，跳过了循环内的
+  #   **载体一致性 + 载体 semantic-diff**。造成两个洞：
+  #     洞1（env）：Bot PR 改 deployment（replicas/securityContext）但 image-lock digest 不变 →
+  #                 deployment semantic-diff 从不跑。
+  #     洞2（kustomization）：Bot PR 改 kustomization.images[].digest 但 image-lock 不变 → 循环外
+  #                 semantic-diff 把所有 images[].digest 归一化（本就允许改 digest），而循环内的
+  #                 `kust_digest == image-lock digest` 一致性检查被 continue 跳过 → 部署真相偏离验签真相仍放行。
+  #   修：改为四态分派——载体一致性/semantic-diff 的触发条件是「**该 entry 的对应载体是否被本 PR 提供**」
+  #   （非「digest 是否变」）；cosign 重验签 + freshness 只在 digest/sourceSha 变化（entry_changed）时跑。
+  #     (a) 变 + 载体提供 → 一致性 + semantic-diff + cosign + freshness。
+  #     (b) 变 + 载体缺失 → fail-closed（既有 Blocker-1，digest 变却无载体=部署真相未验）。
+  #     (c) 未变 + 载体提供 → 一致性 + semantic-diff（不重验签；堵两洞）。
+  #     (d) 未变 + 载体缺失 → 跳过（该载体本 PR 未碰，base==head，安全）。
+  #   「对应载体」= binding 决定：kustomization-bound→HEAD_KUSTOMIZATION；env-bound→HEAD_DEPLOYMENT。
+  #   载体「已提供」信号 = 对应 HEAD_* 非空（workflow 已由可信 changed-files 命中才 fetch，见
+  #   verify-image-pin.yml:142-153；脚本不重解析 changed-files，避免耦合）。
+  entry_changed=true
   base_entry="$(jq -c --arg img "$image" '.images[]? | select(.image == $img)' <<<"$base_json")"
   if [[ -n "$base_entry" ]]; then
     base_digest="$(jq -r '.digest' <<<"$base_entry")"
@@ -130,12 +147,14 @@ for i in $(seq 0 $((head_count - 1))); do
     if [[ "$base_digest" == "$digest" && "$base_sha" == "$source_sha" ]]; then
       [[ "$base_run" == "$head_run" ]] \
         || die "entry[$i] ${image} 只改了 runId 而 digest/sourceSha 未变（禁止：runId 变更须伴随重新验签的 digest/sourceSha）"
-      info "entry[$i] $image 未变更，跳过（既有 bootstrap 状态）"
-      continue
+      entry_changed=false
+      info "entry[$i] $image 的 image-lock digest/sourceSha 未变（不重验签；但若本 PR 提供了对应载体，仍校验一致性+semantic-diff）"
     fi
   fi
-  changed=$((changed + 1))
-  info "entry[$i] 变更: $image@$digest (sourceSha=$source_sha)"
+  if [[ "$entry_changed" == "true" ]]; then
+    changed=$((changed + 1))
+    info "entry[$i] 变更: $image@$digest (sourceSha=$source_sha)"
+  fi
 
   # ── image 字符集 fail-closed（受控 registry/repo，防怪值进 cosign/表达式）──
   [[ "$image" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$ ]] \
@@ -158,8 +177,18 @@ for i in $(seq 0 $((head_count - 1))); do
     || { echo "::error::entry[$i] allowed-images sourceRef 形状非法：$source_ref"; fail=1; continue; }
 
   # ── image-lock 值形状（digest sha256、sourceSha 40hex，拒种子/占位混入生产）──
-  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::entry[$i] digest 形状非法：$digest"; fail=1; continue; }
-  [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::entry[$i] sourceSha 非 40-hex（种子/占位不得进生产）：$source_sha"; fail=1; continue; }
+  # ★:121 修：值形状校验只对**变化的** entry（本 PR 写入的新值）执行。理由：未变 entry 的
+  #   digest/sourceSha 与可信 base 逐字节相同（本 PR 未触碰），PR 攻击者无法借本次 PR 制造这种"未变"值。
+  #   ★诚实边界（Codex 复审纠正）：未变值**不保证**先前经本形状门——bootstrap 种子（sourceSha=
+  #   UNVERIFIED-SEED / 全零 digest）是经人工/bootstrap 例外种入的，从未过本门。但种子是**惰性**的：
+  #   全零 digest 无法解析到攻击者控制的镜像（ImagePullBackOff）+ 无 cosign 签名必被 CIP admission 拒
+  #   → 最坏是不可部署/DoS，非"部署不同镜像"。且旧版对未变 entry 直接 continue 本就放过种子，本修未
+  #   新开此路径。收紧计划（后续独立 PR）：digest 对所有 entry 恒校验 sha256:64hex，仅对未变 entry
+  #   精确放行 {UNVERIFIED-SEED + 全零 digest + runId=0} 组合，或生产 active 态完全禁 seed。
+  if [[ "$entry_changed" == "true" ]]; then
+    [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::entry[$i] digest 形状非法：$digest"; fail=1; continue; }
+    [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::entry[$i] sourceSha 非 40-hex（种子/占位不得进生产）：$source_sha"; fail=1; continue; }
+  fi
 
   # ── 部署真相一致性（binding-mode 分流）──
   # 每个 image 的部署真相载体由 allowed-images 的 deployBinding 决定（可信 base 侧单源，非 PR head）：
@@ -174,23 +203,38 @@ for i in $(seq 0 $((head_count - 1))); do
     # ★Codex Blocker 1 修正（68→）：缺 HEAD_KUSTOMIZATION 曾静默跳过本一致性检查——
     #   若本 PR 只改了 image-lock（未触发 workflow 抓 kustomization），一个 kustomization-bound
     #   entry 的部署真相就从未被验证，签名+fresh 的新 digest 即可放行而实际部署仍指向旧 digest。
-    #   "载体缺失"必须 fail-closed（硬错误），绝不能等同于"无需验证"而 continue 到下一 entry。
-    [[ -n "$HEAD_KUSTOMIZATION" ]] \
-      || { echo "::error::entry[$i] ${image} 是 kustomization-bound 但未提供 head-kustomization（无法校验部署真相，fail-closed）"; fail=1; continue; }
-    # 本镜像在 kustomization.images 里必须存在且 digest 与 image-lock 相等。否则"验签通过的 digest"
-    # 与"实际部署的 digest"可能不一致 → 打穿 by-digest 保证。
-    kust_digest="$(jq -r --arg img "$image" '.images[]? | select(.name == $img) | .digest // empty' <<<"$kust_json")"
-    [[ -n "$kust_digest" ]] \
-      || { echo "::error::entry[$i] ${image} 在 kustomization.images 中缺失（部署不会 by-digest 该镜像）"; fail=1; continue; }
-    [[ "$kust_digest" == "$digest" ]] \
-      || { echo "::error::entry[$i] kustomization digest(${kust_digest}) != image-lock digest(${digest})（部署真相与验签真相不一致）"; fail=1; continue; }
-    info "  kustomization 一致性 OK（deploy digest == verified digest）"
+    # ★:121 修四态分派：载体缺失的处置按 entry_changed 分——
+    #   (b) entry 变 + 载体缺失 → fail-closed（digest 变却无载体=部署真相未验，既有 Blocker-1）。
+    #   (d) entry 未变 + 载体缺失 → 跳过一致性（该 kustomization 本 PR 未碰，base==head，无需重验）。
+    if [[ -z "$HEAD_KUSTOMIZATION" ]]; then
+      if [[ "$entry_changed" == "true" ]]; then
+        echo "::error::entry[$i] ${image} 是 kustomization-bound 且本次 digest 变更，但未提供 head-kustomization（无法校验部署真相，fail-closed）"; fail=1; continue
+      fi
+      info "  entry[$i] $image 未变更且本 PR 未提供/触碰 kustomization → 跳过一致性校验（载体未变）"
+    else
+      # (a)/(c)：载体已提供（PR 碰了 kustomization）→ **无条件**校验一致性（不论 digest 是否变），
+      #   堵洞2：Bot PR 改 kustomization.images[].digest 但 image-lock 不变 → 循环外 semantic-diff 允许改
+      #   digest，此处 kust_digest==image-lock digest 一致性必须仍跑，否则部署真相偏离验签真相仍放行。
+      kust_digest="$(jq -r --arg img "$image" '.images[]? | select(.name == $img) | .digest // empty' <<<"$kust_json")"
+      [[ -n "$kust_digest" ]] \
+        || { echo "::error::entry[$i] ${image} 在 kustomization.images 中缺失（部署不会 by-digest 该镜像）"; fail=1; continue; }
+      [[ "$kust_digest" == "$digest" ]] \
+        || { echo "::error::entry[$i] kustomization digest(${kust_digest}) != image-lock digest(${digest})（部署真相与验签真相不一致）"; fail=1; continue; }
+      info "  kustomization 一致性 OK（deploy digest == verified digest）"
+    fi
   else
     # ── env-binding：runner Deployment 的 RUNNER_IMAGE_DIGEST env value == image-lock digest ──
     # ★用 base 侧硬编码 ENV_BIND_SELECTOR（不信 PR 供的 selector），读 head deployment 的 env value，
     #   断言 == 本次将 cosign-验签的 image-lock digest（env value 即部署真相；launcher 用它构 runner 引用）。
-    [[ -n "$HEAD_DEPLOYMENT" ]] \
-      || { echo "::error::entry[$i] ${image} 是 env-bound 但未提供 head-deployment（无法校验 RUNNER_IMAGE_DIGEST env value）"; fail=1; continue; }
+    # ★:121 修四态分派（同 kustomization 分支）：载体缺失按 entry_changed 分——
+    #   (b) entry 变 + 载体缺失 → fail-closed；(d) entry 未变 + 载体缺失 → 跳过（deployment 本 PR 未碰）。
+    if [[ -z "$HEAD_DEPLOYMENT" ]]; then
+      if [[ "$entry_changed" == "true" ]]; then
+        echo "::error::entry[$i] ${image} 是 env-bound 且本次 digest 变更，但未提供 head-deployment（无法校验 RUNNER_IMAGE_DIGEST env value，fail-closed）"; fail=1; continue
+      fi
+      info "  entry[$i] $image 未变更且本 PR 未提供/触碰 deployment → 跳过 env 一致性/semantic-diff（载体未变）"
+    else
+    # (a)/(c)：载体已提供（PR 碰了 deployment）→ **无条件**校验一致性 + semantic-diff（堵洞1）。
     [[ -f "$HEAD_DEPLOYMENT" ]] \
       || { echo "::error::entry[$i] head-deployment 不存在：$HEAD_DEPLOYMENT"; fail=1; continue; }
     env_value="$(yq "$ENV_BIND_SELECTOR" "$HEAD_DEPLOYMENT" 2>/dev/null || true)"
@@ -219,6 +263,16 @@ for i in $(seq 0 $((head_count - 1))); do
       fi
       info "  deployment semantic-diff OK（仅 RUNNER_IMAGE_DIGEST env value 变更）"
     fi
+    fi  # 关闭 env-binding 载体已提供分支（if [[ -z "$HEAD_DEPLOYMENT" ]] ... else ...）
+  fi
+
+  # ── cosign 重验签 + freshness 仅对**变化的** entry 执行（:121 修四态之 cosign/freshness 部分）──
+  # 重验签只在 digest/sourceSha 变化时有意义；freshness 会拒 sourceSha≠源仓当前 HEAD 的 entry——一个
+  # 合法未变的 entry（如只 bump launcher 时的 runner 条）其 sourceSha 可能已非 HEAD，对未变 entry 跑
+  # freshness 会误拒。上方载体一致性/semantic-diff 已按四态对**载体被提供的** entry 执行（含未变的 (c)）。
+  if [[ "$entry_changed" != "true" ]]; then
+    info "  entry[$i] $image 未变更：跳过 cosign 重验签 + freshness（载体一致性/semantic-diff 已按需校验）"
+    continue
   fi
 
   cert_identity="https://github.com/${source_repo}/.github/workflows/${workflow_file}@${source_ref}"
