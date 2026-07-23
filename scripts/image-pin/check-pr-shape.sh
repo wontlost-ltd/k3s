@@ -24,6 +24,10 @@ EVENT="${1:?usage: check-pr-shape.sh <pr-event.json> <changed-files.txt>}"
 CHANGED="${2:?usage: check-pr-shape.sh <pr-event.json> <changed-files.txt>}"
 LOCK_PATH="${IMAGE_LOCK_PATH:-apps/aster-lang/cloud/image-lock.yaml}"
 KUSTOMIZATION_PATH="${KUSTOMIZATION_PATH:-apps/aster-lang/cloud/kustomization.yaml}"
+# ★env-binding（runner）PR 形状：部署真相是 Deployment 的 RUNNER_IMAGE_DIGEST env（非 kustomization）。
+#   设 DEPLOYMENT_PATH（workflow 对 runner PR 传）→ whitelist = {image-lock, deployment}（不含 kustomization）。
+#   未设 → cloud/launcher 形状 = {image-lock, kustomization}（不变，零改动铁律）。
+DEPLOYMENT_PATH="${DEPLOYMENT_PATH:-}"
 
 die() { echo "::error::$*" >&2; exit 1; }
 command -v jq >/dev/null || die "jq 未安装"
@@ -54,19 +58,28 @@ fi
 head_ref="$(jq -r '.pull_request.head.ref // ""' "$EVENT")"
 [[ "$head_ref" == image-pin/* ]] || die "head 分支非 image-pin/*：$head_ref"
 
-# ── 改动文件必须只在 {image-lock, kustomization} 白名单内；且 image-lock 必须被改 ──
+# ── 改动文件必须只在部署真相 whitelist 内；且 image-lock 必须被改 ──
+# binding-mode 分流：设了 DEPLOYMENT_PATH → env 形状 {image-lock, deployment}；否则 cloud/launcher
+#   形状 {image-lock, kustomization}。两形状都要求 image-lock 被改（验签真相），只改部署载体=绕验签，拒。
+if [[ -n "$DEPLOYMENT_PATH" ]]; then
+  DEPLOY_TRUTH_PATH="$DEPLOYMENT_PATH"
+  DEPLOY_TRUTH_DESC="deployment（RUNNER_IMAGE_DIGEST env）"
+else
+  DEPLOY_TRUTH_PATH="$KUSTOMIZATION_PATH"
+  DEPLOY_TRUTH_DESC="kustomization"
+fi
 mapfile -t files < <(grep -v '^[[:space:]]*$' "$CHANGED" || true)
 [[ "${#files[@]}" -gt 0 ]] || die "PR 无改动文件"
 touched_lock=false
 for f in "${files[@]}"; do
   case "$f" in
-    "$LOCK_PATH")          touched_lock=true ;;
-    "$KUSTOMIZATION_PATH") : ;;   # 允许（部署真相），一致性由 verify-image-pin.sh 校验
-    *) die "image-pin PR 只能改 ${LOCK_PATH} 和 ${KUSTOMIZATION_PATH}, 却改了 ${f} (触碰 .github/**, CODEOWNERS, allowed-images.yaml 等一律拒)" ;;
+    "$LOCK_PATH")         touched_lock=true ;;
+    "$DEPLOY_TRUTH_PATH") : ;;   # 允许（部署真相），一致性由 verify-image-pin.sh 校验
+    *) die "image-pin PR 只能改 ${LOCK_PATH} 和 ${DEPLOY_TRUTH_PATH}(${DEPLOY_TRUTH_DESC}), 却改了 ${f} (触碰 .github/**, CODEOWNERS, allowed-images.yaml, kustomization 等一律拒)" ;;
   esac
 done
-# image-lock 是验签真相，必须被改（只改 kustomization 而不改 image-lock ＝ 绕过验签，拒）。
+# image-lock 是验签真相，必须被改（只改部署载体而不改 image-lock ＝ 绕过验签，拒）。
 [[ "$touched_lock" == "true" ]] \
-  || die "image-pin PR 必须改 ${LOCK_PATH}（验签真相）；只改 kustomization 会绕过验签"
+  || die "image-pin PR 必须改 ${LOCK_PATH}（验签真相）；只改 ${DEPLOY_TRUTH_DESC} 会绕过验签"
 
-echo ">> PR 形状/来源合法：author=$author_login(id=$author_id,Bot) head=$head_ref 仅改 $LOCK_PATH"
+echo ">> PR 形状/来源合法：author=$author_login(id=$author_id,Bot) head=$head_ref 仅改 $LOCK_PATH + $DEPLOY_TRUTH_PATH($DEPLOY_TRUTH_DESC)"

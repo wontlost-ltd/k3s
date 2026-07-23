@@ -7,7 +7,9 @@
 # ★ Codex 审查修正（Critical 1/4）：**不加 `paths` 过滤**。因为 `verify-image-pin` 是 main
 #   全局 required check，若只在 image-lock 变更时触发，则改别的文件的人工 PR 永远产生不了该
 #   check → 死锁。故本 workflow 对**所有** PR 运行：
-#     - 未改 image-lock  → 发 verify-image-pin success(no-op)，人工 PR 正常走其它 review 规则。
+#     - 未改 image-lock/kustomization/deployment 受控路径 → 发 verify-image-pin success(no-op)，
+#       人工 PR 正常走其它 review 规则。
+#     - 改了受控路径但 base 侧验签脚本缺失 → fail-closed（Task A4 Blocker 3；不再 no-op）。
 #     - 只改 image-lock  → 严格 shape + cosign + freshness，仅验证变更 entry(base vs head)。
 #     - image-lock + 其它 → shape 检查拒 → 发 failure check。
 
@@ -26,7 +28,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LOCK_PATH: apps/aster-lang/cloud/image-lock.yaml
+  # cloud（静态部署镜像）路径：aster-api/aster-cloud-migrate 的 kustomization-bound pin。
+  CLOUD_LOCK_PATH: apps/aster-lang/cloud/image-lock.yaml
+  CLOUD_KUST_PATH: apps/aster-lang/cloud/kustomization.yaml
+  # runner（env-bound + launcher kustomization-bound 共用同一 image-lock 文件）路径。
+  #   runner image-lock 含两 entry（aster-replay-runner=env / aster-runner-launcher=kustomization）；
+  #   env-bound 的部署真相载体是 runner/deployment.yaml 的 RUNNER_IMAGE_DIGEST env。
+  RUNNER_LOCK_PATH: apps/aster-lang/runner/image-lock.yaml
+  RUNNER_DEPLOY_PATH: apps/aster-lang/runner/deployment.yaml
+  RUNNER_KUST_PATH: apps/aster-lang/runner/kustomization.yaml
 
 jobs:
   verify:
@@ -45,30 +55,58 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr
+          # ★Task A4 Blocker 2 修正：GitHub PR files API 对 renamed 文件只把新路径放进
+          #   `.filename`，旧路径在 `.previous_filename`。若只取 `.filename`，把受控路径（如
+          #   runner/image-lock.yaml）重命名走会让 detection 漏检该 rename-away 动作
+          #   （旧路径消失、新路径非受控 → pin_flavor=none → no-op）。故 changed-files 必须
+          #   同时收纳 `.filename` 与 `.previous_filename`（rename 场景下两者都要能命中受控路径判定，
+          #   使 rename-away 仍进 strict path，由 check-pr-shape 的 whitelist 拒掉多余/异常路径）。
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-            --paginate --jq '.[].filename' > /tmp/pr/changed-files.txt
-          echo "改动文件："; cat /tmp/pr/changed-files.txt
+            --paginate --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr/changed-files.txt
+          echo "改动文件（含 rename 的 previous_filename）："; cat /tmp/pr/changed-files.txt
           # 验签脚本只从**可信 base 侧**运行（不信 PR 改动的验签器代码）。若 base 尚无这些
-          # 脚本（引入本机制的 bootstrap PR 自身），则无法在此 PR 上验签 → no-op（安全：
-          # 此时 ruleset 仍 evaluate，且脚本一旦入 main，后续 image-pin PR 即走严格路径）。
+          # 脚本（引入本机制的 bootstrap PR 自身），则无法在此 PR 上验签。
           if [[ -f scripts/image-pin/verify-image-pin.sh && -f scripts/image-pin/check-pr-shape.sh ]]; then
             scripts_present=true
           else
             scripts_present=false
-            echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）→ 本 PR no-op"
+            echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）"
           fi
-          # ★ Codex 审查 Critical#1：严格路径触发 = image-lock **或** kustomization 任一被改。
-          # 否则"只改 kustomization 不改 image-lock"的 PR 会走 no-op success 绕过 check-pr-shape。
-          touches_pin=false
-          if grep -qxF "$LOCK_PATH" /tmp/pr/changed-files.txt \
-             || grep -qxF "apps/aster-lang/cloud/kustomization.yaml" /tmp/pr/changed-files.txt; then
-            touches_pin=true
+          # ★★detection 泛化（信任洞闭合）：识别 cloud 路径**或** runner 路径。
+          #   任一 image-lock 被改 → strict path。改 kustomization/deployment 而不改对应 image-lock
+          #   的 PR 也进 strict（由 check-pr-shape 拒），防绕过。
+          #   互斥：一个 image-pin PR 只 pin 一个镜像（per-image 分支），不会跨 cloud/runner 同时改。
+          pin_flavor=none
+          if grep -qxF "$CLOUD_LOCK_PATH" /tmp/pr/changed-files.txt \
+             || grep -qxF "$CLOUD_KUST_PATH" /tmp/pr/changed-files.txt; then
+            pin_flavor=cloud
           fi
-          if [[ "$touches_pin" == "true" && "$scripts_present" == "true" ]]; then
+          if grep -qxF "$RUNNER_LOCK_PATH" /tmp/pr/changed-files.txt \
+             || grep -qxF "$RUNNER_DEPLOY_PATH" /tmp/pr/changed-files.txt \
+             || grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
+            if [[ "$pin_flavor" == "cloud" ]]; then
+              # 同一 PR 同时碰 cloud + runner → 非法形状（per-image 分支不应跨目录），fail-closed 进 strict
+              #   由 check-pr-shape 拒。这里标 runner，让 strict path 跑起来拒它。
+              echo "::warning::PR 同时改 cloud 与 runner 路径（非法 image-pin 形状）→ strict path 将拒"
+            fi
+            pin_flavor=runner
+          fi
+          # ★Task A4 Blocker 3 修正：pin 路径被命中（pin_flavor != none）但 base 侧脚本缺失，
+          #   曾经直接 no-op success——对永久安全关键 workflow 这是 fail-open（脚本若因任何原因
+          #   在 main 上缺失/被删，pin PR 即可不经验签合入）。现在改为：脚本缺失且命中 pin 路径
+          #   → 直接失败（非 no-op）；只有真正的非 pin PR（pin_flavor==none）才允许 no-op。
+          #   bootstrap 首次引入机制这一特殊场景需要人工例外（跳过分支保护/手动合并），不再由
+          #   本 workflow 自动放行。
+          if [[ "$pin_flavor" != "none" && "$scripts_present" == "false" ]]; then
+            echo "::error::PR 命中 image-pin 受控路径（pin_flavor=$pin_flavor），但 base 侧验签脚本缺失 → fail-closed（非 no-op）。若为首次引入机制的 bootstrap PR，须走人工例外流程，不由本 workflow 自动放行。"
+            exit 1
+          fi
+          if [[ "$pin_flavor" != "none" ]]; then
             echo "touches_lock=true"  >> "$GITHUB_OUTPUT"
           else
             echo "touches_lock=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "pin_flavor=$pin_flavor" >> "$GITHUB_OUTPUT"
         id: changed
 
       # ── 分流 A：未改 image-lock/kustomization 的 PR → no-op（发 success，不做验签）──
@@ -77,32 +115,78 @@ jobs:
         run: echo "本 PR 未改 image-lock/kustomization → verify-image-pin no-op（人工 PR 走其它 review 规则）"
 
       # ── 分流 B：改了 image-lock → 严格路径 ──
-      - name: Fetch PR-head image-lock as data (不 checkout head 代码)
+      - name: Fetch PR-head 数据 (binding-mode aware，不 checkout head 代码)
         if: steps.changed.outputs.touches_lock == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
         run: |
           set -euo pipefail
-          # 只取 image-lock + kustomization 的 PR-head 版本作为**数据**；不 checkout head、不跑其脚本。
-          gh api "repos/${{ github.repository }}/contents/${LOCK_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
+          # ★按 pin_flavor 选 image-lock 路径（cloud=cloud/image-lock.yaml / runner=runner/image-lock.yaml）。
+          #   路径从可信 base 侧 env 常量取，非 PR 供值。
+          if [[ "$PIN_FLAVOR" == "runner" ]]; then
+            LOCK="$RUNNER_LOCK_PATH"
+          else
+            LOCK="$CLOUD_LOCK_PATH"
+          fi
+          # 取 head image-lock（数据）。
+          gh api "repos/${{ github.repository }}/contents/${LOCK}?ref=${{ github.event.pull_request.head.sha }}" \
             --jq '.content' | base64 -d > /tmp/pr/head-image-lock.yaml
           echo "PR-head image-lock sha256: $(sha256sum /tmp/pr/head-image-lock.yaml | cut -d' ' -f1)"
-          # Phase 3 keystone：取 head kustomization 做 digest 一致性校验（部署真相）。
-          gh api "repos/${{ github.repository }}/contents/apps/aster-lang/cloud/kustomization.yaml?ref=${{ github.event.pull_request.head.sha }}" \
-            --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
-          echo "PR-head kustomization sha256: $(sha256sum /tmp/pr/head-kustomization.yaml | cut -d' ' -f1)"
           # base（可信 checkout 侧）作为 diff 基线；base 无该文件则空。
-          cp "$LOCK_PATH" /tmp/pr/base-image-lock.yaml 2>/dev/null || echo 'images: []' > /tmp/pr/base-image-lock.yaml
-          cp apps/aster-lang/cloud/kustomization.yaml /tmp/pr/base-kustomization.yaml
+          cp "$LOCK" /tmp/pr/base-image-lock.yaml 2>/dev/null || echo 'images: []' > /tmp/pr/base-image-lock.yaml
+          if [[ "$PIN_FLAVOR" == "runner" ]]; then
+            # runner 目录含两类 pin：aster-replay-runner(env-bound→deployment) 与
+            #   aster-runner-launcher(kustomization-bound→runner/kustomization)。按 PR 实际改了哪个
+            #   部署载体文件派生（都从可信 base 侧路径取，非 PR 供值）。一个 image-pin PR 只改其一。
+            if grep -qxF "$RUNNER_DEPLOY_PATH" /tmp/pr/changed-files.txt; then
+              gh api "repos/${{ github.repository }}/contents/${RUNNER_DEPLOY_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
+                --jq '.content' | base64 -d > /tmp/pr/head-deployment.yaml
+              cp "$RUNNER_DEPLOY_PATH" /tmp/pr/base-deployment.yaml
+              echo "runner env-bound：取 deployment 数据"
+            fi
+            if grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
+              gh api "repos/${{ github.repository }}/contents/${RUNNER_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
+                --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
+              cp "$RUNNER_KUST_PATH" /tmp/pr/base-kustomization.yaml
+              echo "runner kustomization-bound(launcher)：取 kustomization 数据"
+            fi
+          else
+            # kustomization-binding（cloud）：取 head cloud/kustomization.yaml（数据）+ base（可信侧）。
+            gh api "repos/${{ github.repository }}/contents/${CLOUD_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
+              --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
+            echo "PR-head kustomization sha256: $(sha256sum /tmp/pr/head-kustomization.yaml | cut -d' ' -f1)"
+            cp "$CLOUD_KUST_PATH" /tmp/pr/base-kustomization.yaml
+          fi
 
-      - name: Check PR shape (blocker2 纵深)
+      - name: Check PR shape (blocker2 纵深，binding-mode aware)
         if: steps.changed.outputs.touches_lock == 'true'
         env:
           IMAGE_PIN_BOT_LOGIN: ${{ vars.IMAGE_PIN_BOT_LOGIN }}
           IMAGE_PIN_BOT_ID: ${{ vars.IMAGE_PIN_BOT_ID }}
+          PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
         run: |
-          bash scripts/image-pin/check-pr-shape.sh \
-            "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
+          set -euo pipefail
+          # ★按 flavor 传 image-lock 与部署真相 env（路径全来自可信 base 侧 env 常量，非 PR 供值）。
+          #   runner 下再按改动集分流：launcher(改 runner/kustomization.yaml) 传 KUSTOMIZATION_PATH；
+          #   env-bound runner(改 runner/deployment.yaml) 传 DEPLOYMENT_PATH；cloud 传 KUSTOMIZATION_PATH（不变）。
+          if [[ "$PIN_FLAVOR" == "runner" ]]; then
+            if grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
+              # launcher（kustomization-bound in runner dir）：whitelist {runner image-lock, runner kustomization}
+              IMAGE_LOCK_PATH="$RUNNER_LOCK_PATH" \
+              KUSTOMIZATION_PATH="$RUNNER_KUST_PATH" \
+                bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
+            else
+              # runner（env-bound）：whitelist {runner image-lock, runner deployment}
+              IMAGE_LOCK_PATH="$RUNNER_LOCK_PATH" \
+              DEPLOYMENT_PATH="$RUNNER_DEPLOY_PATH" \
+                bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
+            fi
+          else
+            IMAGE_LOCK_PATH="$CLOUD_LOCK_PATH" \
+            KUSTOMIZATION_PATH="$CLOUD_KUST_PATH" \
+              bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
+          fi
 
       - name: Install cosign
         if: steps.changed.outputs.touches_lock == 'true'
@@ -122,39 +206,75 @@ jobs:
           sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
 
-      - name: Verify image-lock (only changed entries; cosign + freshness)
+      - name: Verify image-lock (only changed entries; cosign + freshness, binding-mode aware)
         if: steps.changed.outputs.touches_lock == 'true'
         env:
           GH_TOKEN: ${{ github.token }}         # freshness 查源仓 HEAD，只读足够
           IMAGE_PIN_FRESHNESS: latest-only
+          PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
         run: |
-          # 参数 4/5 = head/base kustomization：verify 内做 digest 一致性 + semantic-diff allowlist。
-          bash scripts/image-pin/verify-image-pin.sh \
-            .github/image-pin/allowed-images.yaml \
-            /tmp/pr/base-image-lock.yaml \
-            /tmp/pr/head-image-lock.yaml \
-            /tmp/pr/head-kustomization.yaml \
-            /tmp/pr/base-kustomization.yaml
+          set -euo pipefail
+          # ★runner：按上一步实际取到的数据文件传参——env-bound(aster-replay-runner) 传 head/base
+          #   deployment(参数 6/7)，launcher(kustomization-bound) 传 head/base kustomization(参数 4/5)。
+          #   一个 image-pin PR 只改其一，故两组参数中总有一组为空字符串（verify-image-pin.sh 视为未提供）。
+          #   cloud：传 head/base kustomization（参数 4/5，deployment 参数不传），行为不变。
+          if [[ "$PIN_FLAVOR" == "runner" ]]; then
+            HEAD_KUST_ARG=""; BASE_KUST_ARG=""; HEAD_DEP_ARG=""; BASE_DEP_ARG=""
+            [[ -f /tmp/pr/head-kustomization.yaml ]] && { HEAD_KUST_ARG=/tmp/pr/head-kustomization.yaml; BASE_KUST_ARG=/tmp/pr/base-kustomization.yaml; }
+            [[ -f /tmp/pr/head-deployment.yaml ]]    && { HEAD_DEP_ARG=/tmp/pr/head-deployment.yaml;    BASE_DEP_ARG=/tmp/pr/base-deployment.yaml; }
+            bash scripts/image-pin/verify-image-pin.sh \
+              .github/image-pin/allowed-images.yaml \
+              /tmp/pr/base-image-lock.yaml \
+              /tmp/pr/head-image-lock.yaml \
+              "$HEAD_KUST_ARG" "$BASE_KUST_ARG" \
+              "$HEAD_DEP_ARG" "$BASE_DEP_ARG"
+          else
+            bash scripts/image-pin/verify-image-pin.sh \
+              .github/image-pin/allowed-images.yaml \
+              /tmp/pr/base-image-lock.yaml \
+              /tmp/pr/head-image-lock.yaml \
+              /tmp/pr/head-kustomization.yaml \
+              /tmp/pr/base-kustomization.yaml
+          fi
 
       # ── Phase 3 keystone 渲染层校验：kubectl kustomize 出的每个变更镜像必须是 @sha256 ──
       # 用 base(可信) checkout 的其它 manifest + head 的 kustomization/image-lock（数据）。
       # 只校验渲染结果含 by-digest（image-lock 的 digest 已在上一步验签）。
-      - name: Verify kustomize renders by-digest
+      - name: Verify kustomize renders by-digest (binding-mode aware)
         if: steps.changed.outputs.touches_lock == 'true'
+        env:
+          PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
         run: |
           set -euo pipefail
-          # 把 head 的 kustomization + image-lock 覆盖到 base 树的对应位置（仅这两个数据文件），
-          # 其余 manifest 用可信 base 版本；不引入 head 的任何可执行/patch 变更。
-          cp /tmp/pr/head-kustomization.yaml apps/aster-lang/cloud/kustomization.yaml
-          cp /tmp/pr/head-image-lock.yaml    apps/aster-lang/cloud/image-lock.yaml
-          rendered="$(kubectl kustomize apps/aster-lang/cloud)"
-          # image-lock 转 JSON（数值标量转字符串防精度损坏），逐镜像取 image+digest。
+          # render 校验只对 kustomization-bound 镜像有意义（渲染出 name@sha256）。选目标树：
+          #   cloud PR → 渲 cloud 树；runner 里的 launcher(kustomization-bound) PR → 渲 runner 树；
+          #   runner env-bound PR（只改 deployment，无 head-kustomization）→ 跳过 render（env 无静态渲染，
+          #   其部署真相已由 verify 的 env value + deployment semantic-diff 保证）。
+          if [[ "$PIN_FLAVOR" == "runner" ]]; then
+            if [[ ! -f /tmp/pr/head-kustomization.yaml ]]; then
+              echo ">> runner env-bound PR（无 kustomization 变更）→ 跳过 render（env-bound 无静态渲染）"
+              exit 0
+            fi
+            TREE=apps/aster-lang/runner
+            cp /tmp/pr/head-kustomization.yaml apps/aster-lang/runner/kustomization.yaml
+            cp /tmp/pr/head-image-lock.yaml    apps/aster-lang/runner/image-lock.yaml
+          else
+            TREE=apps/aster-lang/cloud
+            cp /tmp/pr/head-kustomization.yaml apps/aster-lang/cloud/kustomization.yaml
+            cp /tmp/pr/head-image-lock.yaml    apps/aster-lang/cloud/image-lock.yaml
+          fi
+          rendered="$(kubectl kustomize "$TREE")"
+          # 只对**在 kustomization.images 里的镜像**做 render 校验（env-bound 的 runner 镜像不在其中，跳过）。
+          #   image-lock 转 JSON（数值标量转字符串防精度损坏）。
           lock_json="$(yq -o=json '(.. | select(tag=="!!int" or tag=="!!float"))|=tostring' /tmp/pr/head-image-lock.yaml)"
+          kust_json="$(yq -o=json '.' /tmp/pr/head-kustomization.yaml)"
           n="$(jq '.images | length' <<<"$lock_json")"
           for k in $(seq 0 $((n - 1))); do
             img="$(jq -r ".images[$k].image"  <<<"$lock_json")"
             dig="$(jq -r ".images[$k].digest" <<<"$lock_json")"
-            # 每个镜像的渲染 image 必须是 name@sha256:<image-lock digest>。
+            # 该镜像若不在 kustomization.images（env-bound，如 aster-replay-runner）→ 不参与静态渲染，跳过。
+            in_kust="$(jq -r --arg img "$img" '[.images[]? | select(.name == $img)] | length' <<<"$kust_json")"
+            [[ "$in_kust" == "1" ]] || { echo ">> ${img} 非 kustomization-bound（不进静态渲染），跳过 render 校验"; continue; }
             grep -qF "${img}@${dig}" <<<"$rendered" \
               || { echo "::error::kustomize 渲染未见 ${img}@${dig}（部署未 by-digest 该镜像）"; exit 1; }
             echo ">> 渲染校验 OK：${img}@${dig}"
