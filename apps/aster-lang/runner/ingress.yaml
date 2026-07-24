@@ -1,0 +1,44 @@
+# runner-launcher Ingress —— cloud/BFF 经 Cloudflare Tunnel → Traefik → launcher Service。
+#
+# 拓扑（两跳，与 lsp/policy 等 aster-lang.dev 服务一致）：
+#   cloud/BFF（集群外）→ Cloudflare Tunnel（dashboard 配 host runner-launcher.aster-lang.dev →
+#     https://traefik.kube-system.svc.cluster.local）→ 本 Ingress（host 路由）→ Service runner-launcher:80
+#     → launcher Pod :8080（POST /api/v1/runner/launch，HMAC 认证）。
+# ★cloud 侧 ASTER_RUNNER_LAUNCHER_URL=https://runner-launcher.aster-lang.dev（client 追加
+#   /api/v1/runner/launch，见 aster-cloud runner-launcher-client.ts:30/68）。
+# ★TLS：*.aster-lang.dev 通配证书由 cert-manager 签、Reflector 复制到 aster-runner ns
+#   （wildcard-certificates.yaml 的 reflection-allowed-namespaces 已加 aster-runner）→ secret aster-lang-dev-tls。
+# ★launcher 是 HMAC 认证的内部 API（非 WebSocket），故不需 lsp 的 sticky-cookie/WebSocket 注解。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+  labels:
+    app.kubernetes.io/name: runner-launcher
+    app.kubernetes.io/component: launcher
+    app.kubernetes.io/part-of: aster-lang
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: runner-launcher.aster-lang.dev
+      http:
+        paths:
+          # ★最小暴露（Codex 审）：只公网暴露 launcher 的**唯一业务端点** /api/v1/runner/launch（Exact）。
+          #   /healthz 不公网暴露（k8s 探针在 Pod 内访问，无需经 Ingress）；launcher 未来新增端点不自动
+          #   暴露公网（违最小暴露原则）。cloud/BFF 只调 /api/v1/runner/launch（runner-launcher-client.ts:30）。
+          - path: /api/v1/runner/launch
+            pathType: Exact
+            backend:
+              service:
+                name: runner-launcher
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - runner-launcher.aster-lang.dev
+      # *.aster-lang.dev 通配证书（Reflector 复制到 aster-runner ns）。
+      secretName: aster-lang-dev-tls

@@ -22,6 +22,7 @@ resources:
   - service.yaml
   - deployment.yaml
   - external-secrets.yaml
+  - ingress.yaml
 # ★launcher 镜像 digest（部署真相）：image-pin 脚本改写此段的 digest，k3s verify 校验 == image-lock。
 #   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）——故 deployment.yaml 暂不部署
 #   期间**保留**本 images 条（脚本按 .images[].name 计数，不依赖 deployment 在 resources 里；kustomize
