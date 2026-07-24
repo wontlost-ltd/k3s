@@ -13,6 +13,12 @@ spec:
         elements:
           - name: cert-manager
             namespace: cert-manager
+          # ★reflector：EmberStack Reflector 把 cert-manager 签的通配 TLS secret 复制到各业务 ns
+          #   （aster-cloud/aster-lsp/aster-runner…）。此前 apps/infrastructure/reflector/ 存在但**从未**
+          #   被本 ApplicationSet 枚举 → reflector 从未部署 → 通配 secret 从不复制到任何 ns。补上。
+          #   结构与 cert-manager 一致（kustomization→嵌套 application.yaml→Helm chart，dest ns=reflector）。
+          - name: reflector
+            namespace: reflector
   template:
     metadata:
       name: 'tls-{{ .name }}'
