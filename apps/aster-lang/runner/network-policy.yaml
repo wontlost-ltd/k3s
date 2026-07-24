@@ -5,7 +5,10 @@
 #   resources 引入并解注释）。若集群已用支持 NetworkPolicy 的 CNI（如 Calico），可直接启用。
 #
 # 期望语义（启用后）：
-#   - ingress：只允许来自 cloudflare namespace 的 cloudflared Pod 访问 8080（tunnel 是唯一入口）。
+#   - ingress：★入口实际是**两跳**——Cloudflare Tunnel → Traefik（kube-system）→ launcher。launcher
+#     看到的源是 **kube-system 的 Traefik**（非 cloudflared）。故启用时须允许来自 kube-system Traefik Pod
+#     访问 8080（若按旧「只允许 cloudflared」写，两跳下 Traefik 被拒→502）。tunnel 仍是唯一外部入口，
+#     但 NP 层的直接来源是 Traefik。（承 runner/ingress.yaml 的 host→traefik→service 拓扑。）
 #   - egress：允许 DNS（53）+ kube-apiserver（建 Job/读 log）；其余默认拒绝。
 #
 # apiVersion: networking.k8s.io/v1

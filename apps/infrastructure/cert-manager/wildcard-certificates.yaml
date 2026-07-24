@@ -47,7 +47,8 @@ spec:
   secretTemplate:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "aster-cloud,aster-lsp"
+      # aster-runner：launcher Ingress（runner-launcher.aster-lang.dev）需 *.aster-lang.dev TLS cert。
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "aster-cloud,aster-lsp,aster-runner"
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
 
 ---
