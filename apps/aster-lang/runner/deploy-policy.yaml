@@ -23,8 +23,4 @@
 #    verify-image-pin.sh 的 kust_digest==image-lock digest 一致性校验，且其目的即让 launcher 真渲染。）
 
 version: 1
-deferredImages:
-  # launcher：镜像已 pin（image-lock 有 entry），但其 Deployment 显式 deferred 出 kustomization
-  #   resources（go-live 门）。故不出现在 render 输出，render-guard 对其跳过 render 校验。
-  - image: docker.io/wontlost/aster-runner-launcher
-    reason: "Deployment deferred out of kustomization resources（go-live 门：等真部署 + Vault secret + tunnel 路由）"
+deferredImages: []
