@@ -1,0 +1,127 @@
+# verify-rendered-by-digest-runner —— runner 受控镜像持续 render-by-digest 守卫
+#
+# ★Codex 记的长期缺口：verify-rendered-by-digest.yml 只覆盖 cloud/**，不覆盖 runner/**。故未来任何
+#   人工 PR 改 apps/aster-lang/runner/** 的 deployment/kustomization/image graph 时，若 verify-image-pin
+#   走 no-op（如非 pin/非 topology 形状），受控镜像的 by-digest 强制只依赖 topology lane 一次性校验器的
+#   历史结果——没有**持续**守卫。本 guard 对**所有**改 runner/** 的 PR 跑，持续断言受控镜像 by-digest，
+#   防人工把 launcher 回浮动 tag / 删 images transformer / 改 RUNNER_IMAGE_DIGEST env 回 tag 等静默回落。
+#
+# ★与 cloud guard 同思路：渲染 PR-head 树自身即可（不依赖 PR 内容信任——渲染出浮动 tag 即失败）。
+#   runner 有两种 binding：
+#     - launcher（kustomization-bound）：渲染出 image: <launcher>@sha256:...，断言 @sha256 + 无浮动 tag。
+#     - runner（env-bound aster-replay-runner）：不渲染成容器 image，而是 deployment 的
+#       RUNNER_IMAGE_DIGEST env value（launcher 运行时用它构 runner 引用）；断言该 env value 是 sha256: 形状。
+#   ★launcher 若在 deploy-policy.yaml deferredImages 显式列出（Deployment deferred 出 kustomization，
+#     go-live 门未开）→ 不渲染，跳过其 render 断言（与 verify-image-pin render-guard 一致）。
+
+name: verify-rendered-by-digest-runner
+
+on:
+  pull_request:
+    paths:
+      - apps/aster-lang/runner/**
+
+permissions:
+  contents: read
+
+jobs:
+  render-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq (pinned + checksum)
+        run: |
+          set -euo pipefail
+          YQ_VER=v4.44.3
+          YQ_SHA=a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
+          curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VER}/yq_linux_amd64"
+          echo "${YQ_SHA}  /tmp/yq" | sha256sum -c - || { echo "::error::yq checksum 校验失败"; exit 1; }
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
+          yq --version
+
+      - name: Assert runner controlled images render/pin by-digest
+        run: |
+          set -euo pipefail
+          DIR=apps/aster-lang/runner
+          LAUNCHER=docker.io/wontlost/aster-runner-launcher
+          DEPLOY_NAME=runner-launcher
+          RUNNER_NS=aster-runner
+          fail=0
+
+          # ★Codex 复审：断言必须**对象绑定**（非全局存在性 grep——防「真实 launcher 容器用浮动镜像 +
+          #   放一个 decoy launcher@sha256 满足 grep」）。渲染后精确定位 Deployment/runner-launcher →
+          #   其容器 → image；且 deferred 分支须**自洽闭环**（渲染断言目标 Deployment 确实不存在，非仅跳过）。
+          rendered="$(kubectl kustomize "$DIR")"
+          # 提取目标 launcher Deployment（apps/v1, ns aster-runner, name runner-launcher）。
+          # ★yq 对多文档流按**每文档**求值，故 '[select]|length' 会每文档输出一行——不能当总数。
+          #   正解：select 命中的文档各输出一行标识，再数行（NUL-safe：文档 metadata.name 受控无换行）。
+          dep_sel="select(.apiVersion == \"apps/v1\" and .kind == \"Deployment\" and .metadata.namespace == \"$RUNNER_NS\" and .metadata.name == \"$DEPLOY_NAME\")"
+          dep_count="$(echo "$rendered" | yq -N "${dep_sel} | .kind" 2>/dev/null | grep -c '^Deployment$' || true)"
+
+          deferred="$(yq "[.deferredImages[]? | select(.image == \"$LAUNCHER\")] | length" "$DIR/deploy-policy.yaml" 2>/dev/null || echo 0)"
+          if [[ "$deferred" != "0" ]]; then
+            # deferred：launcher 声明未部署 → 渲染中**任何对象的任何容器**都不得引用 launcher 镜像
+            #   （★Codex 复审：只查「固定四元组 Deployment 缺席」不够——攻击者可 deferred + Deployment 改名/
+            #   改 ns/改 kind 使四元组 dep_count=0 却仍带浮动 launcher 镜像部署。故 deferred 须证明 launcher
+            #   镜像**根本不在任何渲染 PodSpec**，才是「未部署」的自洽证明）。收集渲染全镜像，任一引用
+            #   launcher name（@digest 或 :tag 均算）→ 矛盾态 fail。
+            # ★镜像名等价写法归一（kustomize 不归一 registry 前缀，Codex 抓）：Docker Hub 同镜像可写
+            #   docker.io/wontlost/X、index.docker.io/wontlost/X、bare wontlost/X。全算引用 launcher。
+            launcher_refs="$(echo "$rendered" | yq -N '.. | select(has("image")) | .image' 2>/dev/null \
+              | grep -cE "^((index\.)?docker\.io/)?wontlost/aster-runner-launcher(@|:)" || true)"
+            if [[ "$launcher_refs" == "0" ]]; then
+              echo ">> launcher deferred 且渲染中无任何容器引用 launcher 镜像（不部署=豁免自洽）→ 跳过 launcher render 断言"
+            else
+              echo "::error::launcher 标 deferred 但渲染中仍有 ${launcher_refs} 个容器引用 launcher 镜像（矛盾态：deferred 应=不部署，含改名/改 ns/改 kind 仍带镜像）→ fail-closed"
+              fail=1
+            fi
+          else
+            # 非 deferred：launcher 必须部署且 by-digest。
+            if [[ "$dep_count" != "1" ]]; then
+              echo "::error::渲染中 launcher Deployment/${DEPLOY_NAME} 数=${dep_count}（须恰 1；未部署却未标 deferred / 重复对象？）→ fail-closed"
+              fail=1
+            else
+              dep="$(echo "$rendered" | yq -N -o=json "${dep_sel}")"
+              # 目标容器：按名 runner-launcher 精确选（非 index，防 sidecar 重排绕过），须恰 1 个。
+              c_count="$(jq "[.spec.template.spec.containers[] | select(.name == \"$DEPLOY_NAME\")] | length" <<<"$dep")"
+              if [[ "$c_count" != "1" ]]; then
+                echo "::error::Deployment/${DEPLOY_NAME} 中名为 ${DEPLOY_NAME} 的容器数=${c_count}（须恰 1）→ fail-closed"
+                fail=1
+              else
+                img="$(jq -r ".spec.template.spec.containers[] | select(.name == \"$DEPLOY_NAME\") | .image" <<<"$dep")"
+                if [[ "$img" =~ ^${LAUNCHER}@sha256:[0-9a-f]{64}$ ]]; then
+                  echo ">> OK: launcher 容器 image=${img}（by-digest）"
+                else
+                  echo "::error::launcher 容器 image=${img}（非 ${LAUNCHER}@sha256:64hex——浮动 tag / 改 name / transformer 失效）→ fail-closed"
+                  fail=1
+                fi
+              fi
+            fi
+          fi
+
+          # ── runner（env-bound aster-replay-runner）：RUNNER_IMAGE_DIGEST env value 必须是 sha256: 形状 ──
+          # env-bound 不进 render 容器 image（是 launcher 运行时构 runner 引用的部署真相）。从 deployment.yaml
+          # 按**容器名**（非 index，防 sidecar 重排）选 runner-launcher 容器，其 RUNNER_IMAGE_DIGEST env 唯一
+          # 且 sha256 形状。digest **值**是否受信任是 verify-image-pin env-binding 一致性的职责；本 guard 只防形状回落。
+          dep_file="$DIR/deployment.yaml"
+          rc="$(yq "[.spec.template.spec.containers[] | select(.name == \"$DEPLOY_NAME\")] | length" "$dep_file")"
+          if [[ "$rc" != "1" ]]; then
+            echo "::error::deployment.yaml 名为 ${DEPLOY_NAME} 的容器数=${rc}（须恰 1）→ fail-closed"
+            fail=1
+          else
+            rid_count="$(yq "[.spec.template.spec.containers[] | select(.name == \"$DEPLOY_NAME\") | .env[] | select(.name == \"RUNNER_IMAGE_DIGEST\")] | length" "$dep_file")"
+            rid="$(yq ".spec.template.spec.containers[] | select(.name == \"$DEPLOY_NAME\") | .env[] | select(.name == \"RUNNER_IMAGE_DIGEST\") | .value" "$dep_file" 2>/dev/null || true)"
+            if [[ "$rid_count" != "1" ]]; then
+              echo "::error::runner-launcher 容器 RUNNER_IMAGE_DIGEST env 数=${rid_count}（须恰 1；缺失/重复）→ fail-closed"
+              fail=1
+            elif [[ "$rid" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo ">> OK: RUNNER_IMAGE_DIGEST env = sha256:...（env-bound by-digest）"
+            else
+              echo "::error::RUNNER_IMAGE_DIGEST env value 非 sha256:64hex（回浮动 tag/畸形？）：${rid}"
+              fail=1
+            fi
+          fi
+
+          [ "$fail" -eq 0 ] || { echo "::error::runner render guard 失败 → 受控镜像未全部 by-digest"; exit 1; }
+          echo "✅ runner 受控镜像 render/pin by-digest（launcher 容器 @sha256 + RUNNER_IMAGE_DIGEST env sha256）"

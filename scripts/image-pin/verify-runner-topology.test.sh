@@ -23,11 +23,20 @@ for c in yq jq kubectl python3; do command -v "$c" >/dev/null || { echo "::error
 LAUNCHER="docker.io/wontlost/aster-runner-launcher"
 
 # 构造合法 go-live {base, head} 夹具（fixture 构造失败即硬中止，防假绿）。
+# ★base 恒规范化为**pre-go-live 态**（不论仓库当前 tree 是 pre 还是 post go-live——#111 合入后当前 tree
+#   已 go-live'd，故须先把 base 逆变换回 pre-go-live，再对 head 施加 go-live 迁移；否则 base 已 go-live 会
+#   造 head 重复加 resources/无 deferral 可删）。pre-go-live = deployment/external-secrets 不在 resources +
+#   replicas 0 + launcher 在 deferredImages。
 mk_golive() {
   local root; root="$(mktemp -d)" || { echo "FATAL: mktemp 失败"; exit 2; }
   mkdir -p "$root/base" "$root/head" || { echo "FATAL: mkdir 失败"; exit 2; }
   cp "$RUNNER_SRC"/*.yaml "$root/base/" || { echo "FATAL: cp base 失败"; exit 2; }
+  # base 逆变换→pre-go-live（幂等：条已不在则 no-op；replicas 已 0/deferral 已有则不变）。
+  yq -i 'del(.resources[] | select(. == "deployment.yaml" or . == "external-secrets.yaml"))' "$root/base/kustomization.yaml" || { echo "FATAL: base 逆变换 resources 失败"; exit 2; }
+  yq -i '.spec.replicas = 0' "$root/base/deployment.yaml" || { echo "FATAL: base 逆变换 replicas 失败"; exit 2; }
+  yq -i "(.deferredImages // []) |= (map(select(.image != \"$LAUNCHER\")) + [{\"image\": \"$LAUNCHER\", \"reason\": \"pre-go-live fixture\"}])" "$root/base/deploy-policy.yaml" || { echo "FATAL: base 逆变换 deferral 失败"; exit 2; }
   cp "$root/base/"*.yaml "$root/head/" || { echo "FATAL: cp head 失败"; exit 2; }
+  # head 施加三项授权 go-live 迁移。
   yq -i '.resources += ["deployment.yaml", "external-secrets.yaml"]' "$root/head/kustomization.yaml" || { echo "FATAL: yq resources 失败"; exit 2; }
   yq -i '.spec.replicas = 1' "$root/head/deployment.yaml" || { echo "FATAL: yq replicas 失败"; exit 2; }
   yq -i ".deferredImages = [.deferredImages[] | select(.image != \"$LAUNCHER\")]" "$root/head/deploy-policy.yaml" || { echo "FATAL: yq deploy-policy 失败"; exit 2; }
