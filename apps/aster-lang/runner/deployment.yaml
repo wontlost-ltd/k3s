@@ -13,13 +13,10 @@ metadata:
     app.kubernetes.io/component: launcher
     app.kubernetes.io/part-of: aster-lang
 spec:
-  # ★replicas: 0 = 部署门（Codex 审）：合入本 slice 时 launcher 镜像尚未 build（Unit 6 workflow
-  #   未跑，image-lock/RUNNER_IMAGE_DIGEST 均占位全零）+ Vault HMAC secret 尚未 provision。
-  #   若 replicas:1，ArgoCD 会真拉全零 digest 镜像 → ImagePullBackOff / CreateContainerConfigError
-  #   （+ ExternalSecret 未就绪 → 挂载失败）。故先 0：ArgoCD 建 Deployment（GitOps 纳管）但不调度 Pod。
-  #   解门条件（后续 PR 翻 1）：(a) launcher 首个 CI PR 写入真 digest；(b) Vault 建
-  #   aster-runner-launcher-hmac secret；(c) admission smoke-test 过。
-  replicas: 0
+  # ★replicas: 1（go-live 已解门）：前置全就绪——launcher 真签 digest 已 pin（kustomize images
+  #   transformer 覆写占位）+ Vault aster-runner-launcher-hmac secret 已 provision（ExternalSecret 拉取）+
+  #   admission 有 cosign 签名过。launcher 微服务正式调度运行。go-live 迁移由 runner-topology lane 校验。
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: runner-launcher
