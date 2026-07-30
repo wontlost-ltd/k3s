@@ -12,27 +12,8 @@ metadata:
     # 只拦贴此标签的 namespace）。★贴此标签前必须先在临时 namespace 跑完六态
     # admission smoke-test（见本计划 Task 5 手动步骤）；标签丢失=admission 静默关闭。
     #
-    # ★★2026-07-30 **临时**摘除（org 迁移窗口）——迁移完成后必须立即恢复，见下。
-    #
-    # 背景：aster-api/aster-cloud 已从 aster-cloud org 迁到 wontlost-ltd。cosign 签名
-    # **不可变**，转仓不会重签历史镜像，故现有镜像证书里的 subject 永久是旧 org。
-    # 而 CIP 必须切到新 org 才能验证**今后**由新 org workflow 签发的镜像
-    # （verify-image-pin.sh:278 的 cert_identity 由 allowed-images.yaml 的 sourceRepo 派生）。
-    # 两者之间存在一个不可避免的窗口：CIP 已要求新身份、而运行中的 pod 仍是旧签名镜像。
-    #
-    # 为什么不用"CIP 同时接受新旧两个身份"过渡：那正是本设计明确禁止的——
-    # verify-cip-sync.sh:95 断言 `keyless.identities 恰 1 项(防 OR 扩权)`，
-    # 设计文档 §5 亦写明"禁止额外 identity 经 OR 扩权"。绕过它就是绕过安全控制。
-    #
-    # 故改为：**临时摘 opt-in 标签**（runbook 列为唯一可靠的 break-glass，秒级可逆）
-    # → 切 CIP/信任根到新 org → 触发两仓 main 重建（新签名 + image-pin PR 自动更新
-    # image-lock）→ 确认新 digest 已上线 → **恢复本标签**。
-    # 取舍：窗口内本 ns 暂无准入保护（可控、短暂、有明确恢复条件），换取零生产中断；
-    # 反之若保留标签，pod 一旦重启就会被拒 → 服务中断。
-    #
-    # ☐ 恢复条件（全满足才可取消注释）：
-    #   1. allowed-images.yaml 的 sourceRepo 已切 wontlost-ltd；
-    #   2. 4 个 CIP 的 subject 已切 wontlost-ltd；
-    #   3. image-lock 里 aster-runner-launcher / aster-replay-runner 的 digest 已由
-    #      新 org workflow 重新签发并 pin（用新身份 cosign verify 通过）。
-    # policy.sigstore.dev/include: "true"
+    # ★2026-07-30 org 迁移已完成，标签已恢复（迁移期曾临时摘除，见 k3s#189/#190/本 PR）。
+    #   迁移背景：aster-api/aster-cloud 从 aster-cloud org 迁到 wontlost-ltd。cosign 签名
+    #   不可变，转仓不重签历史镜像，故必须「关准入 → 切身份 → 重建重签 → 复开准入」四步走。
+    #   恢复前已实测 4 个镜像用**新** org 身份验签全部通过（见 PR 描述）。
+    policy.sigstore.dev/include: "true"
