@@ -19,6 +19,19 @@ echo "  PostgreSQL Hyperdrive Setup (Wrangler)"
 echo "=========================================="
 echo ""
 
+# 允许未设：由下面的守卫给出可操作的报错，而不是 set -u 的 unbound variable
+PG_PASSWORD="${PG_PASSWORD:-}"
+
+# ★PG_PASSWORD 必须由环境提供（此前硬编码在本文件，随 public 仓泄露）。
+#   空值会拼出一个无密码的连接串并静默失败，故先 fail-loud。
+#   取值来源：Vault data-services/aster-api-db（与 ExternalSecret 同源）。
+if [[ -z "$PG_PASSWORD" ]]; then
+    log_warn "PG_PASSWORD environment variable is not set"
+    log_info "Get it from Vault: vault kv get -field=password data-services/aster-api-db"
+    log_info "Then: export PG_PASSWORD=<value>"
+    exit 1
+fi
+
 # Check if wrangler is installed
 if ! command -v wrangler &> /dev/null; then
     log_warn "wrangler CLI not found. Installing..."
@@ -41,7 +54,6 @@ PG_HOST="postgres-tunnel-svc.data-services.svc.cluster.local"
 PG_PORT="5432"
 PG_DATABASE="aster_api"
 PG_USER="aster_api_user"
-PG_PASSWORD="2sJI9ZLdiIDJg1I7xpREWdx9MEShCVVZ"
 
 # Build connection string
 CONNECTION_STRING="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}?sslmode=disable"
