@@ -52,6 +52,33 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
 
+      # ★接通 verify-cip-sync.sh（2026-07-30 审计）：该脚本此前**存在但零 workflow 调用**，
+      #   而设计文档（docs/p0a-s2-0-cosign-admission-design.md §7）与 policy-controller/
+      #   application.yaml、各 CIP 文件的注释都声称"CIP 由 verify-cip-sync.sh 守漂移"——
+      #   守门脚本没接线 = 那些声称全是空头承诺，四 CIP 契约（数量/glob/mode/身份/字段收紧）
+      #   可以静默漂移而无人发现。
+      #
+      #   为何**不**做 lane 门控、每个 PR 都跑：CIP 与信任根 allowed-images.yaml 的一致性
+      #   与 image-pin lane 无关——任意 PR（含 lane=none）都可能改 CIP 或白名单。且本步只读
+      #   base（可信侧）已 checkout 的文件、纯本地 yq 解析、无网络无凭据，耗时亚秒级，
+      #   没有只在特定 lane 跑的理由。
+      #
+      #   刻意置于 lane 断言体系**之外**：它不是任何 lane 的处置步，故不参与"恰一 lane"
+      #   sentinel 判定；失败时直接让 job fail（fail-closed），不影响既有 lane 语义。
+      - name: Verify CIP ↔ trust-root contract (no drift)
+        run: |
+          set -euo pipefail
+          # yq 与本 workflow 其它步骤同版本同校验和（供应链固定，失败即中止）。
+          if ! command -v yq >/dev/null; then
+            YQ_VER=v4.44.3
+            YQ_SHA=a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
+            curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VER}/yq_linux_amd64"
+            echo "${YQ_SHA}  /tmp/yq" | sha256sum -c - || { echo "::error::yq checksum 校验失败"; exit 1; }
+            sudo install -m 0755 /tmp/yq /usr/local/bin/yq
+          fi
+          yq --version
+          bash scripts/image-pin/verify-cip-sync.sh
+
       - name: Compute changed files
         env:
           GH_TOKEN: ${{ github.token }}
