@@ -8,11 +8,7 @@ spec:
   sourceRepos:
     # Only allow specific repositories (no wildcards for security)
     - 'https://github.com/wontlost-ltd/k3s.git'
-    # 2026-07-30 转仓：aster-api 从 aster-cloud org 迁到 wontlost-ltd。本白名单**不允许
-    # 通配**，故 org 变更必须在此同步，否则一旦有 Application 以该仓为 source，ArgoCD
-    # 会直接拒绝 sync。当前无 Application 用它作 source（仅 k3s 是真实 source），
-    # 属预留项——但留着错误的 org 就是个定时炸弹。
-    - 'https://github.com/wontlost-ltd/aster-api.git'
+    - 'https://github.com/aster-cloud/aster-api.git'
   destinations:
     # Explicit namespace list (no wildcards for security)
     - namespace: aster-cloud

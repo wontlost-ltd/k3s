@@ -18,7 +18,7 @@ oidcIssuer: https://token.actions.githubusercontent.com
 images:
   # ── aster-api 主镜像 ──────────────────────────────────────────────
   - image: docker.io/wontlost/aster-api
-    sourceRepo: wontlost-ltd/aster-api         # 唯一合法源仓（org=wontlost-ltd，2026-07-30 转仓）
+    sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud，非 wontlost-ltd）
     workflowFile: deploy.yml                  # 唯一合法签发 workflow
     sourceRef: refs/heads/main                # 唯一合法 ref（只信 main 构建）
     deployBinding: kustomization      # 静态部署镜像：pin 落 cloud/kustomization images transformer
@@ -28,7 +28,7 @@ images:
 
   # ── aster-cloud-migrate 迁移镜像 ──────────────────────────────────
   - image: docker.io/wontlost/aster-cloud-migrate
-    sourceRepo: wontlost-ltd/aster-cloud       # 不同源仓 / 不同身份（Q2：分别验签）
+    sourceRepo: aster-cloud/aster-cloud       # 不同源仓 / 不同身份（Q2：分别验签）
     workflowFile: ci.yml
     sourceRef: refs/heads/main
     deployBinding: kustomization      # 静态部署镜像：pin 落 cloud/kustomization images transformer
@@ -38,7 +38,7 @@ images:
   # 但独立 workflow（aster-replay-runner-deploy.yml）签发。verify-cip-sync 的
   # 2N 契约要求本条与两 runner CIP 同在（3 仓 → 6 CIP）。
   - image: docker.io/wontlost/aster-replay-runner
-    sourceRepo: wontlost-ltd/aster-api         # 唯一合法源仓（org=wontlost-ltd，2026-07-30 转仓）
+    sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
     workflowFile: aster-replay-runner-deploy.yml
     sourceRef: refs/heads/main
     deployBinding: env                # ★env-bound：runner 由 launcher 运行时经 Deployment env RUNNER_IMAGE_DIGEST 注入，pin 落该 env value（非 kustomization）
@@ -48,7 +48,7 @@ images:
   # （aster-runner-launcher-deploy.yml）签发。★verify-cip-sync 的 2N 契约因本条从
   # 3 仓/6 CIP 升为 4 仓/8 CIP——须与两 launcher CIP 原子同落。
   - image: docker.io/wontlost/aster-runner-launcher
-    sourceRepo: wontlost-ltd/aster-api         # 唯一合法源仓（org=wontlost-ltd，2026-07-30 转仓）
+    sourceRepo: aster-cloud/aster-api         # 唯一合法源仓（org=aster-cloud）
     workflowFile: aster-runner-launcher-deploy.yml
     sourceRef: refs/heads/main
     deployBinding: kustomization      # 静态部署镜像：launcher 在 runner/kustomization images transformer
