@@ -11,4 +11,9 @@ metadata:
     # sigstore policy-controller admission opt-in 主闸（POLICY_CONTROLLER_RUNBOOK：
     # 只拦贴此标签的 namespace）。★贴此标签前必须先在临时 namespace 跑完六态
     # admission smoke-test（见本计划 Task 5 手动步骤）；标签丢失=admission 静默关闭。
+    #
+    # ★2026-07-30 org 迁移已完成，标签已恢复（迁移期曾临时摘除，见 k3s#189/#190/本 PR）。
+    #   迁移背景：aster-api/aster-cloud 从 aster-cloud org 迁到 wontlost-ltd。cosign 签名
+    #   不可变，转仓不重签历史镜像，故必须「关准入 → 切身份 → 重建重签 → 复开准入」四步走。
+    #   恢复前已实测 4 个镜像用**新** org 身份验签全部通过（见 PR 描述）。
     policy.sigstore.dev/include: "true"
