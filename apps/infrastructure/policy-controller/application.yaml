@@ -27,12 +27,27 @@ spec:
       helm:
         releaseName: policy-controller
         valuesObject:
-          # webhook 故障态放行（首版；达门槛后切 Fail，见 runbook）
-          webhookConfig:
+          # ★★键路径修正（2026-07-30 本地 kind 六态 smoke-test 实测发现）：
+          #   原写法 `webhookConfig.failurePolicy` 与 `configData.no-match-policy`
+          #   **都不是 chart 0.10.6 的合法键**——chart 顶层只有 cosign/installCRDs/
+          #   imagePullSecrets/loglevel/webhook/leasescleanup/commonNodeSelector/
+          #   commonTolerations/commonAnnotations/serviceMonitor，两者的真实路径都在
+          #   `webhook.` 之下。Helm 对未知顶层键**静默接受不报错**，故这两项此前
+          #   完全没生效，实际落地的是 chart 默认值：
+          #     - failurePolicy 默认 = **Fail**（而非注释声称的 Ignore）
+          #     - config-policy-controller ConfigMap 只有 `_example`，
+          #       **没有 no-match-policy**（默认语义 = deny 不匹配的镜像）
+          #   实测后果：贴了 opt-in 标签的 namespace 里，任何**不在信任根**的第三方
+          #   镜像（busybox/redis/cloudflared/exporter…）都会被
+          #   `no matching policies` 拒绝 → 六态 smoke-test 的态6 FAIL。
+          #   即：按原配置给 aster-cloud 贴标签会拦停生产工作负载。
+          #   这正是 runbook 要求"贴标签前先跑六态"的原因。
+          webhook:
+            # webhook 故障态放行（首版；达门槛后切 Fail，见 runbook）
             failurePolicy: Ignore
-          # ns 内不匹配任何 CIP 的镜像放行（灰度副闸）
-          configData:
-            no-match-policy: allow
+            # ns 内不匹配任何 CIP 的镜像放行（灰度副闸）
+            configData:
+              no-match-policy: allow
           # leases-cleanup 镜像 digest pin（供应链：默认 latest-dev 可变 tag）
           # ★实测键路径为 leasescleanup.image.{repository,version}（非 brief 猜测的
           #   .name；chart 0.10.6 真实 values 与 webhook.image 同构，version 字段

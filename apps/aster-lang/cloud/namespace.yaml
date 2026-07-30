@@ -5,3 +5,22 @@ metadata:
   name: aster-cloud
   labels:
     app.kubernetes.io/part-of: aster-lang
+    # sigstore policy-controller admission opt-in 主闸（POLICY_CONTROLLER_RUNBOOK：
+    # 只拦贴此标签的 namespace）。★标签丢失 = admission 静默关闭（无告警，需人工核查）。
+    #
+    # 2026-07-30 补上（审计发现本 ns 此前未 opt-in，导致 aster-api / aster-cloud-migrate
+    # 的 4 个 CIP 形同虚设——主生产 namespace 根本不在准入覆盖内）。
+    #
+    # 贴此标签前已按 runbook 在本地 kind + podman 集群跑完**六态 admission smoke-test**
+    # （policy-controller 0.10.6，同版本同 values，8 个 CIP 原样 apply）：
+    #   态1 已签 digest→通过 / 态2 未签 digest→拒 / 态3 已签 tag→通过 /
+    #   态4 未签 tag→拒 / 态5 不存在 tag→拒(tag-fail, 闭 TOCTOU) / 态6 第三方→放行
+    #   → 6/6 符合预期。
+    # 并额外在贴了本标签的模拟 aster-cloud ns 里实测：生产实际渲染的两个 @sha256 镜像
+    # 均通过准入，第三方镜像正常放行。
+    #
+    # ★注意：六态首轮实测为 5/6（态6 FAIL），根因是 application.yaml 的两个 Helm 键
+    # 路径写错（webhookConfig./configData. 非 chart 合法键，Helm 静默忽略）导致实际
+    # 落地 failurePolicy=Fail 且无 no-match-policy。**必须与该修复同批上线**，
+    # 否则贴标签会因 `no matching policies` 拦停本 ns 内所有第三方镜像。
+    policy.sigstore.dev/include: "true"
