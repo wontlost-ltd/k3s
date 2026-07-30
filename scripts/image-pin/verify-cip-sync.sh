@@ -77,7 +77,7 @@ done
 i=0
 while [[ $i -lt $repo_count ]]; do
   image="$(yq eval ".images[$i].image" "$ALLOWED")"          # docker.io/wontlost/aster-api
-  src_repo="$(yq eval ".images[$i].sourceRepo" "$ALLOWED")"  # aster-cloud/aster-api
+  src_repo="$(yq eval ".images[$i].sourceRepo" "$ALLOWED")"  # wontlost-ltd/aster-api
   wf="$(yq eval ".images[$i].workflowFile" "$ALLOWED")"      # deploy.yml
   ref="$(yq eval ".images[$i].sourceRef" "$ALLOWED")"        # refs/heads/main
   repo="${image#docker.io/}"                                  # wontlost/aster-api
