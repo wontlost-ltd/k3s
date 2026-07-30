@@ -14,7 +14,7 @@ PG_HOST="postgres-tunnel-svc.data-services.svc.cluster.local"
 PG_PORT="5432"
 PG_DATABASE="aster_api"
 PG_USER="aster_api_user"
-PG_PASSWORD="2sJI9ZLdiIDJg1I7xpREWdx9MEShCVVZ"
+PG_PASSWORD="${PG_PASSWORD:-}"
 
 # K8s Service CIDR (for private network route)
 SERVICE_CIDR="10.43.0.0/16"
@@ -35,6 +35,15 @@ check_prerequisites() {
     if [[ -z "$CF_API_TOKEN" ]]; then
         log_error "CF_API_TOKEN environment variable is not set"
         log_info "Set it with: export CF_API_TOKEN=<your-cloudflare-api-token>"
+        exit 1
+    fi
+
+    # ★PG_PASSWORD 必须由环境提供（此前硬编码在本文件，随 public 仓泄露）。
+    #   取值来源：Vault data-services/aster-api-db（与 ExternalSecret 同源）。
+    if [[ -z "$PG_PASSWORD" ]]; then
+        log_error "PG_PASSWORD environment variable is not set"
+        log_info "Get it from Vault: vault kv get -field=password data-services/aster-api-db"
+        log_info "Then: export PG_PASSWORD=<value>"
         exit 1
     fi
 
