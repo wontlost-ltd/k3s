@@ -135,26 +135,47 @@ data:
 
 ## Vault SSO Setup
 
-Vault can also use OIDC with Authentik:
+Vault 已接入 Authentik OIDC。**role 定义以 `scripts/setup-vault-oidc-roles.sh` 为准**
+（本节此前的示例与线上实际配置不符，已删除——详见下方"历史坑"）。
+
+登录（★必须显式指定 role）：
 
 ```bash
-# Enable OIDC auth method
-vault auth enable oidc
-
-# Configure OIDC
-vault write auth/oidc/config \
-    oidc_discovery_url="https://auth.aster-lang.cloud/application/o/vault/" \
-    oidc_client_id="vault" \
-    oidc_client_secret="YOUR_VAULT_CLIENT_SECRET" \
-    default_role="default"
-
-# Create default role
-vault write auth/oidc/role/default \
-    bound_audiences="vault" \
-    allowed_redirect_uris="https://vault.aster-lang.cloud/ui/vault/auth/oidc/oidc/callback" \
-    allowed_redirect_uris="http://localhost:8250/oidc/callback" \
-    user_claim="sub" \
-    policies="default"
+export VAULT_ADDR=https://vault.aster-lang.cloud
+vault login -method=oidc -path=Authentik role=admin
 ```
+
+UI：认证方式选 OIDC → **Role 框填 `admin`**。留空会走 `default_role=default` → 只读。
+
+> UI 的 Role 是自由文本、**无法做成下拉框**：列 role 需要 token（未认证请求实测返回 403），
+> 而登录页尚未认证；role 名本身也会泄露权限分层。可用预填 URL 代替：
+> `https://vault.aster-lang.cloud/ui/vault/auth?with=Authentik%2F&role=admin`
+
+### 权限模型
+
+| Authentik 组 | Vault role | 策略 | 说明 |
+|---|---|---|---|
+| `vault-admins` | `admin` | `vault-admin` | 全权（secret/auth/sys/identity）|
+| `vault-operator` | `operator` | `vault-operator` | 组当前 0 成员，role 未绑组 |
+| （任何人）| `default` | `default` + `vault-reader` | 兜底只读 |
+
+### 历史坑：OIDC 登录后没有写权限
+
+本节原先记录 `policies="default"`，导致 OIDC 登录只拿到只读的兜底 role。
+实际排查发现的四处偏差：
+
+1. **mount 路径是 `Authentik/` 而非 `oidc/`** —— 原文所有 `auth/oidc/...` 路径和
+   callback URL 都是错的；
+2. `admin` / `operator` role **早已存在**且绑好策略，问题只是登录时没指定 role
+   （`default_role=default`）；
+3. `bound_claims` 必须用 **stdin 传 JSON**，写成 `key=value` 会被 shell 拍平成字符串，
+   Vault 报 `expected a map, got 'string'`；
+4. Authentik 侧原本**没给 vault provider 绑 `groups` scope**，
+   `.well-known` 的 `scopes_supported` 里没有 `groups` —— 此时若贸然给 role 配
+   `bound_claims`，token 里根本没有 groups claim，会**直接把自己锁在门外**。
+
+★ 另注：`vault write auth/Authentik/config` 是**整体替换**，而 `oidc_client_secret`
+**不回显**。想改 `default_role` 就得把 client secret 一起重写，漏字段会导致
+**所有人 OIDC 登录中断**。非必要不要动这个 config。
 
 Create a separate Authentik provider for Vault following similar steps.
