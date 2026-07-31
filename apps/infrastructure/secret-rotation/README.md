@@ -19,19 +19,31 @@ Vault (真相源)
 ★ 最危险的是 Hyperdrive：ExternalSecret 刷新对它无效，漏掉就是一次静默的生产故障
 （aster-cloud 经 Hyperdrive 的请求开始认证失败，但没有任何一处报"配置过期"）。
 
+## 执行顺序（硬约束）
+
+```
+1. 预检 Hyperdrive 可读 + token 权限   ← 失败则完全不动任何凭据
+2. 写 Vault
+3. 催 ExternalSecret → CNPG ALTER ROLE
+4. ★轮询等待**数据库真的接受新密码**    ← 超时则回滚 Vault
+5. 同步 Hyperdrive
+6. 催应用侧 ESO → Reloader 滚动重启
+```
+
+★ **第 4 步不能省，第 5 步不能提前**：实测 Cloudflare 在 PATCH 时会**真的去连一次
+数据库**验证凭据。库还没改就 PATCH，必然返回 `400 / code 2013
+"Invalid database credentials"`，结果是 **Vault 已改而 Hyperdrive 没改**
+——正是最该避免的半途状态（这个坑我们真踩过）。
+
 ## fail-fast 设计
 
-`backoffLimit: 0`，任一步失败立即停、**不重试、不继续往下写**。
+`backoffLimit: 0`，任一步失败立即停、**不重试**。
 
-关键在**顺序**：先预检 Hyperdrive 可读写，**再**写 Vault。
-因为失败代价不对称——
-
-| 失败时机 | 后果 |
-|---|---|
-| 写 Vault **之前** | 旧密码仍有效，线上完全不受影响 ✅ |
-| 写了 Vault 但 Hyperdrive 没同步 | **静默生产故障** ❌ |
-
-所以脚本先证明"能同步"，再改真相源。
+| 失败时机 | 处置 | 后果 |
+|---|---|---|
+| 写 Vault **之前** | 直接退出 | 旧密码仍有效，线上无影响 ✅ |
+| 写了 Vault，数据库未跟上 | **自动回滚 Vault** | 恢复一致 ✅ |
+| 数据库已改，Hyperdrive 失败 | **不回滚**，报警等人工 | 回滚反而会让库与 Vault 不一致 ⚠️ |
 
 ## ⚠️ 前置：Vault 侧需手工配置（无法从 GitOps 完成）
 
