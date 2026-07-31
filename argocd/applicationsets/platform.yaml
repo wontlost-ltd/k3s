@@ -24,6 +24,12 @@ spec:
           # S2-0: cosign-verified digest admission（policy-controller）
           - name: policy-controller
             namespace: cosign-system
+          # Stakater Reloader：Secret 变更后自动滚动重启（密码轮换的前置条件）
+          - name: reloader
+            namespace: reloader
+          # 季度自动轮换 PG 密码（Vault → Hyperdrive → ESO → Reloader）
+          - name: secret-rotation
+            namespace: secret-rotation
   template:
     metadata:
       name: 'platform-{{ .name }}'
