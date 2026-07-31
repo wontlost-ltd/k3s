@@ -69,8 +69,16 @@ NEW_PW="$(head -c 48 /dev/urandom | base64 | tr -d '+/=' | head -c 32)"
 [ "${#NEW_PW}" -eq 32 ] || die "密码生成异常（长度 ${#NEW_PW}，期望 32）"
 echo "$NEW_PW" | grep -qE '^[A-Za-z0-9]{32}$' || die "密码含非预期字符"
 
-# 记录旧密码，供失败时回滚（Vault 虽有版本历史，但脚本内直接持有更可靠）
-OLD_PW="$(vault_get "${PG_SECRET_PATH}" password)"
+# ★读取**整个** data 对象，而非只读 password。
+#   Vault KV-v2 的写入是**整体替换**：只 POST {password} 会把同一路径下的
+#   username / database 等字段**全部抹掉**，导致下游 ExternalSecret 报
+#   `cannot find secret data for key: "database"` 而无法同步（实测踩过）。
+#   所以轮换必须「取回全部字段 → 只替换 password → 整体写回」。
+CUR_DATA="$(curl -sS -k --fail-with-body --header "X-Vault-Token: ${VAULT_TOKEN}" \
+    "${VAULT_ADDR}/v1/${PG_SECRET_PATH}" | jq -c '.data.data')" \
+    || die "读取当前 secret 失败"
+echo "$CUR_DATA" | jq -e 'type == "object"' > /dev/null 2>&1 || die "secret data 格式异常"
+OLD_PW="$(echo "$CUR_DATA" | jq -r '.password')"
 [ -n "$OLD_PW" ] && [ "$OLD_PW" != "null" ] || die "读取当前密码失败"
 
 # 失败回滚：把 Vault 写回旧密码并催刷新，使三方重新一致。
@@ -80,7 +88,7 @@ rollback_vault() {
     if curl -sS -k --fail-with-body --request POST \
         --header "X-Vault-Token: ${VAULT_TOKEN}" \
         --header "Content-Type: application/json" \
-        --data "$(jq -nc --arg pw "$OLD_PW" '{data:{password:$pw}}')" \
+        --data "$(jq -nc --argjson d "$CUR_DATA" '{data:$d}')" \
         "${VAULT_ADDR}/v1/${PG_SECRET_PATH}" > /dev/null; then
         kubectl annotate externalsecret -n data-services aster-api-postgres-credentials \
             "force-sync=$(date +%s)" --overwrite > /dev/null 2>&1 || true
@@ -95,7 +103,7 @@ log "写入 Vault: ${PG_SECRET_PATH}"
 curl -sS -k --fail-with-body --request POST \
     --header "X-Vault-Token: ${VAULT_TOKEN}" \
     --header "Content-Type: application/json" \
-    --data "$(jq -nc --arg pw "$NEW_PW" '{data:{password:$pw}}')" \
+    --data "$(jq -nc --argjson d "$CUR_DATA" --arg pw "$NEW_PW" '{data: ($d + {password:$pw})}')" \
     "${VAULT_ADDR}/v1/${PG_SECRET_PATH}" > /dev/null \
     || die "写入 Vault 失败 —— 旧密码仍有效，线上未受影响"
 
