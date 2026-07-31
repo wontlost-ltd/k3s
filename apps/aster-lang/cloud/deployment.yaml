@@ -3,6 +3,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    # Secret（DB/LLM/Redis 等凭据）变更后自动滚动重启。
+    # ★必需：本 Deployment 用 env+secretKeyRef 注入，env 值在容器启动时快照，
+    #   不重启就仍持旧密码——密码轮换后会与 CNPG 已改的库内密码不一致。
+    reloader.stakater.com/auto: "true"
   name: aster-api
   namespace: aster-cloud
   labels:

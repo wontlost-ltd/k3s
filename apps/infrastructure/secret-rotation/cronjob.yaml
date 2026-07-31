@@ -1,0 +1,68 @@
+# 季度自动轮换 aster_api_user 的 PG 密码
+#
+# 时间窗：每季度（1/4/7/10 月）第一个周日 03:00 UTC。
+# cron 无法直接表达"第一个周日"，故用 `1-7` 日 + `SUN` 的惯用法：
+# 某月 1-7 号里唯一的那个周日必然是第一个周日。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-pg-password
+  namespace: secret-rotation
+spec:
+  schedule: "0 3 1-7 1,4,7,10 SUN"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid        # 绝不允许两次轮换重叠
+  startingDeadlineSeconds: 3600    # 错过窗口超过 1h 就跳过，不在业务高峰补跑
+  successfulJobsHistoryLimit: 4    # 保留一年的成功记录便于审计
+  failedJobsHistoryLimit: 4
+  jobTemplate:
+    spec:
+      backoffLimit: 0              # ★不重试：fail-fast，失败即停等人工介入
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: rotate-pg-password
+        spec:
+          serviceAccountName: secret-rotation
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate
+              # 需要 curl + jq + kubectl；bitnami/kubectl 体积小且自带前两者
+              image: docker.io/bitnami/kubectl:1.31.3
+              command: ["/bin/sh", "/scripts/rotate-pg-password.sh"]
+              env:
+                - name: VAULT_ADDR
+                  value: "https://vault.vault.svc:8200"
+                - name: CF_ACCOUNT_ID
+                  value: "61ecb24622cdc5ba2552851054bba5ce"
+                - name: HYPERDRIVE_ID
+                  value: "b712d2c83ffe41f0b4d0ec615314a935"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+          volumes:
+            - name: scripts
+              configMap:
+                name: rotate-pg-password-script
+                defaultMode: 0555
+            - name: tmp
+              emptyDir: {}

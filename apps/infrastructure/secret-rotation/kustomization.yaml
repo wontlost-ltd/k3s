@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ★不设顶层 namespace：本目录含**跨命名空间**的 RBAC
+#   （Role 要建在 data-services / aster-cloud 里，而非 secret-rotation），
+#   统一改写会把两个同名 Role 压成一个 → ID conflict。
+#   各资源自带 namespace 字段。
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - cronjob.yaml
+
+configMapGenerator:
+  - name: rotate-pg-password-script
+    namespace: secret-rotation
+    files:
+      - rotate-pg-password.sh
+
+generatorOptions:
+  disableNameSuffixHash: false
