@@ -1,0 +1,63 @@
+# secret-rotation 的最小权限
+#
+# 只需要一件事：给两个 ExternalSecret 打注解以触发立即刷新。
+# 它**不需要**读写任何 Secret——密码只在 Vault 与 Cloudflare 之间流动，
+# 下发由 ExternalSecrets Operator 负责。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secret-rotation
+  namespace: secret-rotation
+---
+# data-services：CNPG 用的凭据
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: force-sync-externalsecret
+  namespace: data-services
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    # 只允许改注解所需的最小动作；不含 create/delete
+    verbs: ["get", "patch"]
+    resourceNames: ["aster-api-postgres-credentials"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secret-rotation-force-sync
+  namespace: data-services
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: force-sync-externalsecret
+subjects:
+  - kind: ServiceAccount
+    name: secret-rotation
+    namespace: secret-rotation
+---
+# aster-cloud：应用 Pod 用的凭据
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: force-sync-externalsecret
+  namespace: aster-cloud
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["aster-api-db-credentials"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secret-rotation-force-sync
+  namespace: aster-cloud
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: force-sync-externalsecret
+subjects:
+  - kind: ServiceAccount
+    name: secret-rotation
+    namespace: secret-rotation
