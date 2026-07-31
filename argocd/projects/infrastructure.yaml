@@ -21,6 +21,8 @@ spec:
     - 'https://open-telemetry.github.io/opentelemetry-helm-charts'
     # Sigstore policy-controller（S2-0 cosign admission）
     - 'https://sigstore.github.io/helm-charts'
+    # Stakater Reloader（Secret 变更后自动滚动重启，密码轮换前置）
+    - 'https://stakater.github.io/stakater-charts'
   destinations:
     # ArgoCD namespace for self-management
     - namespace: argocd
@@ -59,6 +61,17 @@ spec:
     - namespace: tempo
       server: https://kubernetes.default.svc
     - namespace: otel-system
+      server: https://kubernetes.default.svc
+    # Stakater Reloader（Secret 变更后自动滚动重启）
+    - namespace: reloader
+      server: https://kubernetes.default.svc
+    # 季度自动轮换 PG 密码的 CronJob
+    - namespace: secret-rotation
+      server: https://kubernetes.default.svc
+    # ★secret-rotation 需要在应用 ns 建 Role/RoleBinding —— 轮换后要给
+    #   aster-cloud/aster-api-db-credentials 打注解触发 ExternalSecret 立即刷新。
+    #   权限本身已收敛到「仅该具名 ExternalSecret 的 get/patch」，不涉及任何 Secret 读写。
+    - namespace: aster-cloud
       server: https://kubernetes.default.svc
     # policy-controller namespace（S2-0）
     - namespace: cosign-system
