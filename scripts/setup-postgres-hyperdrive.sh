@@ -105,45 +105,27 @@ create_hyperdrive() {
     #   于是密码轮换后 Hyperdrive 里存的仍是旧连接串——而 Hyperdrive 的凭据存在
     #   Cloudflare 侧、**不读 Vault**，ExternalSecret 刷新对它无效。
     #
-    # ★只改 password，其余 origin 字段从线上读回后原样回填。
-    #   原因：PATCH 的 origin 是**整体替换**，漏字段即丢配置。而本脚本顶部那几个
-    #   PG_* 默认值早已与线上不符（实测线上 host=postgres.aster-lang.dev、
-    #   database=aster_cloud，且带 access_client_id —— 走 Cloudflare Tunnel + Access
-    #   service token；脚本里却是集群内 svc DNS + aster_api + 无 Access）。
-    #   若按脚本默认值整体覆盖，Hyperdrive 会指向**边缘侧根本解析不到**的内网域名
-    #   并丢掉 Access 凭据 = 生产直接断，比不轮换更糟。
+    # ★只传 password。实测确认 Cloudflare 对 origin 是**合并更新**而非整体替换：
+    #   PATCH {"origin":{"password":...}} 之后，host/database/scheme/user 以及
+    #   access_client_id（Cloudflare Access service token）全部原样保留。
+    #   因此既不需要回填其它字段，也不需要 access_client_secret
+    #   ——后者 API 不回显，只能重建 service token 才拿得到。
+    #
+    #   注意本脚本顶部的 PG_HOST/PG_DATABASE 等默认值早已与线上不符
+    #   （线上是 postgres.aster-lang.dev / aster_cloud，走 Tunnel + Access），
+    #   正因为只传 password，这些过时默认值不会污染线上配置。
     if echo "$existing" | jq -e '.result[] | select(.name == "aster-api-postgres")' > /dev/null 2>&1; then
         hyperdrive_id=$(echo "$existing" | jq -r '.result[] | select(.name == "aster-api-postgres") | .id')
         log_warn "Hyperdrive 'aster-api-postgres' 已存在（ID: ${hyperdrive_id}）→ 仅更新密码"
 
-        # 取线上现有 origin，注入新密码，其余字段照搬（含 access_client_id）。
-        # access_client_secret 读不回来（API 不回显），故仅在本次未提供时保持不变——
-        # 若线上启用了 Access，必须显式提供 ACCESS_CLIENT_SECRET，否则拒绝执行。
-        current_origin=$(echo "$existing" | jq -c --arg n "aster-api-postgres" \
-            '.result[] | select(.name == $n) | .origin')
-        has_access=$(echo "$current_origin" | jq -r '.access_client_id // empty')
-
-        if [[ -n "$has_access" && -z "${ACCESS_CLIENT_SECRET:-}" ]]; then
-            log_error "线上 origin 启用了 Cloudflare Access（access_client_id=${has_access}）"
-            log_error "但 API 不回显 access_client_secret，整体 PATCH 会把它清空 → 生产断连。"
-            log_error "请提供：export ACCESS_CLIENT_SECRET='<Access service token secret>' 后重跑。"
-            exit 1
-        fi
-
-        new_origin=$(echo "$current_origin" | jq -c \
-            --arg pw "${PG_PASSWORD}" \
-            --arg acs "${ACCESS_CLIENT_SECRET:-}" \
-            '.password = $pw | if $acs != "" then .access_client_secret = $acs else . end')
-
-        log_info "保留线上 origin: host=$(echo "$current_origin" | jq -r .host) db=$(echo "$current_origin" | jq -r .database) user=$(echo "$current_origin" | jq -r .user)"
-
         update_response=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/hyperdrive/configs/${hyperdrive_id}" \
             -H "Authorization: Bearer ${CF_API_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"origin\": ${new_origin}}")
+            -d "$(jq -nc --arg pw "${PG_PASSWORD}" '{origin:{password:$pw}}')")
 
         if echo "$update_response" | jq -e '.success == true' > /dev/null 2>&1; then
             log_info "Hyperdrive 密码已更新（密码轮换后请务必跑到这一步）"
+            log_info "保留的 origin: host=$(echo "$update_response" | jq -r .result.origin.host) db=$(echo "$update_response" | jq -r .result.origin.database)"
             return 0
         fi
         log_error "更新 Hyperdrive 失败"

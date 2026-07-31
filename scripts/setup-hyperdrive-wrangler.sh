@@ -16,7 +16,6 @@
 #   1) vault kv put data-services/aster-api-db password=<新密码>
 #   2) export PG_PASSWORD='<新密码>'
 #      export CF_API_TOKEN='<Hyperdrive:Edit>'
-#      export ACCESS_CLIENT_SECRET='<Access service token secret>'   # 线上启用了 Access
 #      ./scripts/setup-postgres-hyperdrive.sh    # ★用 API 版，不是本脚本
 #   3) 触发/等待 ExternalSecret 刷新，确认 CNPG 已改库内密码
 #   4) 验证：kubectl -n aster-cloud logs -l app=aster-api --tail=50 | grep -i auth
@@ -102,9 +101,10 @@ echo ""
 #
 # 为什么不像 setup-postgres-hyperdrive.sh 那样支持 update：
 # `wrangler hyperdrive update` 只接受 --connection-string，而连接串**表达不了**
-# 线上 origin 的 access_client_id / access_client_secret（Cloudflare Access service token）。
+# 线上 origin 的 access_client_id（Cloudflare Access service token）。
 # 实测线上 origin 就带 Access（host=postgres.aster-lang.dev 走 Tunnel），
 # 用连接串整体覆盖会把 Access 凭据清空 → 生产直接断连。
+# 相比之下 API 版只传 password，Cloudflare 会**合并**而非替换 origin，其余字段原样保留。
 #
 # 所以：**轮换密码请用 API 版脚本** `./scripts/setup-postgres-hyperdrive.sh`，
 # 它会先读回线上 origin、只替换 password、其余字段原样回填。
