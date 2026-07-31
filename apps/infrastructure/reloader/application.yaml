@@ -1,0 +1,66 @@
+# Stakater Reloader
+#
+# 解决什么问题：本集群的应用用 `env` + `secretKeyRef` 注入密码，而 **env 的值在容器
+# 启动时快照**——Secret 更新后 Pod 里的值不变（只有 volume 挂载才会热更新）。
+# 于是密码轮换后会出现：CNPG 已 `ALTER ROLE` 改了库内密码，而 Pod 仍持旧密码 → 认证失败。
+# 2026-07-31 那次手工轮换正是靠人工 `kubectl rollout restart` 补上的这一步。
+#
+# Reloader 监听 Secret/ConfigMap 变化，自动滚动重启引用它们的 Deployment，
+# 把上面那步人工操作变成集群能力——这是"定期自动轮换"的前置条件。
+#
+# ★ 只在**显式标注**的工作负载上生效（reloadOnCreate=false + 不开全局自动）：
+#   给 Deployment 加注解 `reloader.stakater.com/auto: "true"` 才会被管。
+#   不用全局模式是为了避免任何 Secret 变动都触发全集群滚动重启。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reloader
+  namespace: argocd
+  annotations:
+    # 早于业务应用部署（业务 Deployment 带的 reloader 注解需要它已在运行才有意义）
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: 2.1.0
+    helm:
+      releaseName: reloader
+      valuesObject:
+        reloader:
+          # 不做全局自动重载：只认显式注解，避免误伤。
+          watchGlobally: true
+          autoReloadAll: false
+          reloadOnCreate: false
+          # 滚动重启而非删 Pod，保持可用性
+          reloadStrategy: env-vars
+          deployment:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65534
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          podMonitor:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reloader
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
