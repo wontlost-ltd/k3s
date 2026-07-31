@@ -26,7 +26,11 @@ spec:
   source:
     repoURL: https://stakater.github.io/stakater-charts
     chart: reloader
-    targetRevision: 2.1.0
+    # ★不要降到 2.1.0：该版本的 Deployment `spec.selector` 与 `template.labels`
+    #   不匹配，apply 时被 API server 拒绝（`selector does not match template labels`），
+    #   Application 会卡在 OutOfSync/Missing 且 Pod 永远起不来。2.2.14 已修复，
+    #   升级前用 `helm template` 核对过 selector ⊆ labels。
+    targetRevision: 2.2.14
     helm:
       releaseName: reloader
       valuesObject:
