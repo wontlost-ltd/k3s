@@ -114,10 +114,14 @@ spec:
             resources:
               requests:
                 cpu: 20m
-                memory: 32Mi
+                memory: 96Mi
               limits:
                 cpu: 100m
-                memory: 128Mi
+                # ★128Mi 太小：实测 alertmanager 常驻 63Mi，但在告警风暴/重试堆积时
+                #   会冲破上限 —— 生产实证 **78 天内 OOMKilled 539 次（≈7 次/天）**。
+                #   每次 OOM 期间到达的通知直接丢失，而 Pod 重启后自报 healthy，
+                #   没有任何信号暴露这一点。提到 256Mi 留出重试队列余量。
+                memory: 256Mi
             # 挂载 Slack webhook 密钥（由 ExternalSecret 提供）
             # AlertManager 会以 /etc/alertmanager/secrets/<secretName>/<key> 路径访问
             secrets:
@@ -486,6 +490,13 @@ spec:
 
           # ExternalSecret for AlertManager Slack webhook
           # Vault path: secret/apps/aster-api-plan-gate.slack-webhook
+          #
+          # ★★ 该值必须是 **Incoming Webhook URL**（https://hooks.slack.com/services/...），
+          #    不能是 Slack app-level token（xapp-...）或 bot token（xoxb-...）。
+          #    2026-08-01 事故：此处存的是 `xapp-1-...`，alertmanager 无法 POST，
+          #    **所有告警静默丢弃 3 天**（含一条 critical AsterApiSlaBreachDay），
+          #    唯一症状是 AlertmanagerFailedToSendAlerts —— 而它自己也发不出去。
+          #    换值后务必按 README 的「验证告警真的送达」一节实测，不要只看 Pod Running。
           # AlertManager 通过 alertmanagerSpec.secrets 挂载到
           # /etc/alertmanager/secrets/alertmanager-slack-webhook/url
           # secretKey 直接命名为 "url" 以匹配挂载路径，避免双层模板转义。
