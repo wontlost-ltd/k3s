@@ -43,6 +43,33 @@ kubectl get secret -n monitoring alertmanager-slack-webhook \
 > ★ 用 `vault kv patch` 而非 `put`：该路径下还有 `hmac-key` 被
 > `aster-api-plan-gate-credentials` 消费，`put` 会把它抹掉。
 
+## Telegram 通道（与 Slack 并行）
+
+Slack 与 Telegram **同时**收到每一条告警：同一 receiver 下的多个 `*_configs`
+会全部投递。这个冗余是刻意的——2026-08-01 事故中 Slack 单通道静默失效 3 天
+无人知晓，两条独立链路可互为兜底。
+
+### 配置来源
+- **bot token** → Vault `secret/apps/alertmanager-telegram` 的 `token` 属性，
+  经 ExternalSecret 挂载到 `/etc/alertmanager/secrets/alertmanager-telegram/token`
+- **chat_id** → 非机密，直接写在 `telegram_configs` 里
+
+### 更换 bot 或 chat
+```bash
+# token 形如 123456789:AAH...（★不含 `bot` 前缀，那是 URL 的一部分）
+read -s -r TG && vault kv put secret/apps/alertmanager-telegram token="$TG"
+kubectl annotate externalsecret -n monitoring alertmanager-telegram \
+  force-sync=$(date +%s) --overwrite
+```
+
+### 排障对照表（实测）
+| 现象 | 原因 |
+|---|---|
+| `404 Not Found` | URL 漏了 `bot` 前缀，或 token 混入空格/尖括号 |
+| `401 Unauthorized` | token 格式对但无效/已撤销 |
+| `getUpdates` 的 `result` 为空数组 | bot 还没收到任何消息——私聊需点 Start；群聊需 @ 它（BotFather 默认开 privacy mode，收不到普通群消息）|
+| `400 can't parse entities` | 用了 Markdown parse_mode 而告警文本含未转义的 `_` / `*`。本仓已置 `parse_mode: ''` 规避 |
+
 ## ★ 验证告警真的送达（改完必做）
 
 只看 `Pod Running` 或 `/-/healthy` **不足以证明通道可用**——事故期间两者都是正常的。
@@ -62,8 +89,8 @@ kubectl exec -n monitoring alertmanager-prometheus-kube-prometheus-alertmanager-
 kubectl exec -n monitoring alertmanager-prometheus-kube-prometheus-alertmanager-0 \
   -c alertmanager -- wget -qO- --post-data='[{"labels":{"alertname":"ManualSmokeTest","severity":"warning"}}]' \
   --header='Content-Type: application/json' http://127.0.0.1:9093/api/v2/alerts
-#    → 然后去 Slack 频道确认。这一步不可省略：前两步只能证明"没报错"，
-#      而事故形态恰恰是"配置错了但不报错"。
+#    → 然后去 **Slack 频道和 Telegram 两边**确认。这一步不可省略：
+#      前两步只能证明"没报错"，而事故形态恰恰是"配置错了但不报错"。
 ```
 
 ## 资源配置
