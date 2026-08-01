@@ -126,6 +126,7 @@ spec:
             # AlertManager 会以 /etc/alertmanager/secrets/<secretName>/<key> 路径访问
             secrets:
               - alertmanager-slack-webhook
+              - alertmanager-telegram
           config:
             global:
               resolve_timeout: 5m
@@ -166,6 +167,24 @@ spec:
                       *Description*: {{ .Annotations.description }}
                       *Source*: {{ .GeneratorURL }}
                       {{ end }}
+                # ★Telegram 与 Slack **并行**投递同一批告警：同一 receiver 下的多个
+                #   *_configs 会全部执行。冗余是刻意的——2026-08-01 事故中 Slack 单通道
+                #   静默失效 3 天无人知晓，两条独立链路可互为兜底。
+                #   parse_mode 置空：告警文本含 UUID / 下划线 / 星号等字符，
+                #   若用 Markdown 会因未转义而被 Telegram 拒（400 can't parse entities）。
+                telegram_configs:
+                  - send_resolved: true
+                    bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/token
+                    chat_id: 811406746
+                    parse_mode: ''
+                    message: |-
+                      [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}
+                      {{ range .Alerts }}
+                      Severity: {{ .Labels.severity }}
+                      Summary: {{ .Annotations.summary }}
+                      Description: {{ .Annotations.description }}
+                      Source: {{ .GeneratorURL }}
+                      {{ end }}
               - name: 'slack-critical'
                 slack_configs:
                   # 同上：沿用 webhook 自带频道；靠标题的 🚨 前缀区分严重级别。
@@ -176,6 +195,17 @@ spec:
                       *Summary*: {{ .Annotations.summary }}
                       *Description*: {{ .Annotations.description }}
                       *Labels*: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+                      {{ end }}
+                telegram_configs:
+                  - send_resolved: true
+                    bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/token
+                    chat_id: 811406746
+                    parse_mode: ''
+                    message: |-
+                      [CRITICAL] {{ .CommonLabels.alertname }}
+                      {{ range .Alerts }}
+                      Summary: {{ .Annotations.summary }}
+                      Description: {{ .Annotations.description }}
                       {{ end }}
           # 内置关键告警规则（pod 崩溃、OOM、高错误率）
           additionalRulesForClusterRole: []
@@ -489,6 +519,35 @@ spec:
                   remoteRef:
                     key: infrastructure/monitoring
                     property: grafana_oauth_client_secret
+
+          # ExternalSecret for AlertManager Telegram bot token
+          # Vault path: secret/apps/alertmanager-telegram.token
+          #
+          # ★ 该值是 BotFather 发的 bot token（形如 `123456789:AAH...`），
+          #   **不含** `bot` 前缀——那是 API URL 的一部分，不属于 token 本身。
+          #   chat_id 不是机密，直接写在 telegram_configs 里。
+          # AlertManager 通过 alertmanagerSpec.secrets 挂载到
+          # /etc/alertmanager/secrets/alertmanager-telegram/token
+          # secretKey 命名为 "token" 以匹配 bot_token_file 的挂载路径。
+          - apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: alertmanager-telegram
+              namespace: monitoring
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: vault-backend
+                kind: ClusterSecretStore
+              target:
+                name: alertmanager-telegram
+                creationPolicy: Owner
+                deletionPolicy: Retain
+              data:
+                - secretKey: token
+                  remoteRef:
+                    key: apps/alertmanager-telegram
+                    property: token
 
           # ExternalSecret for AlertManager Slack webhook
           # Vault path: secret/apps/aster-api-plan-gate.slack-webhook
