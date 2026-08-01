@@ -154,8 +154,10 @@ spec:
               - name: 'null'
               - name: 'slack-default'
                 slack_configs:
-                  - channel: '#aster-alerts'
-                    send_resolved: true
+                  # ★不指定 channel：Incoming Webhook 在创建时**已绑定频道**，
+                  #   再显式指定会被 Slack 拒为 `channel_not_found`（实测 404）。
+                  #   要分流到不同频道，需为每个频道单独创建一个 webhook。
+                  - send_resolved: true
                     title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
                     text: |-
                       {{ range .Alerts }}
@@ -166,8 +168,8 @@ spec:
                       {{ end }}
               - name: 'slack-critical'
                 slack_configs:
-                  - channel: '#aster-alerts-critical'
-                    send_resolved: true
+                  # 同上：沿用 webhook 自带频道；靠标题的 🚨 前缀区分严重级别。
+                  - send_resolved: true
                     title: ':rotating_light: [CRITICAL] {{ .CommonLabels.alertname }}'
                     text: |-
                       {{ range .Alerts }}
