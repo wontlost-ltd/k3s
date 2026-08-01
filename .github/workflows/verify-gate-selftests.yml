@@ -60,13 +60,25 @@ jobs:
           sudo mv /tmp/yq /usr/local/bin/yq
           yq --version
 
+      # ★cosign 是 verify-image-pin.sh:56 的**硬依赖**（`command -v cosign || die`），
+      #   脚本头部亦写明「依赖：cosign(>=v3.1.1)、yq、gh、jq」。
+      #   首版漏装它：本机恰好有 cosign v3.1.1，套件本地全绿，到 CI 才暴露成
+      #   5 个套件全红（错误统一为「cosign 未安装」）。
+      #   这也正是下面 Assert 步的意义——缺工具必须**立刻显式失败**，
+      #   而不是让套件以「守门逻辑不通过」的形态误报。
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
       # ubuntu-latest 自带 kustomize 与 jq；显式断言避免"缺工具导致套件静默跳过"
       - name: Assert toolchain present
         run: |
           set -euo pipefail
-          for t in yq jq kustomize; do
+          for t in yq jq kustomize cosign; do
             command -v "$t" >/dev/null || { echo "::error::缺少 $t"; exit 1; }
           done
+          cosign version 2>/dev/null | grep -i gitversion || true
           echo "工具链就绪"
 
       # ★逐个跑并汇总，而不是 `for ... || exit`：
