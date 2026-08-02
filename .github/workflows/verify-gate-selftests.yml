@@ -1,8 +1,8 @@
 # verify-gate-selftests —— 守门脚本的**对抗性自测**
 #
 # ★为什么需要这个 workflow：
-#   `scripts/image-pin/` 下有 5 个 .test.sh，共约 750 行，专门验证
-#   `verify-image-pin.sh` / `check-pr-shape.sh` / `verify-runner-topology.sh`
+#   `scripts/image-pin/` 下有 4 个 .test.sh，共约 620 行，专门验证
+#   `verify-image-pin.sh` / `check-pr-shape.sh` / lane 分派
 #   在各种绕过尝试下**确实 fail-closed**。其中
 #   `verify-image-pin-envbind.test.sh` 的 case (6) 复刻的正是一个曾被
 #   Codex 复现出来的**生产 bypass**。

@@ -1,0 +1,23 @@
+# runner-launcher PodDisruptionBudget
+# 保证自愿中断（node drain / k3s 自动升级 / 节点维护）期间至少 1 个副本可用。
+#
+# ★为什么必须配 replicas: 2（见 deployment.yaml）：PDB 只约束**自愿**中断，允许中断数
+#   = 副本数 - minAvailable。若 replicas:1 则为 0，drain 会永久挂起等一个永远不会出现的
+#   多余副本，k3s system-upgrade plan 也会卡在该节点——反而制造新故障。
+#
+# ★不保护非自愿中断（节点硬件故障、OOM、kubelet 崩溃）——那些绕过 PDB。
+#   本 PDB 的目标是「计划内运维不中断 replay 请求」，不是消除所有不可用。
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: runner-launcher
+  namespace: aster-runner
+  labels:
+    app.kubernetes.io/name: runner-launcher
+    app.kubernetes.io/component: launcher
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runner-launcher
