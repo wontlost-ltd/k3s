@@ -405,10 +405,33 @@ jobs:
           sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
 
+      # ★跨仓只读 token：freshness 要查**源仓**（aster-api / aster-cloud）的 HEAD。
+      #   aster-api 转私后，k3s 的 github.token 只对本仓有效 → 查源仓 404 →
+      #   `entry[n] 取 <repo>@main 当前 HEAD 失败` → image-pin fail-closed（2026-08-02 实测）。
+      #   故用已有的 image-pin App 换一枚含 contents:read 的 token。
+      #   ★不新增 PAT：App token 短时有效、可审计、可随时撤销安装。
+      #   ⚠️ 需先在该 App 设置里把 aster-api / aster-cloud 加入安装仓库并授予
+      #      Repository permissions → Contents: Read-only，否则本步取到的 token 仍读不到源仓。
+      - name: Mint cross-repo read token (freshness)
+        id: srctoken
+        if: ${{ steps.changed.outputs.touches_lock == 'true' && vars.IMAGE_PIN_APP_CLIENT_ID != '' }}
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.IMAGE_PIN_APP_CLIENT_ID }}
+          private-key: ${{ secrets.IMAGE_PIN_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # 只要源仓的读权限；不给写、不涉及其它仓。
+          repositories: |
+            aster-api
+            aster-cloud
+          permission-contents: read
+
       - name: Verify image-lock (only changed entries; cosign + freshness, binding-mode aware)
         if: steps.changed.outputs.touches_lock == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}         # freshness 查源仓 HEAD，只读足够
+          # ★优先用 App token（可读私有源仓）；App 未配置时回落 github.token——
+          #   后者只对本仓有效，源仓转私后会 404，届时 fail-closed 是正确行为。
+          GH_TOKEN: ${{ steps.srctoken.outputs.token || github.token }}
           IMAGE_PIN_FRESHNESS: latest-only
           PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
         run: |
