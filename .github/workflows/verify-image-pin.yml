@@ -148,11 +148,36 @@ jobs:
           # ★deploy-policy 也是 runner 触发路径（Codex 抓跨 PR 绕过）：strict render-guard 从可信 base 读
           #   deploy-policy 的 deferredImages 作 render 豁免依据。若 deploy-policy 单独改能走 no-op（不触发），
           #   攻击者可 PR-A 单独加恶意豁免（no-op success）→合入成可信 base→PR-B 的 render-guard 读该 base
-          #   豁免跳过 render。故 deploy-policy 必须触发 runner lane：单独改它→invalid（分派后 topology 候选
-          #   要求恰 3 授权文件全在，deploy-policy 单独→非全→invalid）；与 3 文件同现→runner-topology。
+          #   豁免跳过 render。故 deploy-policy 必须触发 runner lane：单独改它 → 无 image-lock → invalid。
+          # ★deployment.yaml **不再**是触发路径（go-live topology lane 退休后）：它不含 pin 数据
+          #   （pin 真相 = image-lock + kustomization.images），改它（如 replicas/探针等日常运维）
+          #   应走 lane=none。
+          # ★kustomization.yaml 按**内容**而非文件名触发（Codex 五层法第一层：数据结构定边界）：
+          #   该文件承载两类互不相干的内容——
+          #     (a) images 段    = pin 数据本体，必须严守；
+          #     (b) resources 段 = 清单注册，加 PDB/NetworkPolicy 等日常运维**必须**改这里。
+          #   若按文件名一刀切，任何「新增一个清单文件」的 PR 都会被判 invalid——那只是把
+          #   「死门禁拦一切」换成「粗门禁拦一切加清单」，问题没解决。故只在 images 段**实际变化**时
+          #   才触发 runner lane；images 逐字节不变 → 视为非 pin 变更。
+          #   安全性不依赖本判定：verify-rendered-by-digest-runner.yml 对**所有**改 runner/** 的 PR
+          #   无条件跑（非 lane 门控），持续断言 launcher 渲染为 @sha256 且 RUNNER_IMAGE_DIGEST 为
+          #   sha256 形状——改 images 回浮动 tag 仍 fail-closed。
+          kust_images_changed=false
+          if grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
+            # base 侧为已 checkout 的可信文件；head 侧仅作**数据**取用（不 checkout/执行 head 代码）。
+            gh api "repos/${{ github.repository }}/contents/${RUNNER_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
+              --jq '.content' | base64 -d > /tmp/pr/head-runner-kust.yaml
+            base_imgs="$(yq -o=json '.images // []' "$RUNNER_KUST_PATH" | jq -S -c '.')"
+            head_imgs="$(yq -o=json '.images // []' /tmp/pr/head-runner-kust.yaml | jq -S -c '.')"
+            if [[ "$base_imgs" != "$head_imgs" ]]; then
+              kust_images_changed=true
+              echo ">> runner kustomization.images 变更：$base_imgs → $head_imgs"
+            else
+              echo ">> runner kustomization 被改但 images 段逐字节不变（清单注册等运维变更）"
+            fi
+          fi
           if grep -qxF "$RUNNER_LOCK_PATH" /tmp/pr/changed-files.txt \
-             || grep -qxF "$RUNNER_DEPLOY_PATH" /tmp/pr/changed-files.txt \
-             || grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt \
+             || [[ "$kust_images_changed" == "true" ]] \
              || grep -qxF "$RUNNER_DEPLOY_POLICY_PATH" /tmp/pr/changed-files.txt; then
             if [[ "$pin_flavor" == "cloud" ]]; then
               # 同一 PR 同时碰 cloud + runner → 非法形状（per-image 分支不应跨目录），fail-closed 进 strict
@@ -172,50 +197,29 @@ jobs:
             exit 1
           fi
 
-          # ── lane 分派（完备互斥枚举，Codex 定）：none|cloud-pin|runner-pin|runner-topology|invalid ──
-          # detection 只做**粗分**（看 changed-files/status）；精判（pin 数据真不变、闭世界）交对应 lane
-          #   校验器兜底（strict 走 check-pr-shape/cosign；topology 走 verify-runner-topology.sh，均从可信
-          #   base 独立 fail-closed）。骗进错 lane 都被该 lane 校验器拒。
+          # ── lane 分派（完备互斥枚举，Codex 定）：none|cloud-pin|runner-pin|invalid ──
+          # detection 只做**粗分**（看 changed-files/status）；精判（pin 数据真不变）交对应 lane
+          #   校验器兜底（strict 走 check-pr-shape/cosign，从可信 base 独立 fail-closed）。
+          #   骗进错 lane 都被该 lane 校验器拒。
+          # ★runner-topology lane 已退休（一次性 go-live 迁移通道，迁移已完成）：其校验器第 [3/6] 步
+          #   硬编码 expected_res = base_res + [deployment.yaml, external-secrets.yaml]，而这两项现已在
+          #   base 内，故该 lane 永远不可能再通过——它唯一的现实作用是拦住一切合法 runner 配置变更
+          #   （实测：加 pdb.yaml 即 fail-closed "目录文件集变更"）。死门禁本身即风险，故整体移除。
           lane=none
           if [[ "$pin_flavor" == "cloud" ]]; then
             lane=cloud-pin
           elif [[ "$pin_flavor" == "runner" ]]; then
-            # runner 命中：区分 pin（改 image-lock）vs topology（只碰 kustomization/deployment/deploy-policy
-            #   三授权文件，不碰 image-lock）。★image-lock touched → 一律 runner-pin（绝不 topology）。
+            # runner 命中：改 image-lock → runner-pin（strict 全链验签）。
             if grep -qxF "$RUNNER_LOCK_PATH" /tmp/pr/changed-files.txt; then
               lane=runner-pin
             else
-              # 候选 topology：本 PR 改动的**全部**文件必须恰在三授权文件集内（不止 runner/ 下——go-live PR
-              #   不得夹带任何其它路径：cloud/、docs、.github 等），且无 rename/delete。任何越界即 invalid。
-              #   ★这也堵 cloud+runner 混合（touch cloud/kustomization + runner/kustomization → cloud 文件
-              #   越界 → invalid），避免混合 PR 误入 topology lane（topology 校验器只看 runner 树，看不到 cloud）。
-              topo_ok=true
-              # (a) 无 rename/removed（任何路径）。
-              if awk -F'\t' '$1 == "renamed" || $1 == "removed"' /tmp/pr/changed-status.txt | grep -q .; then
-                echo "::warning::topology 候选含 rename/delete → invalid"
-                topo_ok=false
-              fi
-              # (b) 本 PR 改动的**每个**文件（去重、含 rename previous_filename）都必须是三授权文件之一。
-              while IFS= read -r cf; do
-                [[ -n "$cf" ]] || continue
-                case "$cf" in
-                  apps/aster-lang/runner/kustomization.yaml|apps/aster-lang/runner/deployment.yaml|apps/aster-lang/runner/deploy-policy.yaml) : ;;
-                  *) echo "::warning::topology 候选夹带非授权文件 ${cf} → invalid"; topo_ok=false ;;
-                esac
-              done < <(sort -u /tmp/pr/changed-files.txt)
-              # (c) 合法 go-live **必须**同时改 kustomization + deployment（加回 resources + replicas 0→1）。
-              #   缺其一（如仅改 deploy-policy 加豁免、或仅改 kustomization）→ 非完整 go-live 形状 → invalid。
-              #   ★这堵 Codex 抓的 deploy-policy-only 跨 PR 绕过（单独加恶意豁免不能走 no-op/topology 放行）。
-              if ! grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt \
-                 || ! grep -qxF "$RUNNER_DEPLOY_PATH" /tmp/pr/changed-files.txt; then
-                echo "::warning::topology 候选缺 kustomization 或 deployment（非完整 go-live 形状）→ invalid"
-                topo_ok=false
-              fi
-              if [[ "$topo_ok" == "true" ]]; then
-                lane=runner-topology
-              else
-                lane=invalid
-              fi
+              # 未碰 image-lock 却碰了 kustomization（含 images 段=pin 数据本体）或 deploy-policy
+              #   （render 豁免来源）→ 非法形状，fail-closed。
+              # ★保留此分支是 Codex 抓的跨 PR 绕过的堵点：deploy-policy 单独改**必须** invalid，
+              #   否则攻击者可 PR-A 加恶意 deferredImages 走 no-op 绿灯合入成可信 base，
+              #   PR-B 的 render-guard 读该 base 豁免即可跳过 render 校验。
+              echo "::warning::PR 改了 runner kustomization/deploy-policy 但未改 image-lock（非法 pin 形状）→ invalid"
+              lane=invalid
             fi
           fi
 
@@ -230,82 +234,18 @@ jobs:
           echo "pin_flavor=$pin_flavor" >> "$GITHUB_OUTPUT"
         id: changed
 
-      # ── invalid lane：命中 runner 受控路径但形状不明（rename/delete/触非授权文件/pin 变但没改 image-lock 的混合）→ explicit failure ──
-      - name: Invalid image-pin/topology shape (explicit failure)
+      # ── invalid lane：碰了 runner kustomization（images 段）或 deploy-policy（render 豁免源）却没改 image-lock → explicit failure ──
+      - name: Invalid image-pin shape (explicit failure)
         if: steps.changed.outputs.lane == 'invalid'
         run: |
-          echo "::error::PR 命中 runner 受控路径但既非合法 image-pin PR（未改 image-lock）亦非合法 topology PR（触及非授权文件/含 rename-delete）→ fail-closed。合法 go-live topology PR 只许改 {kustomization,deployment,deploy-policy}.yaml；合法 pin PR 须由 image-pin bot 双写 image-lock。"
+          echo "::error::PR 改了 runner kustomization.yaml（含 images 段=pin 数据）或 deploy-policy.yaml（render 豁免来源）但未改 image-lock.yaml → fail-closed。合法 pin PR 须由 image-pin bot 双写 image-lock + kustomization.images。若只想改 runner 日常运维配置（replicas/PDB/探针等），改 deployment.yaml / 新增独立清单文件即可（走 lane=none）。"
           exit 1
 
-      # ── 分流 A：非 pin/非 topology PR（lane=none）→ no-op（发 success，不做验签）──
-      # ★注意：条件用 lane=='none'（非 touches_lock），否则 runner-topology PR 会同时命中 no-op 与 topology lane。
+      # ── 分流 A：非 pin PR（lane=none）→ no-op（发 success，不做验签）──
       - name: No-op for non-image-pin PR
         id: noop
         if: steps.changed.outputs.lane == 'none'
-        run: echo "本 PR 未改 image-lock/kustomization/topology → verify-image-pin no-op（人工 PR 走其它 review 规则）"
-
-      # ── topology lane：go-live 拓扑迁移 PR（激活已固定 launcher）→ verify-runner-topology.sh ──
-      - name: Verify runner go-live topology (lane=runner-topology)
-        if: steps.changed.outputs.lane == 'runner-topology'
-        id: topology
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # ── 工具就绪：yq（pinned+checksum，同 strict 步）+ kubectl（runner 预装）+ jq/python3（预装）──
-          if ! command -v yq >/dev/null; then
-            YQ_VER=v4.44.3
-            YQ_SHA=a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
-            curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VER}/yq_linux_amd64"
-            echo "${YQ_SHA}  /tmp/yq" | sha256sum -c - || { echo "::error::yq checksum 校验失败"; exit 1; }
-            sudo install -m 0755 /tmp/yq /usr/local/bin/yq
-          fi
-          for c in yq jq kubectl python3; do command -v "$c" >/dev/null || { echo "::error::topology lane 缺依赖 $c"; exit 1; }; done
-          yq --version; kubectl version --client 2>/dev/null | head -1 || true
-          # base 树：可信 base checkout 的 workspace runner 目录（脚本只读，复制到 tmp 变换，不改 base）。
-          BASE_RUNNER="apps/aster-lang/runner"
-          [[ -d "$BASE_RUNNER" ]] || { echo "::error::base runner 目录缺失（异常）"; exit 1; }
-          # ★head 树用 GitHub API **受限导出**（非二次 checkout head 代码——安全铁律）：从可信 base 的
-          #   文件名集合出发，逐个读 head SHA 的同名 blob。拒缺失/新增/子目录/symlink/非 blob。
-          HEAD_RUNNER="$(mktemp -d)"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          # 可信 base 顶层文件名集合。
-          base_names="$(find "$BASE_RUNNER" -maxdepth 1 -type f | sed 's#.*/##' | sort)"
-          # head 侧 runner/ 顶层内容清单（含 type，拒子目录/非 blob）。
-          head_listing="$(gh api "repos/${{ github.repository }}/contents/${BASE_RUNNER}?ref=${HEAD_SHA}" \
-            --jq '.[] | "\(.type)\t\(.name)"')" || { echo "::error::取 head runner 目录清单失败"; exit 1; }
-          # head 顶层文件名集合（只取 type==file）。
-          head_names="$(echo "$head_listing" | awk -F'\t' '$1=="file"{print $2}' | sort)"
-          # 拒非 file 条目（dir/submodule/symlink 在 contents API 里 type 非 file）。
-          if echo "$head_listing" | awk -F'\t' '$1!="file"' | grep -q .; then
-            echo "::error::head runner 目录含非普通文件条目（子目录/submodule/symlink）→ fail-closed"
-            echo "$head_listing" | awk -F'\t' '$1!="file"' >&2
-            exit 1
-          fi
-          # 文件集必须与 base 完全一致（无新增/删除——校验器还会再查一次，此为导出前置）。
-          if [[ "$base_names" != "$head_names" ]]; then
-            echo "::error::head runner 目录文件集 != base（新增/删除文件）→ fail-closed"
-            diff <(echo "$base_names") <(echo "$head_names") >&2 || true
-            exit 1
-          fi
-          # 逐文件从 head SHA 取 blob 内容（base64 解码），落 HEAD_RUNNER。
-          # ★纵深：显式校验 encoding==base64（>1MB 文件 contents API 返回 encoding=none + 空 content，
-          #   须 blob api；runner 文件都小，此处 fail-closed 拒大文件而非静默产空文件绕过）。
-          while IFS= read -r name; do
-            [[ -n "$name" ]] || continue
-            meta="$(gh api "repos/${{ github.repository }}/contents/${BASE_RUNNER}/${name}?ref=${HEAD_SHA}")" \
-              || { echo "::error::取 head 文件失败：${name}"; exit 1; }
-            enc="$(jq -r '.encoding // ""' <<<"$meta")"
-            [[ "$enc" == "base64" ]] \
-              || { echo "::error::head 文件 ${name} encoding=${enc}（非 base64，疑 >1MB 大文件）→ fail-closed"; exit 1; }
-            jq -r '.content' <<<"$meta" | base64 -d > "${HEAD_RUNNER}/${name}" \
-              || { echo "::error::head 文件 ${name} base64 解码失败"; exit 1; }
-          done <<< "$base_names"
-          echo ">> head runner 树已受限导出到 $HEAD_RUNNER（$(echo "$base_names" | wc -l | tr -d ' ') 文件）"
-          # 运行可信 base 侧校验器（闭世界 render-equality + 目录文件集 + pin 不变 + 严格 YAML）。
-          # ★kubectl kustomize 不传 --enable-exec/--enable-alpha-plugins/--enable-helm（校验器内部亦然）。
-          bash scripts/image-pin/verify-runner-topology.sh "$BASE_RUNNER" "$HEAD_RUNNER"
-          echo "topology_verified=true" >> "$GITHUB_OUTPUT"
+        run: echo "本 PR 未改 image-lock/kustomization → verify-image-pin no-op（人工 PR 走其它 review 规则）"
 
       # ── 分流 B：改了 image-lock → 严格路径 ──
       - name: Fetch PR-head 数据 (binding-mode aware，不 checkout head 代码)
@@ -521,8 +461,8 @@ jobs:
           done
 
       # ── 恰一 lane 断言（Codex 定，防「条件写错致全 lane skipped 但 job 仍 success」的假绿）──
-      # ★用 lane 枚举本身判：lane 必须是 5 合法值之一；且对应 lane 的处置步已跑（none→no-op；
-      #   cloud-pin|runner-pin→strict；runner-topology→topology；invalid 已在前面 exit 1 使 job 失败）。
+      # ★用 lane 枚举本身判：lane 必须是 4 合法值之一；且对应 lane 的处置步已跑（none→no-op；
+      #   cloud-pin|runner-pin→strict；invalid 已在前面 exit 1 使 job 失败）。
       #   若 lane 是未知值或空 → explicit failure。
       - name: Assert exactly one lane (anti-false-green)
         if: ${{ always() }}
@@ -530,7 +470,6 @@ jobs:
           LANE: ${{ steps.changed.outputs.lane }}
           CHANGED_OUTCOME: ${{ steps.changed.outcome }}
           NOOP_OUTCOME: ${{ steps.noop.outcome }}
-          TOPOLOGY_OUTCOME: ${{ steps.topology.outcome }}
           RENDERGUARD_OUTCOME: ${{ steps.renderguard.outcome }}
         run: |
           set -euo pipefail
@@ -541,8 +480,8 @@ jobs:
           fi
           # ★不止校验枚举合法，还须校验**对应 lane 的处置步真的跑了**（outcome 匹配），防某 lane 条件
           #   写错致全 skip 但 job 仍 success 的假绿（Codex 抓）。sentinel：none→noop；cloud-pin|runner-pin
-          #   →renderguard（strict 最终步）；runner-topology→topology；invalid→前面已 exit 1（job 必 fail）。
-          echo ">> lane=$LANE noop=$NOOP_OUTCOME topology=$TOPOLOGY_OUTCOME renderguard=$RENDERGUARD_OUTCOME"
+          #   →renderguard（strict 最终步）；invalid→前面已 exit 1（job 必 fail）。
+          echo ">> lane=$LANE noop=$NOOP_OUTCOME renderguard=$RENDERGUARD_OUTCOME"
           case "$LANE" in
             none)
               [[ "$NOOP_OUTCOME" == "success" ]] \
@@ -551,9 +490,6 @@ jobs:
               # strict lane 最终 sentinel = render-guard（touches_lock 全链最后一步；前置任一失败 job 已 fail）。
               [[ "$RENDERGUARD_OUTCOME" == "success" ]] \
                 || { echo "::error::lane=$LANE 但 render-guard(strict 最终步) outcome=$RENDERGUARD_OUTCOME（非 success）→ strict 链未完整跑 fail-closed"; exit 1; } ;;
-            runner-topology)
-              [[ "$TOPOLOGY_OUTCOME" == "success" ]] \
-                || { echo "::error::lane=runner-topology 但 topology 校验步 outcome=$TOPOLOGY_OUTCOME（非 success）→ 条件错配 fail-closed"; exit 1; } ;;
             invalid)
               # invalid 步已 exit 1 使 job fail；本断言（always）能到这里说明 job 会以 failure 收尾，不放绿。
               echo ">> lane=invalid（Invalid 步已 fail job）" ;;
@@ -585,7 +521,7 @@ jobs:
           set -euo pipefail
           if [[ "$JOB_STATUS" == "success" ]]; then
             conclusion=success
-            summary="verify-image-pin 通过（lane=${LANE}；no-op / cosign+freshness / topology 闭世界 全过）"
+            summary="verify-image-pin 通过（lane=${LANE}；no-op / cosign+freshness 全过）"
           else
             conclusion=failure
             summary="verify-image-pin 失败（lane=${LANE}），见 job 日志"

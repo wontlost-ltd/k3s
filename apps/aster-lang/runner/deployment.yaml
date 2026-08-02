@@ -13,10 +13,15 @@ metadata:
     app.kubernetes.io/component: launcher
     app.kubernetes.io/part-of: aster-lang
 spec:
-  # ★replicas: 1（go-live 已解门）：前置全就绪——launcher 真签 digest 已 pin（kustomize images
+  # ★replicas: 2（go-live 已解门）：前置全就绪——launcher 真签 digest 已 pin（kustomize images
   #   transformer 覆写占位）+ Vault aster-runner-launcher-hmac secret 已 provision（ExternalSecret 拉取）+
-  #   admission 有 cosign 签名过。launcher 微服务正式调度运行。go-live 迁移由 runner-topology lane 校验。
-  replicas: 1
+  #   admission 有 cosign 签名过。launcher 微服务正式调度运行。
+  # ★2 副本而非 1：配合 pdb.yaml 的 minAvailable:1 才构成真高可用。launcher 无状态，可安全水平扩：
+  #   进程内无共享状态（无 volume/无 leader election），Job 名由 crypto/rand 生成 64 位随机
+  #   （orchestrator/util.go newJobName），多副本并发建 Job 不会撞名。
+  #   若维持 replicas:1 + minAvailable:1，PDB 允许中断数 = 1-1 = 0，会**永久阻塞** node drain
+  #   与 k3s 自动升级——那是把单点故障换成了升级卡死，不是修复。
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: runner-launcher

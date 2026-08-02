@@ -4,13 +4,16 @@
 # ★network-policy.yaml 默认注释禁用（k3s kube-router caveat），故不列入 resources——
 #   待确认集群 CNI 支持 NetworkPolicy enforce 后再解注释并加入。
 #
-# ★★deployment.yaml + external-secrets.yaml **已解门上线**（go-live，走 runner-topology lane 校验）：
-#   前置全就绪——launcher 镜像真签 digest 已 pin（images 段 + image-lock，ad84d70b）+ Vault path
-#   apps/aster-runner-launcher（hmac-key）已 provision。kustomize images transformer 用真 digest 覆写
-#   Deployment 占位 → sigstore admission 过（有 cosign 签名）；ExternalSecret 从 Vault 拉 hmac-key。
-#   本变更由 verify-image-pin 的 runner-topology lane（verify-runner-topology.sh 闭世界 render-equality）
-#   校验：pin 数据不变 + 仅激活已固定 launcher workload（deployment/external-secrets 入 resources +
-#   replicas 0→1 + 删 deploy-policy launcher deferred，三项授权迁移之外任何改动 fail-closed）。
+# ★★deployment.yaml + external-secrets.yaml **已解门上线**（go-live 迁移已完成）：
+#   launcher 镜像真签 digest 已 pin（images 段 + image-lock）+ Vault path apps/aster-runner-launcher
+#   （hmac-key）已 provision。kustomize images transformer 用真 digest 覆写 Deployment 占位 →
+#   sigstore admission 过（有 cosign 签名）；ExternalSecret 从 Vault 拉 hmac-key。
+#
+# ★迁移专用的 runner-topology lane 已随之退休（其校验器硬编码「恰新增 deployment+external-secrets」，
+#   迁移完成后永不可能再通过，只剩拦住一切合法 runner 配置变更的副作用）。现行门禁：
+#     - images 段（pin 数据本体）变更 → 必须与 image-lock 同 PR 双写，否则 fail-closed；
+#     - 只改 resources（注册 pdb.yaml 等清单）→ 属日常运维，走 lane=none；
+#     - 无论哪种，verify-rendered-by-digest-runner.yml 对所有 runner/** PR 无条件断言 by-digest。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aster-runner
@@ -23,6 +26,7 @@ resources:
   - deployment.yaml
   - external-secrets.yaml
   - ingress.yaml
+  - pdb.yaml
 # ★launcher 镜像 digest（部署真相）：image-pin 脚本改写此段的 digest，k3s verify 校验 == image-lock。
 #   image-pin 脚本 kcount 校验此段恰 1 条（open-image-pin-pr.sh:65-66）——故 deployment.yaml 暂不部署
 #   期间**保留**本 images 条（脚本按 .images[].name 计数，不依赖 deployment 在 resources 里；kustomize
