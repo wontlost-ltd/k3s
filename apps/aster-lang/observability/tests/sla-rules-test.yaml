@@ -1,0 +1,68 @@
+# SLA 规则单元测试（promtool test rules）
+#
+# 跑法（从仓根）：
+#   python3 -c "import yaml;d=yaml.safe_load(open('apps/aster-lang/observability/prometheus-rule.yaml'));\
+#     open('.tmp-rules.yaml','w').write(yaml.safe_dump({'groups':d['spec']['groups']},allow_unicode=True))"
+#   promtool test rules apps/aster-lang/observability/tests/sla-rules-test.yaml
+#   rm .tmp-rules.yaml
+#
+# 锁的是：正常发布/单副本不健康**不算** SLA 事故，全实例宕机才算，
+# 且聚合后只产生一条告警而非每个 pod 一条。
+rule_files:
+  - ../../../../.tmp-rules.yaml
+evaluation_interval: 30s
+
+tests:
+  # 场景 A：单个 pod 不健康（up=0）100 分钟，另一副本全程在线。
+  # 用户视角：Service 只路由到 Ready 的 pod ⇒ 全程可用 ⇒ 不应告警。
+  # 旧 expr 会对该 pod 算出 92.69% 并触发（这正是收到多条不同数值的来源）。
+  - interval: 1m
+    name: 单副本不健康不应算作服务 SLA 事故
+    input_series:
+      - series: 'up{job="aster-api",instance="10.0.0.10:8080"}'
+        values: '1+0x1000 0+0x100 1+0x340'
+      - series: 'up{job="aster-api",instance="10.0.0.11:8080"}'
+        values: '1+0x1440'
+    alert_rule_test:
+      - eval_time: 23h
+        alertname: AsterApiSlaBreachDay
+        exp_alerts: []
+
+  # 场景 B：滚动更新换 IP（旧 pod 序列消失、新 pod 出现）。
+  # 不应告警，且**只应产生一条**序列而非每个 IP 一条。
+  - interval: 1m
+    name: 滚动更新换 IP 不应告警
+    input_series:
+      - series: 'up{job="aster-api",instance="10.0.0.10:8080"}'
+        values: '1+0x720 _x740'
+      - series: 'up{job="aster-api",instance="10.0.0.11:8080"}'
+        values: '1+0x1460'
+      - series: 'up{job="aster-api",instance="10.0.0.12:8080"}'
+        values: '_x720 1+0x740'
+    alert_rule_test:
+      - eval_time: 23h
+        alertname: AsterApiSlaBreachDay
+        exp_alerts: []
+
+  # 场景 C：★全部实例同时宕机 2 小时 —— 这是真事故，必须告警，
+  #   且聚合后只有一条（不是每个 pod 一条）。
+  - interval: 1m
+    name: 全实例宕机是真事故必须告警且仅一条
+    input_series:
+      - series: 'up{job="aster-api",instance="10.0.0.10:8080"}'
+        values: '1+0x1200 0+0x120 1+0x120'
+      - series: 'up{job="aster-api",instance="10.0.0.11:8080"}'
+        values: '1+0x1200 0+0x120 1+0x120'
+    alert_rule_test:
+      - eval_time: 23h
+        alertname: AsterApiSlaBreachDay
+        exp_alerts:
+          - exp_labels:
+              alertname: AsterApiSlaBreachDay
+              job: aster-api
+              severity: critical
+              team: infra
+              window: "1d"
+            exp_annotations:
+              summary: "aster-api 24 小时 SLA 跌破 99.5%"
+              description: "当前 1 天可用率 91.24%"
