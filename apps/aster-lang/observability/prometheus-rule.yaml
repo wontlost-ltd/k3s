@@ -108,9 +108,27 @@ spec:
       interval: 30s
       rules:
         # 1 天 SLA：新部署也能用，是主告警
+        #
+        # ★expr 必须先跨 instance 聚合再看窗口，原因有二：
+        #
+        # 1. up{} 的 instance 是 <pod-ip>:<port>，滚动更新会换 IP。原写法
+        #    avg_over_time(up{...}[1d]) 不做聚合，会对「过去 24h 出现过的
+        #    每个 pod IP」各算一个可用率、各触发一条告警。一次 image-pin
+        #    部署就能让一条通知里塞进 5 段 Summary 且值各不相同——已被替换的
+        #    旧 pod 在窗口后半段没有数据点，avg 自然偏低。那报的不是
+        #    "服务不可用"，而是"这个 pod 已经不存在了"。
+        #
+        # 2. 语义也不对：2 副本时一个 pod 滚动重启、另一个照常服务，
+        #    对用户是 100% 可用。按 pod 平均会把正常发布记成 SLA 事故，
+        #    发得越勤"可用率"越低——这会诱导团队少发版，本末倒置。
+        #
+        # max by(job)：任一实例在线即视为服务可用，与用户视角一致
+        # （Service 只把流量路由到 Ready 的 pod）。子查询步长对齐 30s 抓取间隔。
         - alert: AsterApiSlaBreachDay
           expr: |
-            avg_over_time(up{job="aster-api"}[1d]) < 0.995
+            avg_over_time(
+              (max by(job) (up{job="aster-api"}))[1d:30s]
+            ) < 0.995
           for: 1h
           labels:
             severity: critical
@@ -121,10 +139,20 @@ spec:
             description: "当前 1 天可用率 {{ $value | humanizePercentage }}"
 
         # 30 天 SLA：仅在已运行 30 天以上才告警，避免新部署误报
+        #
+        # 同 Day 规则：跨 instance 聚合。30d 窗口内 pod IP 轮换只会更多，
+        # 不聚合的话这条几乎必然常态误报。
+        # 右侧的运行时长判定也要聚合——原写法 process_start_time_seconds 同样
+        # 按 instance 展开，滚动更新后新 pod 的运行时长永远 <30d，
+        # 会把整条规则连带压掉（and on() 匹配不上 ⇒ 静默失效）。
+        # 用 max：只要有实例已连续运行 30 天以上，就认为窗口数据足够可信。
         - alert: AsterApiSlaBreachMonth
           expr: |
-            avg_over_time(up{job="aster-api"}[30d]) < 0.995
-            and on() (time() - process_start_time_seconds{job="aster-api"}) > 30 * 86400
+            avg_over_time(
+              (max by(job) (up{job="aster-api"}))[30d:30s]
+            ) < 0.995
+            and on()
+            (max(time() - process_start_time_seconds{job="aster-api"})) > 30 * 86400
           for: 6h
           labels:
             severity: warning
