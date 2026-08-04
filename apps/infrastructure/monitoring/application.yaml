@@ -133,15 +133,43 @@ spec:
               # slack_api_url 由 ExternalSecret 注入 alertmanager-slack-webhook
               # 通过 alertmanagerSpec.secrets 挂载，模板里用 file 引用
               slack_api_url_file: /etc/alertmanager/secrets/alertmanager-slack-webhook/url
+            # ★抑制规则：同一目标同时有 critical 与 warning 时只发 critical。
+            #   此前未配置——一次故障会按 severity 分成两组、再经 Slack+Telegram
+            #   两条通道各发一次，四条消息说的是同一件事。
+            #   equal 用 namespace+alertname 而非全标签：pod 名带 hash 时全标签
+            #   永远匹配不上，等于没配。
+            inhibit_rules:
+              - source_matchers: ['severity = "critical"']
+                target_matchers: ['severity = "warning"']
+                equal: ['namespace', 'alertname']
+              # 节点宕机时其上所有 pod/服务告警都是衍生结果，无需逐条通知。
+              - source_matchers: ['alertname = "KubeNodeNotReady"']
+                target_matchers: ['severity =~ "warning|critical"']
+                equal: ['node']
             route:
-              group_by: ['namespace', 'alertname', 'severity']
+              # ★去掉 severity：带上它会把同一 alertname 的 warning 与 critical
+              #   拆成两组分别通知。severity 去重已由 inhibit_rules 负责。
+              group_by: ['namespace', 'alertname']
               group_wait: 30s
               group_interval: 5m
-              repeat_interval: 12h
+              # warning 未修时每 24h 提醒一次即可。原 12h ⇒ 一条未处理的 warning
+              # 一周发 14 次×2 通道 = 28 条，这是"消息太多"的主因之一。
+              # critical 不受影响，仍走下面 routes 里的 1h。
+              repeat_interval: 24h
               receiver: 'slack-default'
               routes:
                 - matchers:
                     - alertname = "Watchdog"
+                  receiver: 'null'
+                # ★单节点 1 OCPU 上这两条**恒真**：YAML 里 CPU requests 合计
+                #   ≈1550m > 1000m 可分配量，超配是这套部署的既定取舍
+                #   （见 312b3f8「服务瘦身适配单节点 1 OCPU / 6 GiB」）。
+                #   永远无法 resolved 的告警不是信号，只是噪音——真要改善得靠
+                #   加节点或降 requests，而不是每天被提醒一次。
+                #   只静音这两条具体规则，kubernetesResources 组其余告警
+                #   （配额耗尽等）仍然保留。
+                - matchers:
+                    - alertname =~ "KubeCPUOvercommit|KubeMemoryOvercommit"
                   receiver: 'null'
                 - matchers:
                     - severity = "critical"
