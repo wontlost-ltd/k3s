@@ -139,6 +139,16 @@ spec:
             #   equal 用 namespace+alertname 而非全标签：pod 名带 hash 时全标签
             #   永远匹配不上，等于没配。
             inhibit_rules:
+              # ★InfoInhibitor：kube-prometheus-stack 内置的哨兵告警，其自身
+              #   description 明确要求「routed to a null receiver and configured
+              #   to inhibit alerts with severity="info"」——这两件事此前都没做，
+              #   于是它自己变成了噪音（还带 [RESOLVED] 来回翻转）。
+              #   语义：同 namespace 下没有 warning/critical 时，info 级告警多是
+              #   无行动价值的背景噪音，压掉；一旦出现真问题，InfoInhibitor 停火，
+              #   info 告警自动恢复可见——此时它们是有用的上下文。
+              - source_matchers: ['alertname = "InfoInhibitor"']
+                target_matchers: ['severity = "info"']
+                equal: ['namespace']
               - source_matchers: ['severity = "critical"']
                 target_matchers: ['severity = "warning"']
                 equal: ['namespace', 'alertname']
@@ -160,6 +170,12 @@ spec:
               routes:
                 - matchers:
                     - alertname = "Watchdog"
+                  receiver: 'null'
+                # InfoInhibitor 是**控制信号**，不是给人看的告警：它存在的唯一
+                # 目的就是驱动上面那条 inhibit_rule。必须路由到 null，否则它自己
+                # 会被当成普通告警投递出来（本次收到的那条就是它）。
+                - matchers:
+                    - alertname = "InfoInhibitor"
                   receiver: 'null'
                 # ★单节点 1 OCPU 上这两条**恒真**：YAML 里 CPU requests 合计
                 #   ≈1550m > 1000m 可分配量，超配是这套部署的既定取舍
