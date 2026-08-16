@@ -40,4 +40,4 @@ images:
   - name: docker.io/wontlost/aster-api
     digest: sha256:e430e8d3a5c22a404819fbaf9613a97b6fb35427a692cc9eea0f34dc50281004
   - name: docker.io/wontlost/aster-cloud-migrate
-    digest: sha256:35467f0663eb8d41e233714f44ebb8f13cabbc091293e8bfa2f64a3565ec39de
+    digest: sha256:ae6aa7170cf48b6cdc7008bec3cc67fcc06003490663852ce6e2f56cd2ea2e32
