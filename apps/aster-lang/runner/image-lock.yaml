@@ -18,9 +18,9 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-replay-runner
-    digest: sha256:ec81e51f6d56d4dbca616aa991e22effe3b7aaddc65139ab31ac1d0b3c2e9371
-    sourceSha: 813aae31f0d41d4f5d1cd4d2b886112f3b2f9d1e # Slice-2b-launch 首个 CI PR 覆盖为真实 github.sha
-    runId: "32073166429"
+    digest: sha256:daec8b92c72bfd302ce13a3bce48a701630d1be63e224567ca4b67ad768471fd
+    sourceSha: e675b0831cab4daec06209012e06ce56248018dc # Slice-2b-launch 首个 CI PR 覆盖为真实 github.sha
+    runId: "32083373949"
   # launcher 镜像 pin（S2-1a-2 Slice-2b-launch）——由 aster-runner-launcher-deploy.yml 的 image-pin
   #   步覆写（LOCK_PATH 指向本文件）。占位：digest 全零 + sourceSha=UNVERIFIED-SEED，
   #   首个真 pin 由 launcher 首个 CI PR 写入。★与 runner 条独立（两个不同镜像的两个 pin）。
