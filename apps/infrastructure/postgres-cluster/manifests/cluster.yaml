@@ -89,6 +89,32 @@ spec:
         connectionLimit: 50
         passwordSecret:
           name: aster-api-postgres-credentials
+      # ★迁移专用角色（2026-08-17 安全审计）：持有 aster_api 各表的 owner 并跑 Flyway。
+      #
+      #   为什么必须与运行时角色分离——实测（PG 16，全程非超级用户）：
+      #   表 owner 只需两条 DDL 即可同时解除审计表的 append-only 触发器与权限收缴：
+      #       GRANT UPDATE ON audit_logs TO <self>;            -- owner 可给自己重新授权
+      #       ALTER TABLE audit_logs DISABLE TRIGGER trg_...;  -- owner 可关自己的触发器
+      #   甚至可直接 CREATE OR REPLACE 守卫函数为空实现（一步且更隐蔽）。
+      #
+      #   此前 aster_api_user 既跑 Flyway（migrate-at-start）又作运行时连接，
+      #   因此它就是表 owner —— 审计防篡改的层 1/2 对它形同虚设，
+      #   运行时凭据泄露 == 可静默改写审计记录。
+      #
+      #   分离后实测（同一套验证）：非 owner 的应用角色
+      #     - 自授权限 → WARNING: no privileges were granted（no-op）
+      #     - 关触发器 → ERROR: must be owner of table
+      #     - 换守卫函数 → ERROR: permission denied for schema public
+      #     - 而 INSERT/SELECT 正常，审计写入不受影响
+      #
+      #   连接数给 5 即可：只在应用启动时跑一次迁移，不承载运行时流量。
+      - name: aster_migrator
+        ensure: present
+        login: true
+        inherit: true
+        connectionLimit: 5
+        passwordSecret:
+          name: aster-migrator-postgres-credentials
 
   # Superuser secret
   superuserSecret:
