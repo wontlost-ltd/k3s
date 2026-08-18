@@ -104,6 +104,31 @@ spec:
                 secretKeyRef:
                   name: aster-api-db-credentials
                   key: password
+            # ★Flyway 用**独立的迁移角色**跑，与运行时连接分离（2026-08-17 安全审计）。
+            #
+            #   此前 Flyway 与运行时共用 aster_api_user（migrate-at-start=true），
+            #   因此该角色是各表的 owner。实测（PG 16，非超级用户）表 owner 只需两条 DDL
+            #   即可解除审计表的 append-only 保护：
+            #       GRANT UPDATE ON audit_logs TO <self>;
+            #       ALTER TABLE audit_logs DISABLE TRIGGER trg_audit_logs_append_only;
+            #   即：运行时凭据泄露 == 可静默改写审计记录，防篡改的层 1/2 形同虚设。
+            #
+            #   分离后 aster_api_user 非 owner，实测三条攻击路径全部被拒
+            #   （自授权限 no-op / 关触发器 must be owner / 换守卫函数 permission denied），
+            #   而 INSERT/SELECT 正常，审计写入不受影响。
+            #
+            #   Quarkus 3.38 支持 quarkus.flyway.username/password 覆盖数据源凭据
+            #   （已本地实测：迁移确实以该角色应用，产出的表 owner 即 aster_migrator）。
+            - name: QUARKUS_FLYWAY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-migrator-credentials
+                  key: username
+            - name: QUARKUS_FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-migrator-credentials
+                  key: password
             # Reactive datasource URL (for Flyway/Hibernate)
             - name: QUARKUS_DATASOURCE_REACTIVE_URL
               valueFrom:
