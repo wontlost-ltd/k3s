@@ -71,24 +71,59 @@ kubectl get cluster -n data-services shared-postgres \
 新的 `aster_migrator` 首次部署时还不拥有旧表，故这一步必须由 `postgres` 做一次。
 （之后新建的表由 Flyway 以 migrator 身份创建，自然归属正确，无需再人工介入。）
 
+> ### ⚠️ 必须移交 **整个 schema**，不能只移交审计表
+>
+> 实操踩过一次（2026-08-18）：只 `ALTER TABLE audit_logs OWNER TO aster_migrator`
+> 后，新 Pod 全部 **CrashLoopBackOff**：
+>
+> ```
+> FlywaySqlException: Error while retrieving the list of applied migrations
+> ERROR: permission denied for table flyway_schema_history
+> ```
+>
+> 原因：Flyway 以 `aster_migrator` 连接后要读写 `flyway_schema_history`、
+> 并对全部对象做 validate/apply —— 它必须拥有**所有** 34 张表，而不只是审计表。
+> （当时旧 Pod 仍在服务，未造成对外中断，但新副本起不来。）
+
 ```sh
-kubectl exec -n data-services shared-postgres-1 -- psql -U postgres -d aster_api <<'SQL'
+kubectl exec -n data-services shared-postgres-1 -i -- psql -U postgres -d aster_api -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
-ALTER TABLE audit_logs OWNER TO aster_migrator;
-ALTER SEQUENCE audit_logs_id_seq OWNER TO aster_migrator;
--- 锚点表若已由前一版迁移建出则一并移交（不存在时本行报错可忽略，用 \gset 前先查）
-ALTER TABLE IF EXISTS audit_chain_anchors OWNER TO aster_migrator;
+-- 1) 整个 schema 的对象移交给迁移角色（Flyway 需要全量 DDL 权限）
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' LOOP
+    EXECUTE format('ALTER TABLE public.%I OWNER TO aster_migrator', r.tablename);
+  END LOOP;
+  FOR r IN SELECT sequencename FROM pg_sequences WHERE schemaname='public' LOOP
+    EXECUTE format('ALTER SEQUENCE public.%I OWNER TO aster_migrator', r.sequencename);
+  END LOOP;
+  FOR r IN SELECT viewname FROM pg_views WHERE schemaname='public' LOOP
+    EXECUTE format('ALTER VIEW public.%I OWNER TO aster_migrator', r.viewname);
+  END LOOP;
+END $$;
+ALTER SCHEMA public OWNER TO aster_migrator;
 
--- 移交后重授运行时权限（owner 隐式全权会随 owner 一起带走）
-GRANT INSERT, SELECT ON audit_logs TO aster_api_user;
-GRANT USAGE, SELECT ON SEQUENCE audit_logs_id_seq TO aster_api_user;
+-- 2) 重授运行时角色的 DML（owner 隐式全权会随 owner 一起带走）
+GRANT USAGE ON SCHEMA public TO aster_api_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aster_api_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO aster_api_user;
 
--- ★这次 REVOKE 才真正生效：V6.22.1 执行时 app_role 还是 owner，
---   owner 隐式全权让当时的 REVOKE 没有实际约束力
+-- 3) ★审计表是唯一例外：只 append + read。这次 REVOKE 才真正生效
+--   （V6.22.1 执行时 app_role 还是 owner，owner 隐式全权让当时的 REVOKE 没有约束力）
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM aster_api_user;
+
+-- 4) 未来由 aster_migrator 新建的表自动授予运行时 DML，避免每次加表都要人工补授权
+ALTER DEFAULT PRIVILEGES FOR ROLE aster_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO aster_api_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE aster_migrator IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO aster_api_user;
 COMMIT;
 SQL
 ```
+
+> 新增审计表（如 `audit_chain_anchors`）时，第 3 步要相应补一条 REVOKE——
+> 默认权限会给它 `arwd`，而审计表应当只有 `ar`。
 
 同时 Flyway 迁移 `V6.24.0` 会做同样的事作为幂等兜底——两者顺序无关，先跑哪个都行。
 
@@ -103,7 +138,21 @@ WHERE tablename IN ('audit_logs','audit_chain_anchors');"
 kubectl exec -n data-services shared-postgres-1 -- psql -U postgres -d aster_api -c "
 SELECT relacl FROM pg_class WHERE relname='audit_logs';"
 # 期望能看到 aster_api_user=ar/...（a=INSERT r=SELECT），**没有** w(UPDATE)/d(DELETE)
+
+# ★同时核对业务表**没有**被误收：应用要正常 UPDATE 策略/工作流
+kubectl exec -n data-services shared-postgres-1 -- psql -U postgres -d aster_api -c "
+SELECT relname, array_to_string(relacl,' | ') FROM pg_class
+WHERE relname IN ('audit_logs','policy_versions');"
+# 期望的**不对称**：
+#   audit_logs      → aster_api_user=ar    （仅 append+read）
+#   policy_versions → aster_api_user=arwd  （完整 DML）
 ```
+
+> 实测参考（2026-08-18 生产）：
+> ```
+> audit_logs      | aster_migrator=arwdDxt/aster_migrator | aster_api_user=ar/aster_migrator
+> policy_versions | aster_migrator=arwdDxt/aster_migrator | aster_api_user=arwd/aster_migrator
+> ```
 
 **行为探针**（这才是真验证——权限表看着对不代表运行时对）：
 
