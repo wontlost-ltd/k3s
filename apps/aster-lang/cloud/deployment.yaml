@@ -141,8 +141,12 @@ spec:
             #
             #   置 false 前已逐条核实**双侧都已真正部署**（不是"合并到 main"）：
             #     · cloud 侧 v2 签名：commit 648255e2，check-run
-            #       `Workers Builds: aster-cloud` = success，Worker modified_on
-            #       2026-08-17T21:54:52Z（构建后 4 分钟）→ 确已上线。
+            #       `Workers Builds: aster-cloud` = success → 确已上线。
+            #       （核验用 commit SHA + check-run 结论，可随时回溯；
+            #        Worker 的 modified_on 是外部系统瞬时状态，不作长期论据。）
+            #       更强的一条：发送侧 snapshot-pusher.ts 的 callAsterApi 里
+            #       X-Aster-Nonce 与签名同一分支无条件设置，**不存在 v1 代码路径**
+            #       —— 这是结构性保证，强于「观察线上无 v1 流量」。
             #       注：CI 的 "Deploy Worker" 显示 skipped 是**设计如此**
             #       （ENABLE_CI_WORKER_DEPLOY 默认关，避免与 Git 集成双路部署），
             #       不代表没部署——只看它会误判。
