@@ -129,6 +129,28 @@ spec:
                 secretKeyRef:
                   name: aster-api-migrator-credentials
                   key: password
+            # ★关闭 snapshot HMAC v1 兼容窗口（2026-08-17 安全审计的收尾步骤）。
+            #
+            #   v1 canonical 只签 `method\npath\nts` —— 签名与请求体无关、无一次性
+            #   凭证。截获任意一条合法签名后，攻击者可在时间窗内**替换请求体**
+            #   （把 role 改成 ADMIN、把 apiCallsLimit 改成无限）或原样重放，
+            #   而签名依然通过。这些端点写入的正是 aster-api 鉴权决策所依赖的数据。
+            #
+            #   v2 绑定 nonce + sha256(body)。服务端此前默认 accept-legacy-signature=true
+            #   以留迁移窗口；两侧都已上线后必须硬切，否则弱点一直敞着。
+            #
+            #   置 false 前已逐条核实**双侧都已真正部署**（不是"合并到 main"）：
+            #     · cloud 侧 v2 签名：commit 648255e2，check-run
+            #       `Workers Builds: aster-cloud` = success，Worker modified_on
+            #       2026-08-17T21:54:52Z（构建后 4 分钟）→ 确已上线。
+            #       注：CI 的 "Deploy Worker" 显示 skipped 是**设计如此**
+            #       （ENABLE_CI_WORKER_DEPLOY 默认关，避免与 Git 集成双路部署），
+            #       不代表没部署——只看它会误判。
+            #     · api 侧 v2 校验：commit 813aae31，是已部署 commit e675b083 的祖先；
+            #       image-pin #397 记录 e675b083 → sha256:570f874c…，与集群在跑的
+            #       digest 一致 → 运行中的镜像确含 v2 校验。
+            - name: ASTER_SNAPSHOT_ACCEPT_LEGACY_SIG
+              value: "false"
             # Reactive datasource URL (for Flyway/Hibernate)
             - name: QUARKUS_DATASOURCE_REACTIVE_URL
               valueFrom:
