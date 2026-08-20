@@ -20,9 +20,9 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-api
-    digest: sha256:6cf90eec0f3ecb067efc8c26c85041db279d2fd37a71a24ce693c16d27934d47
-    sourceSha: b6bbd2ffb427b8382374f20d4fe09135ceb8ff09 # Phase 2 首个 CI PR 覆盖为真实 github.sha
-    runId: "32298568219"
+    digest: sha256:dc75abbdc0bd9db064d7eee99cf65e68039917e7fb56fa4b17fb5e68abc08a7e
+    sourceSha: c29fed7d31687759133ee07c7ea8adf6222e56a8 # Phase 2 首个 CI PR 覆盖为真实 github.sha
+    runId: "32326800187"
   - image: docker.io/wontlost/aster-cloud-migrate
     digest: sha256:2ff2b69b8951fa798de5cc9eb59fa73f385581434915d85133b2898ff329f2a1
     sourceSha: 06d02a8a1b886a1512240f7282bf461b9233251b
