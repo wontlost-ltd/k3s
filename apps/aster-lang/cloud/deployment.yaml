@@ -170,8 +170,14 @@ spec:
             - name: QUARKUS_REDIS_CLIENT_TYPE
               value: "standalone"
             # CORS 配置
+            # ★www.aster-lang.dev 必须在列：该主机名**直接提供文档站**（不跳转到
+            # apex，实测 HTTP 200 且 <title> 为文档站本身）。漏掉它时，从 www 进来的
+            # 访客浏览器会对 /api/v1/lexicons 报 CORS 失败——已在生产实测复现：
+            # www 有报错、apex 干净。表现是「悄悄降级」而非白屏（useAvailableLocales
+            # 是 fail-open，会退回编译期全语言集），所以长期无人察觉。
+            # 对照：aster-lang.cloud 的 www 一直在列，本条是 .dev 侧的遗漏。
             - name: QUARKUS_HTTP_CORS_ORIGINS
-              value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.dev,https://aster-lang.dev"
+              value: "https://aster-lang.cloud,https://www.aster-lang.cloud,https://policy.aster-lang.dev,https://aster-lang.dev,https://www.aster-lang.dev"
             # LLM AI Assistant（从 Vault 注入）
             - name: ASTER_LLM_API_KEY
               valueFrom:
