@@ -13,7 +13,7 @@ resources:
 # 通过 `kustomize edit set image` 自动写入 immutable digest。
 # 初始值仅作占位，避免 ArgoCD 在首次 sync 时找不到 image 字段。
 images:
-- digest: sha256:0b7eadcdcc069d027cd3e2e1a3189433e5c8a7218b54f859cd2cd37743a1d065
+- digest: sha256:170dba90f74bf93da6d09d6d53def236981a63cea86e313c539027e1b19afd17
   name: wontlost/ckeditor-builder
   newName: wontlost/ckeditor-builder
-  newTag: "5.2"
+  newTag: main
