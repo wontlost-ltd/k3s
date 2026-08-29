@@ -52,3 +52,19 @@ images:
     workflowFile: aster-runner-launcher-deploy.yml
     sourceRef: refs/heads/main
     deployBinding: kustomization      # 静态部署镜像：launcher 在 runner/kustomization images transformer
+
+  # ── aster-lsp 镜像（aster-deploy#9）─────────────────────────────────
+  # lsp 此前**完全没有 CI 也没签过名**，只靠本地 task deploy:lsp 推可变 tag 0.0.9。
+  # 签名 CI 见 aster-cloud ci.yml 的 build-lsp-image job（Dockerfile.lsp 在该仓）。
+  #
+  # ⚠️ 现状：lsp **尚未在 ArgoCD 管理下**——apps/aster-lang/lsp 没有 kustomization.yaml，
+  #   而 appset 按 `apps/aster-lang/*/kustomization.yaml` glob 发现应用
+  #   （实测只有 cloud / observability / runner 三个匹配）。故本条**先只登记信任身份**，
+  #   image-lock 里暂无对应 entry——让 ArgoCD 接管 lsp 是独立的生产 cutover。
+  #   本表是信任根，登记在先、pin 在后是安全的：verifier 只对 image-lock 里出现的
+  #   镜像查本表，本表多一条不会放宽任何现有校验。
+  - image: docker.io/wontlost/aster-lsp
+    sourceRepo: wontlost-ltd/aster-cloud       # Dockerfile.lsp 与签名 job 都在 aster-cloud
+    workflowFile: ci.yml
+    sourceRef: refs/heads/main
+    deployBinding: kustomization      # 接管后 pin 落 lsp/kustomization images transformer

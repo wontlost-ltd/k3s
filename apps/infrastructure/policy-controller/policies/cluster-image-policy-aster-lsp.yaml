@@ -1,0 +1,23 @@
+# digest-verify CIP：aster-lsp（aster-deploy#9）
+# 信任根：sourceRepo wontlost-ltd/aster-cloud, workflowFile ci.yml,
+#   sourceRef refs/heads/main（对齐 aster-cloud ci.yml build-lsp-image job 的 cosign identity-regexp）。
+#
+# ⚠️ 现状：aster-lsp namespace **未** opt-in（无 policy.sigstore.dev/include 标签），
+#   故本 CIP 当前不对任何在跑的工作负载生效。它与 tag-fail 一同存在是为满足信任根的
+#   2N CIP 契约（verify-cip-sync.sh：N 仓 → 2N CIP），并在 lsp 被 ArgoCD 接管、
+#   namespace opt-in 时立即就位。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-lsp
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-lsp@sha256:**"
+  authorities:
+    - keyless:
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subject: https://github.com/wontlost-ltd/aster-cloud/.github/workflows/ci.yml@refs/heads/main
+  mode: enforce
