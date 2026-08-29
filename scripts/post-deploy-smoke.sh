@@ -31,6 +31,13 @@ TARGETS=(
   # name                      url                                                          expect-code  cors-origin                 method
   "policy-api lexicons        https://policy.aster-lang.dev/api/v1/lexicons                200          https://aster-lang.cloud    GET"
   "policy-api lexicons stream https://policy.aster-lang.dev/api/v1/lexicons/stream         200          https://aster-lang.cloud    HEAD"
+  # ★ Probe every member of QUARKUS_HTTP_CORS_ORIGINS, not just one. The
+  #   www.aster-lang.dev outage (2026-08-20) was a single missing allowlist entry
+  #   that this script could not see, because it only ever sent one Origin.
+  #   Keep this block in sync with apps/aster-lang/cloud/deployment.yaml.
+  "policy-api cors www.cloud  https://policy.aster-lang.dev/api/v1/lexicons                200          https://www.aster-lang.cloud GET"
+  "policy-api cors dev apex   https://policy.aster-lang.dev/api/v1/lexicons                200          https://aster-lang.dev      GET"
+  "policy-api cors dev www    https://policy.aster-lang.dev/api/v1/lexicons                200          https://www.aster-lang.dev  GET"
   "policy-api health          https://policy.aster-lang.dev/q/health                       200          -                           GET"
   "cloud root                 https://aster-lang.cloud/                                    200          -                           GET"
   "marketing root             https://aster-lang.dev/                                      200          -                           GET"
@@ -66,10 +73,34 @@ check() {
     return
   fi
   # CORS check (when origin specified)
+  #
+  # ★ Assert the *value*, not just presence. The header-exists-only check this
+  #   replaced would PASS on a response echoing a different origin, or on a
+  #   blanket "*" — i.e. exactly the regressions this script claims to catch.
+  #   The 2026-08-20 www.aster-lang.dev incident was invisible here for both
+  #   reasons: the origin was never probed, and even if it had been, any ACAO
+  #   value would have satisfied the old check.
+  #
+  #   Quarkus echoes back the request Origin when it is allowlisted, so the
+  #   contract is ACAO == the Origin we sent. "*" is treated as a failure: these
+  #   are credentialed first-party endpoints and a wildcard is a real regression.
   if [ "$origin" != "-" ]; then
-    if ! printf '%s' "$headers" | grep -qi "\"access-control-allow-origin\""; then
+    # header_json values are arrays: {"access-control-allow-origin":["https://x"]}
+    local acao
+    acao=$(printf '%s' "$headers" \
+      | tr -d ' ' \
+      | grep -oi "\"access-control-allow-origin\":\[\"[^\"]*\"\]" \
+      | head -1 \
+      | sed -E 's/.*\[\"(.*)\"\]/\1/')
+    if [ -z "$acao" ]; then
       fail=$((fail + 1)); fail_names+=("$name (missing ACAO header)")
       [ "$QUIET" != "true" ] && echo "FAIL  $name → ACAO header missing"
+      [ "$FAIL_FAST" = "true" ] && exit 1
+      return
+    fi
+    if [ "$acao" != "$origin" ]; then
+      fail=$((fail + 1)); fail_names+=("$name (ACAO '$acao' != origin '$origin')")
+      [ "$QUIET" != "true" ] && echo "FAIL  $name → ACAO '$acao', expected '$origin'"
       [ "$FAIL_FAST" = "true" ] && exit 1
       return
     fi
