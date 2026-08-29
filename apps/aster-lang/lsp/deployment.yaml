@@ -45,8 +45,14 @@ spec:
             - name: HOSTNAME
               value: "0.0.0.0"
             # CORS - allowed origins for WebSocket connections
+            # ★ No localhost here. This manifest is production-only (flat dir, no
+            #   dev overlay), so an http://localhost:3000 entry never serves local
+            #   development — it only means any page a visitor happens to be running
+            #   on their own port 3000 counts as an allowlisted origin against the
+            #   production LSP WebSocket. Local dev should point at a local LSP, or
+            #   carry this override in a dev-only overlay.
             - name: ALLOWED_ORIGINS
-              value: "https://aster-lang.cloud,https://www.aster-lang.cloud,http://localhost:3000"
+              value: "https://aster-lang.cloud,https://www.aster-lang.cloud"
             # Node.js tuning
             - name: NODE_OPTIONS
               value: "--max-old-space-size=256"
