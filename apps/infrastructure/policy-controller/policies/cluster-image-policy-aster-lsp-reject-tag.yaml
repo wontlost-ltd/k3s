@@ -1,0 +1,19 @@
+# tag-fail CIP：aster-lsp（闭 unresolved-tag TOCTOU）
+#
+# ★这条正是 aster-deploy#9 的结构性修复：lsp 此前推可变 tag 0.0.9 且生产
+#   imagePullPolicy: IfNotPresent —— 节点有缓存时 rollout restart 会静默跑旧镜像。
+#   namespace opt-in 后，tag 形式一律被准入拒绝，可变 tag 这条路径被物理封死。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-lsp-reject-tag
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-lsp:**"
+  authorities:
+    - static:
+        action: fail
+        message: "受控仓 aster-lsp 只允许 cosign-verified digest；tag 形式一律拒绝（S2-0 TOCTOU 闭合）"
+  mode: enforce

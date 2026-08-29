@@ -1,4 +1,4 @@
-# 8 个 ClusterImagePolicy（4 digest-verify + 4 tag-fail）。
+# 10 个 ClusterImagePolicy（5 digest-verify + 5 tag-fail）。
 # ★内层 Git source 只指向本目录，不含 application.yaml（防 multi-source 递归认领）。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -11,3 +11,5 @@ resources:
   - cluster-image-policy-aster-replay-runner-reject-tag.yaml
   - cluster-image-policy-aster-runner-launcher.yaml
   - cluster-image-policy-aster-runner-launcher-reject-tag.yaml
+  - cluster-image-policy-aster-lsp.yaml
+  - cluster-image-policy-aster-lsp-reject-tag.yaml
