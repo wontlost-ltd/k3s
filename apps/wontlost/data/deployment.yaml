@@ -34,7 +34,24 @@ spec:
           type: RuntimeDefault
       containers:
         - name: nginx
-          image: nginx:alpine
+          # ★按 digest 固定（issue #491）。此前是浮动 tag `nginx:alpine`，
+          #   配 `imagePullPolicy: IfNotPresent` 会产生两种都不好的结果：
+          #     · 已缓存该 tag 的节点 → 永远跑旧镜像，安全更新进不来；
+          #     · 未缓存的新节点     → 拉到当时最新的 alpine，
+          #   于是**同一份清单在不同节点上跑的是不同镜像**，且无从得知是哪个。
+          #
+          #   digest 取自 2026-08-30 时 docker.io/library/nginx:alpine 的
+          #   manifest（registry API 的 docker-content-digest）。保留 `:alpine`
+          #   标签仅为可读性——Kubernetes 在同时给出 tag 与 digest 时**以 digest 为准**。
+          #
+          #   ★本应用不在 ArgoCD 管理下（apps/wontlost/data/ 无 kustomization.yaml，
+          #   不命中 argocd/applicationsets/wontlost.yaml 的 glob），故此改动
+          #   不触发任何自动同步；下次手工 apply 时生效。
+          #
+          #   升级方式（不要改回浮动 tag）：
+          #     crane digest nginx:alpine      # 或用 registry API 查
+          #   拿到新 digest 后替换下面这一行。
+          image: nginx:alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
