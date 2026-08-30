@@ -32,6 +32,25 @@ spec:
     name: vault-selfsigned-issuer
     kind: Issuer
     group: cert-manager.io
+  # ★把 CA **复制**到 secret-rotation ns（issue #487 第一项）。
+  #
+  #   起因：rotate-pg-password.sh 对 Vault 的 5 处 curl 都带 -k（跳过 TLS 校验），
+  #   于是新旧 PG 密码与 Cloudflare API token 都在不验证对端身份的连接上收发。
+  #   要换成 --cacert 就得让该 ns 拿到这份 CA，而 Secret 不跨 namespace 挂载。
+  #
+  #   用 Reflector —— 本仓**已部署**（apps/infrastructure/reflector，chart 9.1.45）
+  #   且已用同一机制把通配 TLS secret 复制到 argocd/vault/authentik
+  #   （见 cert-manager/wildcard-certificates.yaml 的 secretTemplate）。
+  #   沿用既有组件与既有写法，零新增依赖。
+  #
+  #   ★allowed-namespaces 只列 secret-rotation，不用通配——CA 私钥也在这个
+  #   Secret 里（isCA: true 的 Certificate 会同时产出 tls.key），
+  #   多复制一个 ns 就多一处私钥暴露面。
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "secret-rotation"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
 
 ---
 # CA Issuer using the internal CA

@@ -52,6 +52,12 @@ spec:
                   mountPath: /scripts
                 - name: tmp
                   mountPath: /tmp
+                # Vault internal CA —— 供 curl --cacert 校验 Vault 服务端证书
+                # （issue #487）。由 Reflector 从 vault ns 复制而来，见
+                # apps/infrastructure/vault/internal-tls.yaml 的 secretTemplate。
+                - name: vault-ca
+                  mountPath: /etc/vault-ca
+                  readOnly: true
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -70,3 +76,13 @@ spec:
                 defaultMode: 0555
             - name: tmp
               emptyDir: {}
+            # ★只挂 ca.crt 这一个键：该 Secret 同时含 CA **私钥**（tls.key，
+            #   因为源 Certificate 是 isCA: true）。整体挂载会把私钥一并放进
+            #   容器文件系统，而脚本只需要公钥来校验对端。
+            - name: vault-ca
+              secret:
+                secretName: vault-internal-ca
+                items:
+                  - key: ca.crt
+                    path: ca.crt
+                defaultMode: 0444

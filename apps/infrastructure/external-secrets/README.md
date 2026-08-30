@@ -312,7 +312,10 @@ vault policy read external-secrets
 # Test manually from ESO pod (using HTTPS)
 kubectl exec -it -n external-secrets deploy/external-secrets -- sh
 # Inside pod:
-# curl -k https://vault.vault.svc.cluster.local:8200/v1/sys/health
+# ESO pod 内已挂载 Vault CA（SecretStore 的 caProvider），故用 --cacert 而非 -k：
+# curl --cacert /etc/ssl/certs/vault-ca.crt https://vault.vault.svc.cluster.local:8200/v1/sys/health
+# 若只是想快速确认连通性而手边没有 CA 路径，用 -k 排查也可以——但**不要**把 -k
+# 写进任何常驻脚本（issue #487：那会让凭据在不验证对端身份的连接上收发）。
 ```
 
 ### TLS Certificate Issues
