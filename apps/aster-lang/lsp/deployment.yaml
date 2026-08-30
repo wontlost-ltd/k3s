@@ -53,6 +53,15 @@ spec:
             #   carry this override in a dev-only overlay.
             - name: ALLOWED_ORIGINS
               value: "https://aster-lang.cloud,https://www.aster-lang.cloud"
+            # ★共享 token —— 缺它则生产环境**全部连接被拒**（401
+            #   "Token gate not configured"，见 lsp-server.mjs 的 evaluateUpgrade
+            #   第 4 步；Dockerfile.lsp 已设 NODE_ENV=production）。
+            #   由 external-secrets.yaml 从 Vault 下发。
+            - name: LSP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aster-lsp-auth
+                  key: LSP_AUTH_TOKEN
             # Node.js tuning
             - name: NODE_OPTIONS
               value: "--max-old-space-size=256"
