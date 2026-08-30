@@ -20,6 +20,12 @@ log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 die() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ERROR: $*" >&2; exit 1; }
 
 VAULT_ADDR="${VAULT_ADDR:?}"
+# Vault 服务端证书的签发 CA（issue #487）。由 Reflector 从 vault ns 复制到本 ns，
+# 再以 secret volume 只挂 ca.crt 挂进来（见 cronjob.yaml）。
+# ★用 :? 而非默认值——CA 缺失时必须**立刻失败**，而不是悄悄回退到 -k：
+#   那正是本次要消灭的行为。
+VAULT_CACERT="${VAULT_CACERT:-/etc/vault-ca/ca.crt}"
+[ -r "$VAULT_CACERT" ] || die "Vault CA 不可读：${VAULT_CACERT}（Reflector 是否已把 vault-internal-ca 复制到本 ns？）"
 PG_SECRET_PATH="secret/data/data-services/aster-api-db"
 CF_SECRET_PATH="secret/data/infrastructure/cloudflare"
 CF_ACCOUNT_ID="${CF_ACCOUNT_ID:?}"
@@ -33,7 +39,7 @@ PG_DB="${PG_DB:-aster_api}"
 # ── 0. 用 Kubernetes ServiceAccount 换 Vault token（不落盘任何长期凭据）──
 log "向 Vault 认证（kubernetes auth, role=secret-rotation）"
 JWT="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
-VAULT_TOKEN="$(curl -sS -k --fail-with-body \
+VAULT_TOKEN="$(curl -sS --cacert "$VAULT_CACERT" --fail-with-body \
     --request POST "${VAULT_ADDR}/v1/auth/kubernetes/login" \
     --data "{\"role\":\"secret-rotation\",\"jwt\":\"${JWT}\"}" \
     | jq -r '.auth.client_token')" \
@@ -41,7 +47,7 @@ VAULT_TOKEN="$(curl -sS -k --fail-with-body \
 [ -n "$VAULT_TOKEN" ] && [ "$VAULT_TOKEN" != "null" ] || die "Vault 未返回 token"
 
 vault_get() {  # $1=path  $2=field
-    curl -sS -k --fail-with-body --header "X-Vault-Token: ${VAULT_TOKEN}" \
+    curl -sS --cacert "$VAULT_CACERT" --fail-with-body --header "X-Vault-Token: ${VAULT_TOKEN}" \
         "${VAULT_ADDR}/v1/$1" | jq -r ".data.data.$2"
 }
 
@@ -74,7 +80,7 @@ echo "$NEW_PW" | grep -qE '^[A-Za-z0-9]{32}$' || die "密码含非预期字符"
 #   username / database 等字段**全部抹掉**，导致下游 ExternalSecret 报
 #   `cannot find secret data for key: "database"` 而无法同步（实测踩过）。
 #   所以轮换必须「取回全部字段 → 只替换 password → 整体写回」。
-CUR_DATA="$(curl -sS -k --fail-with-body --header "X-Vault-Token: ${VAULT_TOKEN}" \
+CUR_DATA="$(curl -sS --cacert "$VAULT_CACERT" --fail-with-body --header "X-Vault-Token: ${VAULT_TOKEN}" \
     "${VAULT_ADDR}/v1/${PG_SECRET_PATH}" | jq -c '.data.data')" \
     || die "读取当前 secret 失败"
 echo "$CUR_DATA" | jq -e 'type == "object"' > /dev/null 2>&1 || die "secret data 格式异常"
@@ -85,7 +91,7 @@ OLD_PW="$(echo "$CUR_DATA" | jq -r '.password')"
 # ★只在「已写 Vault 但数据库/Hyperdrive 尚未跟上」时调用。
 rollback_vault() {
     log "回滚：将 Vault 写回旧密码"
-    if curl -sS -k --fail-with-body --request POST \
+    if curl -sS --cacert "$VAULT_CACERT" --fail-with-body --request POST \
         --header "X-Vault-Token: ${VAULT_TOKEN}" \
         --header "Content-Type: application/json" \
         --data "$(jq -nc --argjson d "$CUR_DATA" '{data:$d}')" \
@@ -100,7 +106,7 @@ rollback_vault() {
 
 # ── 3. 写 Vault（真相源）──
 log "写入 Vault: ${PG_SECRET_PATH}"
-curl -sS -k --fail-with-body --request POST \
+curl -sS --cacert "$VAULT_CACERT" --fail-with-body --request POST \
     --header "X-Vault-Token: ${VAULT_TOKEN}" \
     --header "Content-Type: application/json" \
     --data "$(jq -nc --argjson d "$CUR_DATA" --arg pw "$NEW_PW" '{data: ($d + {password:$pw})}')" \

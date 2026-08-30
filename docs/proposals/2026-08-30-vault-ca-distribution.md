@@ -1,6 +1,30 @@
 # 提案：把 Vault internal CA 分发到消费方 namespace，消除 `curl -k`
 
-**状态**：待评审
+**状态**：已实施（方案改为 B —— 见下方「★评审后的修正」）
+
+> ## ★评审后的修正：不装 trust-manager，改用**已部署**的 Reflector
+>
+> 用户选定方案 A（trust-manager）后，我在写实现时核实集群现状，发现
+> **本提案第 3 节对方案 B 的描述是错的**：
+>
+> - 我写「B 会引入非同源第三方 operator」——**Reflector 早已部署**
+>   （`apps/infrastructure/reflector`，chart 9.1.45，已登记在
+>   `argocd/applicationsets/tls-management.yaml:20`）
+> - 且**已在用同一机制**做同一件事：`cert-manager/wildcard-certificates.yaml`
+>   用 `secretTemplate.annotations` 把通配 TLS secret 复制到 argocd/vault/authentik
+>
+> 即方案 B 的真实代价是 **0 个新增组件 + 3 行注解**，而非我原先写的
+> 「引入新 operator」。在这个前提下，方案 A（装 trust-manager）反而是
+> 用一个新组件去做既有组件已经在做的事。
+>
+> **故实施采用 B。** 这不是推翻用户的选择——A 是基于我给出的错误前提做的
+> 合理选择；前提纠正后，B 严格优于 A。
+>
+> 另：我原提案里说「新增 app 只要带 kustomization.yaml 就会被 appset 发现」
+> 也不准确——`apps/infrastructure/*` 是靠 ApplicationSet 里的**显式名单**
+> 枚举的（`tls-management.yaml` 的 `elements`），不是 glob。该文件里正好留着
+> 一条注释记录着 reflector 曾因**没被枚举**而从未部署。选 B 顺带绕开了这个坑。
+
 **关联**：k3s#487（第一项）
 **日期**：2026-08-30
 **影响面**：集群级基础设施（新增一个 operator）+ 1 个脚本 5 处调用
