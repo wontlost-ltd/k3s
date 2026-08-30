@@ -135,12 +135,33 @@ log "等待 CNPG 用新密码更新数据库角色…（校验借 ${PG_POD} 的 
 #   kubectl/curl/jq。自研 SCRAM 握手同样不可取——我实现过一版，
 #   对**已知正确**的密码也返回失败，纯属自找 bug。
 #   借 CNPG pod 的 psql 是零新依赖且最可信的做法。
+#
+# ★密码经 **stdin** 传入，不放命令行（issue #487）。
+#   此前写的是 `kubectl exec … -- env PGPASSWORD="$NEW_PW" psql …`，
+#   于是新密码明文出现在两处第三方可见的地方：
+#     · 目标 pod 内的 `/proc/<pid>/cmdline`——同 pod 任何进程可读
+#     · Kubernetes API 的 audit log——exec 请求的 command 数组被完整记录，
+#       且 audit log 的保留期/访问面通常宽于密码本身的有效期
+#   改法：`-i` 打开 stdin，用 shell 从 stdin 读进环境变量再执行 psql。
+#   密码只经由 kubectl 的 stdin 流，不进 argv、不进 audit log。
+#
+#   ★用 `read` 而非 `export PGPASSWORD=$(cat)`：后者仍会在被展开后
+#   出现在内层 shell 的命令行上。read 把值直接放进变量，不经过 argv。
+#
+#   ★`|| true` 不能省：`printf '%s'` 不输出尾随换行，此时 `read` **返回 1**
+#   （虽然变量已正确赋值）。当前 `sh -c` 不继承外层 set -e 故侥幸能跑，
+#   但那是依赖 shell 实现细节的巧合——显式吞掉这个返回码才是稳的。
+#   实测：无换行时 `read` rc=1 且值完整；有换行时 rc=0。
+#
+#   ★用户名/库名走位置参数（$1/$2）而非字符串拼接：它们进 argv 无所谓
+#   （非机密），但拼接会在名字含特殊字符时被 shell 二次解释。
 DB_OK=0
 i=0
 while [ "$i" -lt 60 ]; do          # 最多 ~5 分钟
-    if kubectl exec -n "$PG_NAMESPACE" "$PG_POD" -c postgres -- \
-        env PGPASSWORD="$NEW_PW" psql -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" \
-        -tAc 'select 1' > /dev/null 2>&1; then
+    if printf '%s' "$NEW_PW" | kubectl exec -i -n "$PG_NAMESPACE" "$PG_POD" -c postgres -- \
+        sh -c 'IFS= read -r PGPASSWORD || true; export PGPASSWORD;
+               psql -h 127.0.0.1 -U "$1" -d "$2" -tAc "select 1"' \
+        _ "$PG_USER" "$PG_DB" > /dev/null 2>&1; then
         DB_OK=1
         break
     fi
