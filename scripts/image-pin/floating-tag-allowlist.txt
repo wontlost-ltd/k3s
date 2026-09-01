@@ -22,4 +22,8 @@ cloudflare/cloudflared:2024.12.2
 docker.io/alpine/k8s:1.35.6
 
 
-# 收敛跟踪见 wontlost-ltd/k3s#523（含三条的风险排序与复审日期）。
+# 收敛跟踪见 wontlost-ltd/k3s#523。
+#
+# ★该 issue 原列三条，其中 rancher/k3s-upgrade 已确认**判错**并移出本清单：
+#   upgrade.cattle.io/Plan 的 upgrade.image 省略 tag 是 CRD 设计（由 spec.version
+#   定版），不是浮动。见 #525。剩余两条均为明确版本号而非 latest。
