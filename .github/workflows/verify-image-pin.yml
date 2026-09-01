@@ -95,14 +95,24 @@ jobs:
       - name: Verify every app is digest-pinned (no floating tags)
         run: |
           set -euo pipefail
-          # kubectl 供应链固定（与本 workflow 其它工具同规格：版本+校验和，失败即中止）。
-          if ! command -v kubectl >/dev/null; then
-            K_VER=v1.31.1
-            K_SHA=57b514a7facce4ee62c93b8dc21fda8cf62ef3fed22e44ffc9d167eab843b2ae
-            curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/${K_VER}/bin/linux/amd64/kubectl"
-            echo "${K_SHA}  /tmp/kubectl" | sha256sum -c - || { echo "::error::kubectl checksum 校验失败"; exit 1; }
-            sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+          # ★bootstrap 兼容：本步与 lane 逻辑一样只跑**可信 base 侧**的脚本
+          #   （见上方 checkout 注释：不 checkout head、不执行 head 代码）。
+          #   引入本机制的那个 PR，其 base 上必然还没有该脚本 —— 若不判存在性，
+          #   引入 PR 自己就会 exit 127 而永远合不进来（死锁）。
+          #
+          #   ★这里可以安全地跳过，与第 222 行「pin 路径命中但脚本缺失 → fail-closed」
+          #     不同：那里跳过意味着**放行一个未验签的 pin 变更**；
+          #     而本步是全局不变量检查，base 上没有它 = 该不变量此前本就不存在，
+          #     跳过不会让任何本应被拒的东西通过。合入后每个 PR 都会正常跑。
+          if [[ ! -f scripts/image-pin/verify-no-floating-tags.sh ]]; then
+            echo "::notice::base 侧无 verify-no-floating-tags.sh（引入本机制的 bootstrap PR）→ 跳过"
+            exit 0
           fi
+          # ★不自行安装 kubectl：ubuntu-latest runner 预装了 kubectl（实测 v1.36.4，
+          #   内置 Kustomize v5.8.1）。此前写的 `command -v kubectl || 安装固定版本`
+          #   **永远走不到安装分支**，等于假装做了供应链固定 —— 那种「看起来固定、
+          #   实际用的是别人给的二进制」比不写更有害。
+          #   本步只做纯本地渲染、不下载任何东西，故直接用 runner 自带的即可。
           kubectl version --client
           bash scripts/image-pin/verify-no-floating-tags.sh
 
