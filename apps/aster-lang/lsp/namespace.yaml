@@ -5,3 +5,13 @@ metadata:
   name: aster-lsp
   labels:
     app.kubernetes.io/part-of: aster-lang
+    # ★没有这个标签，policy-controller 的两条 CIP 对本命名空间**完全不生效**。
+    #
+    #   webhook 的 namespaceSelector 要求 `policy.sigstore.dev/include: "true"`
+    #   （matchExpressions In [true]），未打标签的命名空间根本不进入准入检查。
+    #   CIP 本身是 enforce、glob 也匹配 `index.docker.io/wontlost/aster-lsp:**`,
+    #   **看起来一切就绪，实际一次都没跑过** —— 本次正是靠这个缺口，
+    #   一个 tag pin（而非 digest）的 Pod 畅通无阻地起来了。
+    #
+    #   对照：aster-cloud / aster-runner 两个命名空间都有此标签。
+    policy.sigstore.dev/include: "true"
