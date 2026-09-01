@@ -8,6 +8,25 @@
 # ★实测确认：接管前集群里**根本没有 aster-lsp**（namespace/deployment/ingress
 #   /certificate 全无，lsp.aster-lang.dev 返回通配 ingress 的 404）。
 #   故这是**首次部署**而非「生产 cutover」——无存量状态可被覆盖，风险很低。
+#
+# ★补记（2026-09-02，接管后实测）：上线后发现两处「看起来生效、实则没跑」的缺口，
+#   均已在本目录修掉——(1) 命名空间缺 policy.sigstore.dev/include 标签，
+#   两条 CIP 从未生效；(2) 镜像 pin 的是一月的遗留 tag，缺 token 门。
+#   两者叠加的结果是：鉴权只剩 Origin 一层。详见 namespace.yaml 与下方 images 段。
+#
+# ★★暴露面（这条我第一次判错了，记下来防止后人重蹈）：缺口**从公网可直接利用**，
+#   不是「仅限集群内」。任意互联网客户端带上 `Origin: https://aster-lang.cloud`
+#   （公开可知的常量）即可无 token 建立 LSP WebSocket；连 Origin 都不带也能连上。
+#
+#   我起初判成「未对公网暴露」，依据是 `curl https://lsp.aster-lang.dev/lsp` 返回 404。
+#   **那是假阴性**：curl 默认走 HTTP/2，而 HTTP/2 没有 `Connection: Upgrade` 语义，
+#   Node 的 `server.on('upgrade')` 根本不触发，请求落到普通 handler 才得 404。
+#   用裸 socket + TLS + 强制 HTTP/1.1 发真实握手，立刻拿到 101。
+#
+#   ★当时就有一条可察觉的反证被我忽略了：那个 404 响应里带着
+#     `access-control-allow-origin: https://aster-lang.cloud` ——
+#     CORS 头只可能由应用本身产生，这证明请求**已经到达应用**、没被 Worker 拦掉。
+#     判「是谁在应答」要看它是否携带只有该应用才会产生的特征，而非只看状态码。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aster-lsp
@@ -29,6 +48,9 @@ resources:
   #   当前替代防御层：网关自身的 fail-closed Origin 白名单 + 共享 token
   #   （lsp-server.mjs 的 evaluateUpgrade，生产环境无 token 直接拒）+ 连接数上限。
   #
+  #   ★这层防御**依赖镜像足够新**：token 门是 2026-06 才加的，旧镜像只有 Origin
+  #     一层。曾因 pin 了一月的旧 tag 而实际失效，详见下方 images 段落的实测记录。
+  #
   #   启用条件：(a) k3s 升级到含 kube-router patch 的版本，或 (b) 集群换 Calico CNI。
   #   届时需先把 peer 内的 podSelector 改成 namespace-only（参考 cloud 目录的做法），
   #   再取消下一行注释。
@@ -41,7 +63,26 @@ resources:
 # ★aster-lsp 的信任根登记**已完成**（.github/image-pin/allowed-images.yaml 含该镜像，
 #   policy-controller 下有 digest-verify 与 reject-tag 两条 CIP，
 #   scripts/image-pin/verify-cip-sync.sh 实跑 "CIP-SYNC OK: 10 个 CIP 与信任根 5 仓契约一致"）。
+#
+# ★必须是 digest 而非 tag —— 这不只是规范问题，本次实测吃过亏：
+#
+#   原先 pin 的 `0.0.9` 是**手工推送的遗留 tag**，构建于 2026-01-27；
+#   而 CI（ci.yml:603）只发布 `:${{ github.sha }}` 形式的不可变 tag，
+#   从不更新 `0.0.9`。于是这个 tag 自一月起就冻结了。
+#
+#   后果是实打实的鉴权缺口：WS 网关的共享 token 门（evaluateUpgrade 第 3 步）
+#   是 2026-06-17（aster-cloud b2251c20）才加的，比该镜像晚近五个月。
+#   线上跑的旧二进制**只有 Origin 检查、根本没有 token 门**。
+#   集群内实测（curl 读状态行）：
+#       对 Origin + 错 token → 101（应 401）
+#       对 Origin + 无 token → 101（应 401）
+#       无 Origin  + 对 token → 101（应 403）
+#   日志打的是旧版字样 "unauthorized origin"，该字符串在当前源码里已不存在——
+#   这正是「跑的不是我以为的那份代码」最硬的证据。
+#
+#   下面的 digest 对应 main 上的 211e8565（2026-09-01）。已实拉该镜像验证：
+#   `grep -c "Token gate not configured"` → 1，`grep -c "unauthorized origin"` → 0。
 images:
   - name: docker.io/wontlost/aster-lsp
     newName: docker.io/wontlost/aster-lsp
-    newTag: "0.0.9"
+    digest: sha256:73285722cce9737c869e43d72a456f1bba655f895731396e98a790f8d9154027

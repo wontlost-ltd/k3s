@@ -57,12 +57,14 @@ images:
   # lsp 此前**完全没有 CI 也没签过名**，只靠本地 task deploy:lsp 推可变 tag 0.0.9。
   # 签名 CI 见 aster-cloud ci.yml 的 build-lsp-image job（Dockerfile.lsp 在该仓）。
   #
-  # ⚠️ 现状：lsp **尚未在 ArgoCD 管理下**——apps/aster-lang/lsp 没有 kustomization.yaml，
-  #   而 appset 按 `apps/aster-lang/*/kustomization.yaml` glob 发现应用
-  #   （实测只有 cloud / observability / runner 三个匹配）。故本条**先只登记信任身份**，
-  #   image-lock 里暂无对应 entry——让 ArgoCD 接管 lsp 是独立的生产 cutover。
-  #   本表是信任根，登记在先、pin 在后是安全的：verifier 只对 image-lock 里出现的
-  #   镜像查本表，本表多一条不会放宽任何现有校验。
+  # 现状：lsp 已由 ArgoCD 管理（#512 补了 apps/aster-lang/lsp/kustomization.yaml，
+  #   appset 的 `apps/aster-lang/*/kustomization.yaml` glob 遂能发现它）。
+  #
+  # ⚠️ 待办：lsp 仍**没有接入 image-pin 自动化**——本目录下无 lsp 的 image-lock entry，
+  #   aster-cloud ci.yml 也明写「本次不开 image-pin PR」。当前 digest 是**手工 pin** 的。
+  #   ★这正是缺陷的复发路径：上一次就是因为手工 pin 后无人更新，
+  #     digest 静默停留在一月的旧镜像（缺 token 门）长达半年。
+  #     lsp 既已被 ArgoCD 接管，接线 image-pin 的前提已具备，应尽快补上。
   - image: docker.io/wontlost/aster-lsp
     sourceRepo: wontlost-ltd/aster-cloud       # Dockerfile.lsp 与签名 job 都在 aster-cloud
     workflowFile: ci.yml
