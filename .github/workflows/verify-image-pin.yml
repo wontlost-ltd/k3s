@@ -79,6 +79,43 @@ jobs:
           yq --version
           bash scripts/image-pin/verify-cip-sync.sh
 
+      # ★广度守卫：断言每个应用渲染出的镜像都带 @sha256（2026-09-02 事故后补）。
+      #
+      #   事故：apps/aster-lang/lsp 曾 pin 在手工推送的遗留 tag `0.0.9`（构建于 1-27），
+      #   而 CI 只发 `:${github.sha}`、从不更新它 —— 该 tag 冻结七个月，
+      #   期间 6-17 加入的 WS token 门从未上线，结果是**公网未授权访问**。
+      #
+      #   本 workflow 的深度校验（cosign+freshness）按 **逐个硬编码的 env 路径** 生效
+      #   （CLOUD_LOCK_PATH / RUNNER_LOCK_PATH），不是 glob —— 新应用不接线就完全脱管，
+      #   而「漏接线」本身此前无人报警。这一步用 find 自动发现，**新增应用无需改任何文件**
+      #   即纳入守卫，专治「压根没 pin / 接线漏了」。
+      #
+      #   与 verify-cip-sync 同样置于 lane 断言体系之外、每个 PR 都跑：
+      #   任意 PR 都可能改 kustomization 的 images 段，纯本地渲染、无网络无凭据。
+      - name: Verify every app is digest-pinned (no floating tags)
+        run: |
+          set -euo pipefail
+          # ★bootstrap 兼容：本步与 lane 逻辑一样只跑**可信 base 侧**的脚本
+          #   （见上方 checkout 注释：不 checkout head、不执行 head 代码）。
+          #   引入本机制的那个 PR，其 base 上必然还没有该脚本 —— 若不判存在性，
+          #   引入 PR 自己就会 exit 127 而永远合不进来（死锁）。
+          #
+          #   ★这里可以安全地跳过，与第 222 行「pin 路径命中但脚本缺失 → fail-closed」
+          #     不同：那里跳过意味着**放行一个未验签的 pin 变更**；
+          #     而本步是全局不变量检查，base 上没有它 = 该不变量此前本就不存在，
+          #     跳过不会让任何本应被拒的东西通过。合入后每个 PR 都会正常跑。
+          if [[ ! -f scripts/image-pin/verify-no-floating-tags.sh ]]; then
+            echo "::notice::base 侧无 verify-no-floating-tags.sh（引入本机制的 bootstrap PR）→ 跳过"
+            exit 0
+          fi
+          # ★不自行安装 kubectl：ubuntu-latest runner 预装了 kubectl（实测 v1.36.4，
+          #   内置 Kustomize v5.8.1）。此前写的 `command -v kubectl || 安装固定版本`
+          #   **永远走不到安装分支**，等于假装做了供应链固定 —— 那种「看起来固定、
+          #   实际用的是别人给的二进制」比不写更有害。
+          #   本步只做纯本地渲染、不下载任何东西，故直接用 runner 自带的即可。
+          kubectl version --client
+          bash scripts/image-pin/verify-no-floating-tags.sh
+
       - name: Compute changed files
         env:
           GH_TOKEN: ${{ github.token }}

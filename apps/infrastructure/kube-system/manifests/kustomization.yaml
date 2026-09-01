@@ -4,7 +4,11 @@ namespace: kube-system
 
 # Security resources for kube-system
 resources:
-  - network-policies.yaml
+  # ★network-policies.yaml 已于 2025-12-28（232a182「remove all network policies
+  #   causing service disruption」）删除，但这里的引用被漏掉了 —— 本目录自那时起
+  #   `kustomize build` 一直失败。八个月无人发现，因为**没有任何 ArgoCD
+  #   application 指向本目录**（argocd/ 下 grep 不到），坏了也不产生信号。
+  #   由 verify-no-floating-tags.sh 的渲染失败分支查出。
   - critical-pdbs.yaml
 
 # Strategic merge patches for existing K3s resources

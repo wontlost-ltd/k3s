@@ -60,11 +60,19 @@ images:
   # 现状：lsp 已由 ArgoCD 管理（#512 补了 apps/aster-lang/lsp/kustomization.yaml，
   #   appset 的 `apps/aster-lang/*/kustomization.yaml` glob 遂能发现它）。
   #
-  # ⚠️ 待办：lsp 仍**没有接入 image-pin 自动化**——本目录下无 lsp 的 image-lock entry，
-  #   aster-cloud ci.yml 也明写「本次不开 image-pin PR」。当前 digest 是**手工 pin** 的。
-  #   ★这正是缺陷的复发路径：上一次就是因为手工 pin 后无人更新，
-  #     digest 静默停留在一月的旧镜像（缺 token 门）长达半年。
-  #     lsp 既已被 ArgoCD 接管，接线 image-pin 的前提已具备，应尽快补上。
+  # ⚠️ 现状：lsp 的 digest 仍是**手工 pin**——本目录下无 lsp 的 image-lock entry，
+  #   aster-cloud ci.yml 也明写「本次不开 image-pin PR」，故没有自动更新链路。
+  #
+  #   ★但「静默停留在旧镜像」这条**复发路径已被堵住**：
+  #     scripts/image-pin/verify-no-floating-tags.sh 在每个 PR 上断言
+  #     每个应用渲染出的镜像都带 @sha256，且**自动发现**新应用（无需接线）。
+  #     再退回可变 tag 会立刻红（已用还原本次事故的变异实测）。
+  #
+  #   剩余缺口是「digest 会过时」而非「digest 不存在」——过时的 digest 仍是
+  #   可审计的确定值，与当初 tag 冻结七个月且无人知晓有本质区别。
+  #   接 image-pin 自动化仍值得做（见 wontlost-ltd/k3s#491/#500），
+  #   但需改 verify-image-pin.yml 的逐路径 env（CLOUD_LOCK_PATH 等非 glob），
+  #   属对该安全门禁的结构性改动，单独立项。
   - image: docker.io/wontlost/aster-lsp
     sourceRepo: wontlost-ltd/aster-cloud       # Dockerfile.lsp 与签名 job 都在 aster-cloud
     workflowFile: ci.yml
