@@ -38,6 +38,14 @@
 #   这类噪音。故必须限定 `select(tag=="!!str")` 只取标量。
 #   （这类 Helm values 里的浮动 tag 是真问题，但属 chart 值而非 k8s 镜像字段，
 #     需另行治理，不在本守卫射程内 —— 见下方 allowlist 说明。）
+#
+# ★坑四：**不是所有 `image:` 都按 Deployment 的语义解读**。
+#   upgrade.cattle.io/Plan 的 `upgrade.image` 省略 tag 是设计如此，CRD 原文：
+#     "Image name. If the tag is omitted, the value from .status.latestVersion will be used."
+#   真正定版的是 Plan 的 `spec.version`。我最初按 Deployment 语义把
+#   `rancher/k3s-upgrade` 判成"无 tag 等价 latest、最危险的一条"，
+#   **方向完全错了**（且是往更严重的方向错，会把注意力引到不存在的问题上）。
+#   ★判断一个字段的语义前先查它的 CRD schema，别拿常规资源的语义去套。
 set -euo pipefail
 
 ALLOWLIST="$(dirname "$0")/floating-tag-allowlist.txt"
@@ -62,10 +70,33 @@ while IFS= read -r kust <&3; do
   fi
 
   # 只取 `image:` 为**字符串标量**的字段（见坑三）。
+  #
+  # ★排除 upgrade.cattle.io/Plan 的 upgrade.image（见坑四）：
+  #   该字段省略 tag 是**设计如此**，CRD 原文
+  #   "Image name. If the tag is omitted, the value from .status.latestVersion will be used."
+  #   真正定版的是 Plan 的 spec.version（本仓写的是精确版本号 v1.35.0+k3s1，
+  #   而 CRD 说明 "Providing a value for version will prevent polling/resolution of
+  #   the channel" —— 显式版本会关闭 channel 自动跟随）。
+  #   故它由 git 完全确定，不是浮动 tag。下面的 Plan 校验单独守它。
   mapfile -t imgs < <(
     printf '%s' "$rendered" \
-      | yq -r '[.. | select(tag=="!!map" and has("image")) | .image | select(tag=="!!str")] | .[]' 2>/dev/null \
+      | yq -r 'select(.kind != "Plan") | [.. | select(tag=="!!map" and has("image")) | .image | select(tag=="!!str")] | .[]' 2>/dev/null \
       | sort -u
+  )
+
+  # ★Plan 的定版真相在 spec.version：省略 tag 合法，但**必须有 version**，
+  #   否则 controller 会去解析 channel（跟随上游最新），那才是真浮动。
+  while IFS= read -r pv; do
+    [[ -z "$pv" ]] && continue
+    if [[ "$pv" == "null" || "$pv" == "" ]]; then
+      echo "::error::$dir 的 upgrade Plan 未指定 spec.version —— 会跟随 channel 自动升级"
+      fail=1
+    else
+      checked=$((checked + 1))
+    fi
+  done < <(
+    printf '%s' "$rendered" \
+      | yq -r 'select(.kind == "Plan") | (.spec.version // "null")' 2>/dev/null | grep -v '^---$'
   )
 
   # ★per-directory 空渲染断言：本目录若声明了 images 段（说明确实要部署镜像），
