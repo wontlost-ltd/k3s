@@ -27,3 +27,5 @@ docker.io/alpine/k8s:1.35.6
 #   与常规 Deployment 的 pin 机制不同，需单独设计。
 #   ★不应长期豁免。复审：2026-10-01
 rancher/k3s-upgrade
+
+# 收敛跟踪见 wontlost-ltd/k3s#523（含三条的风险排序与复审日期）。
