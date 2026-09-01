@@ -2,10 +2,14 @@
 # 信任根：sourceRepo wontlost-ltd/aster-cloud, workflowFile ci.yml,
 #   sourceRef refs/heads/main（对齐 aster-cloud ci.yml build-lsp-image job 的 cosign identity-regexp）。
 #
-# ⚠️ 现状：aster-lsp namespace **未** opt-in（无 policy.sigstore.dev/include 标签），
-#   故本 CIP 当前不对任何在跑的工作负载生效。它与 tag-fail 一同存在是为满足信任根的
-#   2N CIP 契约（verify-cip-sync.sh：N 仓 → 2N CIP），并在 lsp 被 ArgoCD 接管、
-#   namespace opt-in 时立即就位。
+# 现状：aster-lsp namespace 已 opt-in（namespace.yaml 打了
+#   policy.sigstore.dev/include: "true"），本 CIP 对该命名空间的工作负载**已生效**。
+#
+# ★这里曾长期是「已定义但从未生效」的状态：CIP 是 enforce、glob 也匹配，
+#   唯独命名空间没打标签，webhook 的 namespaceSelector 便直接跳过——
+#   看起来样样就绪，实际一次都没跑过。真实后果是一个 tag pin（而非 digest）
+#   的 Pod 畅通无阻地起来了，且那个镜像旧到没有 token 门。
+#   判据：**撤掉标签后用旧 tag 跑 `--dry-run=server`，若能通过，就说明门是死的。**
 apiVersion: policy.sigstore.dev/v1beta1
 kind: ClusterImagePolicy
 metadata:
