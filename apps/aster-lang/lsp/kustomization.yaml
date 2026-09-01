@@ -1,0 +1,47 @@
+# Aster LSP —— Monaco 编辑器的 Language Server Protocol WebSocket 网关
+#
+# ★这个文件的存在与否 = 本目录是否被 ArgoCD 管理。
+#   argocd/applicationsets/aster-lang.yaml 按 `apps/aster-lang/*/kustomization.yaml`
+#   **glob 发现应用**；本目录此前只有各类清单、唯独缺本文件，于是整个目录被
+#   无声跳过 —— 这正是 lsp 长期不在 GitOps 下的结构性原因（issue #500）。
+#
+# ★实测确认：接管前集群里**根本没有 aster-lsp**（namespace/deployment/ingress
+#   /certificate 全无，lsp.aster-lang.dev 返回通配 ingress 的 404）。
+#   故这是**首次部署**而非「生产 cutover」——无存量状态可被覆盖，风险很低。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aster-lsp
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - pdb.yaml
+  - external-secrets.yaml
+  # ★network-policy.yaml 暂不启用 —— 与 apps/aster-lang/cloud 同因，不是遗漏。
+  #
+  #   k3s 的 kube-router 在处理 **peer 内含 podSelector** 的 NetworkPolicy 时有
+  #   已知 bug：deny-all 兜底会变成「deny-all-including-traefik」，实测会让
+  #   ingress 全黑。本文件 network-policy.yaml:78 正是这种形态
+  #   （namespaceSelector + podSelector 组合 peer）。
+  #
+  #   当前替代防御层：网关自身的 fail-closed Origin 白名单 + 共享 token
+  #   （lsp-server.mjs 的 evaluateUpgrade，生产环境无 token 直接拒）+ 连接数上限。
+  #
+  #   启用条件：(a) k3s 升级到含 kube-router patch 的版本，或 (b) 集群换 Calico CNI。
+  #   届时需先把 peer 内的 podSelector 改成 namespace-only（参考 cloud 目录的做法），
+  #   再取消下一行注释。
+  # - network-policy.yaml
+
+# 镜像 digest pin —— 由 CI 的 image-pin 流程用
+# `kustomize edit set image` 自动写入 immutable digest。
+# 初始值仅作占位，避免 ArgoCD 首次 sync 时找不到 image 字段。
+#
+# ★aster-lsp 的信任根登记**已完成**（.github/image-pin/allowed-images.yaml 含该镜像，
+#   policy-controller 下有 digest-verify 与 reject-tag 两条 CIP，
+#   scripts/image-pin/verify-cip-sync.sh 实跑 "CIP-SYNC OK: 10 个 CIP 与信任根 5 仓契约一致"）。
+images:
+  - name: docker.io/wontlost/aster-lsp
+    newName: docker.io/wontlost/aster-lsp
+    newTag: "0.0.9"
