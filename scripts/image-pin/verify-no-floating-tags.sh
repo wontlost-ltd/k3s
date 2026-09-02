@@ -59,7 +59,28 @@ is_allowed() {
   grep -vE '^\s*(#|$)' "$ALLOWLIST" | grep -qxF "$1"
 }
 
-# ★自动发现：新增应用无需修改本文件即纳入守卫，不会重演 lsp 那种「没接线所以脱管」。
+# ★覆盖边界（实测统计，务必知悉）：本守卫按 `kustomization.yaml` 发现目录，
+#   故**只覆盖 kustomize 部署的应用**。apps/ 下含镜像的 19 个目录中：
+#
+#     16 个有 kustomization.yaml   → 本守卫覆盖
+#      3 个没有                     → 不覆盖：
+#          apps/infrastructure/monitoring       （Helm: kube-prometheus-stack 80.8.2）
+#          apps/infrastructure/otel-collector   （Helm: opentelemetry-collector 0.108.0）
+#          apps/wontlost/data                   （无 kustomization，镜像已 digest pin）
+#
+#   ★前两个是 **Helm chart 部署**，定版模型不同：镜像 tag 由 chart 决定，
+#     真正的 pin 点是 application.yaml 的 `targetRevision`（实测均为精确版本号
+#     而非 `*`/latest，且 syncPolicy.automated 只同步到该固定 revision、
+#     不会自动升 chart）。故它们是**确定的**，只是不以 digest 表达。
+#     集群实测这些 chart 拉出 9 个浮动 tag 镜像（prometheus/grafana/tempo 等）——
+#     若要收敛到 digest，需在 Helm values 里逐个覆写 image.tag，属独立工程。
+#
+#   ★不把它们纳入本守卫、也不硬报错，是因为**误报会让守卫失去可信度**：
+#     一个总在报无法修复之事的门禁，最终会被加进忽略列表。
+#     边界写在这里，是为了让「未覆盖」是**已知的**而非被遗忘的。
+#
+# ★自动发现：kustomize 类新增应用无需修改本文件即纳入守卫，
+#   不会重演 lsp 那种「没接线所以脱管」。
 while IFS= read -r kust <&3; do
   dir="$(dirname "$kust")"
 
