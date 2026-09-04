@@ -36,7 +36,13 @@ spec:
 
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:2024.12.2
+          # ★digest pin（k3s#523）：tag 是可变的——上游若重推同一 tag，
+          #   集群会在下次拉取时静默换成不同内容，且无任何信号。
+          #   digest 与 tag 并列时 digest 生效，tag 仅作可读标签。
+          #   该 digest 实测等于集群当前在跑的 imageID，故本次变更不改变部署内容。
+          #   升级时：改 tag 后重新解析 digest（见 scripts/image-pin/README 或
+          #   `docker buildx imagetools inspect cloudflare/cloudflared:<新tag>`）。
+          image: cloudflare/cloudflared:2024.12.2@sha256:cb38f3f30910a7d51545118a179b8516eb7066eac61855d62ce6ed733c54ce70
           imagePullPolicy: IfNotPresent
           args:
             - tunnel

@@ -4,26 +4,12 @@
 #   敞口：镜像内容变了而引用不变，集群拿到什么完全取决于上游何时推送。
 #   aster-lsp 就是这么让 token 门缺席七个月的（见脚本头部）。
 #
+# ★当前清单为空 —— 全部存量浮动 tag 已收敛为 digest pin（k3s#523）。
+#   请尽量保持为空：新增一条就是新增一个上述敞口。
+#
 # 登记格式：一行一个**渲染后的完整镜像引用**（与守卫的比较口径逐字一致）。
 # 每条上方必须写明：为什么暂时豁免、谁负责收敛、复审日期。
 #
-# ★这些都是引入守卫时**树里已存在**的浮动镜像，不是新引入的。
-#   本 PR 的守卫先把「不再新增」这条底线立住；存量收敛另行处理
-#   （见 wontlost-ltd/k3s#491 的剩余范围）。若一并强制，本 PR 会因三个
-#   与 lsp 无关的第三方镜像而无法合入，反而让新的浮动 tag 继续畅通无阻。
-
-# cloudflare-tunnel：第三方镜像，版本随 Cloudflare 边缘协议演进，
-#   固定 digest 后需人工跟随上游升级。tag 已是明确版本号（非 latest），
-#   风险中等。复审：2026-12-01
-cloudflare/cloudflared:2024.12.2
-
-# secret-rotation：CronJob 用的工具镜像（kubectl+alpine 打包），
-#   tag 为明确版本号。复审：2026-12-01
-docker.io/alpine/k8s:1.35.6
-
-
-# 收敛跟踪见 wontlost-ltd/k3s#523。
-#
-# ★该 issue 原列三条，其中 rancher/k3s-upgrade 已确认**判错**并移出本清单：
-#   upgrade.cattle.io/Plan 的 upgrade.image 省略 tag 是 CRD 设计（由 spec.version
-#   定版），不是浮动。见 #525。剩余两条均为明确版本号而非 latest。
+# 例（历史条目，已收敛，仅作格式示范）：
+#   # cloudflare-tunnel：第三方镜像，需人工跟随上游升级。复审：2026-12-01
+#   cloudflare/cloudflared:2024.12.2
