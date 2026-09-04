@@ -65,6 +65,16 @@ spec:
             #   改为验证 vault-internal-ca 签发的服务端证书。
             #   实测：该 CA 的 SAN 含 *.vault-internal，覆盖本 CronJob 用的
             #   vault-{0,1,2}.vault-internal，带验证访问 exit=0（与 skip 同）。
+            #
+            # ★不会因证书过期变成定时炸弹 —— 这是改这一处时最该问的问题：
+            #   · 挂的是 **ca.crt**（CA 证书），有效期到 **2035-12-26**（10 年）
+            #   · 服务端证书 vault-internal-tls 由 cert-manager 管理，
+            #     duration=8760h / renewBefore=720h，**2026-11-28 自动续期**
+            #     （提前 30 天），Certificate 状态 READY=True
+            #   即：日常续期换的是服务端证书，而本处挂的 CA 不变。
+            #   ★若将来 CA 轮换（2035 或提前重建），本挂载会随 Secret 更新自动跟上；
+            #     但**若有人删掉或改名 vault-internal-tls**，解封会失败 ——
+            #     那是 fail-closed（解不开且日志明确），不是静默放行。
             - name: VAULT_CACERT
               value: /vault/tls/ca.crt
             - name: UNSEAL_KEY_1
