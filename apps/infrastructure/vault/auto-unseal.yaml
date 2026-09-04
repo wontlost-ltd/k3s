@@ -1,10 +1,42 @@
 # Vault Auto-Unseal CronJob
-# Automatically unseals Vault pods when they restart
-# Requires vault-unseal-keys secret to be created manually:
+# Pod 重启后自动解封 Vault。
+#
+# ══ ★安全取舍（k3s#488，刻意记录而非默认无害）══════════════════════════
+#
+# 本方案把 3 把 unseal key 以普通 K8s Secret 存在**同一个集群**里，
+# 且每 5 分钟自动解封。这意味着：
+#
+#   **seal 保护对「已取得集群内相应读权限的攻击者」实质失效。**
+#
+# seal 的设计目的是「即使拿到存储也读不到数据」。而 key 与密文同处一地时，
+# 拿到 etcd/备份的人也就拿到了 key。这是自托管 Vault 的经典取舍：
+# 要么接受它，要么上 KMS/云端 auto-unseal（transit / awskms / gcpckms）。
+#
+# ── 当前实测的暴露面（2026-09-05 核）────────────────────────────────
+#   ✓ 无任何 ServiceAccount 能读该 Secret —— 连 vault 自己的 SA 都不能
+#     （vault-discovery-role 只有 pods 权限；kubelet 解析 secretKeyRef
+#      不需要 SA 有 secrets 权限，这点常被误解）
+#   ✓ key 从未进入 git（工作区与全历史均 0 命中）
+#   ✓ 无 velero 类备份 CR 覆盖 vault ns
+#   ⚠ argocd-application-controller 与 external-secrets 可读（二者本就有
+#     跨 ns secret 权限，属其职能所需）
+#   ⚠ 拿到 etcd 快照/节点磁盘 = 拿到 key（这正是上面说的固有取舍）
+#
+# ── 未做（需要密钥仪式，不能由自动化代劳）──────────────────────────
+#   · 迁移到 KMS auto-unseal —— 需选型 + 迁移 + 重新 init/rekey
+#   · rekey 现有 3 把 key
+#   两者都涉及 Vault 的不可逆操作与人工保管流程，必须人工执行。
+#
+# ══ 前置：Secret 需人工创建 ════════════════════════════════════════
 #   kubectl create secret generic vault-unseal-keys -n vault \
 #     --from-literal=UNSEAL_KEY_1="<key1>" \
 #     --from-literal=UNSEAL_KEY_2="<key2>" \
 #     --from-literal=UNSEAL_KEY_3="<key3>"
+#
+# ★务必用 `create` 而非 `apply`：`kubectl apply` 会把完整对象（含明文
+#   key）写进 `kubectl.kubernetes.io/last-applied-configuration` 注解，
+#   该注解与 data 字段**同样可读**，等于把 key 多存了一份明文副本。
+#   实测本集群曾因此留下该注解（已单独清理，见 #488）。
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -28,8 +60,13 @@ spec:
           - name: unseal
             image: hashicorp/vault:1.19.0
             env:
-            - name: VAULT_SKIP_VERIFY
-              value: "true"
+            # ★不再用 VAULT_SKIP_VERIFY —— 那会让解封调用接受任何证书，
+            #   而解封请求里带的正是 unseal key，是集群内最敏感的一次传输。
+            #   改为验证 vault-internal-ca 签发的服务端证书。
+            #   实测：该 CA 的 SAN 含 *.vault-internal，覆盖本 CronJob 用的
+            #   vault-{0,1,2}.vault-internal，带验证访问 exit=0（与 skip 同）。
+            - name: VAULT_CACERT
+              value: /vault/tls/ca.crt
             - name: UNSEAL_KEY_1
               valueFrom:
                 secretKeyRef:
@@ -45,6 +82,10 @@ spec:
                 secretKeyRef:
                   name: vault-unseal-keys
                   key: UNSEAL_KEY_3
+            volumeMounts:
+            - name: vault-tls
+              mountPath: /vault/tls
+              readOnly: true
             command:
             - /bin/sh
             - -c
@@ -70,3 +111,10 @@ spec:
                   echo "vault-${i} is not reachable (exit code $EXIT_CODE)"
                 fi
               done
+          volumes:
+          - name: vault-tls
+            secret:
+              secretName: vault-internal-tls
+              items:
+              - key: ca.crt
+                path: ca.crt
