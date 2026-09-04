@@ -69,6 +69,14 @@ spec:
   schedule: "*/5 * * * *"  # Every 5 minutes (reduced from every minute)
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
+  # ★保留 3 个失败 Job 是刻意的（留证据），但它**不是告警**：
+  #   实测曾有 3 个 DeadlineExceeded（8-19 ×2、8-26）静静躺了两周多无人发现，
+  #   而它们恰好占满 limit=3，后续失败会把最早的挤掉。
+  #   ★更糟的是：旧脚本对不可达/解封失败一律 exit 0，
+  #     所以那三个是**仅有的**失败信号，且没人在看。
+  #   本次改动让真实失败以 exit 1 呈现，失败 Job 才真正对应「出事了」。
+  #   ⚠ 仍缺一条「Job 失败 → 告警」的链路（Prometheus 已部署，
+  #     kube_job_failed 指标现成，但未配 rule）—— 属独立工作项。
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
@@ -127,27 +135,46 @@ spec:
             - /bin/sh
             - -c
             - |
-              for i in 0 1 2; do
-                VAULT_ADDR="https://vault-${i}.vault-internal:8200"
-                export VAULT_ADDR
+              set -u
+              # ★不再 `for i in 0 1 2` —— StatefulSet 当前 replicas=1，
+              #   循环会对不存在的 vault-1/vault-2 各产生一条
+              #   "is not reachable"，**每 5 分钟两条**。
+              #   那不是无害噪音：真有某个实例挂了，日志长得**一模一样**，
+              #   于是「不可达」这条信号被自己的常态输出淹没，等于没有。
+              #
+              # ★副本数变化时的处置（写在这里免得下次又靠猜）：
+              #   扩到 HA 多副本时，不要退回硬编码循环 —— 那会重蹈覆辙。
+              #   应改为从 StatefulSet 实际副本数派生，或给每个副本单独探测
+              #   并把「不可达」升级为**失败**（因为那时它确实是异常）。
+              VAULT_ADDR="https://vault-0.vault-internal:8200"
+              export VAULT_ADDR
 
-                # Check seal status using exit code
-                # Exit 0 = unsealed, Exit 2 = sealed, Exit 1 = error
+              # Exit 0 = unsealed, Exit 2 = sealed, Exit 1 = error
+              vault status > /dev/null 2>&1
+              EXIT_CODE=$?
+
+              if [ "$EXIT_CODE" = "2" ]; then
+                echo "vault-0 is sealed (exit code 2), unsealing..."
+                vault operator unseal "$UNSEAL_KEY_1" || true
+                vault operator unseal "$UNSEAL_KEY_2" || true
+                vault operator unseal "$UNSEAL_KEY_3" || true
+                # ★复核解封结果并据此决定退出码 —— 原实现对三次 unseal 一律
+                #   `|| true`，无论成败都以 0 退出，于是「解封失败」从不产生
+                #   失败信号（Job 永远 succeeded）。
                 vault status > /dev/null 2>&1
-                EXIT_CODE=$?
-
-                if [ "$EXIT_CODE" = "2" ]; then
-                  echo "vault-${i} is sealed (exit code 2), unsealing..."
-                  vault operator unseal "$UNSEAL_KEY_1" || true
-                  vault operator unseal "$UNSEAL_KEY_2" || true
-                  vault operator unseal "$UNSEAL_KEY_3" || true
-                  echo "vault-${i} unseal complete"
-                elif [ "$EXIT_CODE" = "0" ]; then
-                  echo "vault-${i} is already unsealed"
+                if [ $? -eq 0 ]; then
+                  echo "vault-0 unseal complete"
                 else
-                  echo "vault-${i} is not reachable (exit code $EXIT_CODE)"
+                  echo "vault-0 STILL SEALED after unseal attempt" >&2
+                  exit 1
                 fi
-              done
+              elif [ "$EXIT_CODE" = "0" ]; then
+                echo "vault-0 is already unsealed"
+              else
+                # ★不可达现在是**真异常**（单副本，它就是全部），故失败退出。
+                echo "vault-0 is not reachable (exit code $EXIT_CODE)" >&2
+                exit 1
+              fi
           volumes:
           - name: vault-tls
             secret:
