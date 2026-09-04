@@ -19,15 +19,40 @@ seal 的设计目的是「即使拿到存储也读不到数据」。而 key 与�
 
 | 项 | 结果 |
 |---|---|
-| 有 ServiceAccount 能读该 Secret 吗 | ❌ **无** —— 连 vault 自己的 SA 都不能 |
+| 有 ServiceAccount 能读该 Secret 吗 | ⚠️ **19 个**（全集群 SA 穷举，见下） |
+| vault 自己的 SA 能读吗 | ❌ 否（`vault-discovery-role` 只有 pods 权限） |
 | key 是否进过 git | ❌ 否（工作区 + 全历史均 0 命中） |
 | 有备份 CR 覆盖 vault ns 吗 | ❌ 无 velero 类 |
-| argocd-application-controller / external-secrets | ⚠️ 可读（二者本就有跨 ns secret 权限，属职能所需） |
-| etcd 快照 / 节点磁盘 | ⚠️ **等于拿到 key** ← 这是本提案要解决的那一条 |
+| 有残留明文副本吗 | ❌ 无（managedFields / events / 各类工作负载 spec 全扫） |
+| etcd 快照 / 节点磁盘 | ⚠️ **等于拿到 key** ← 本提案要解决的那一条 |
 
-★**对 #488 原文的一处订正**：原文说「能读该 Secret 即等于持有解封能力」——
-成立，但「谁能读」比原文描述的**窄得多**。特别是 kubelet 解析 `secretKeyRef`
-**不需要** SA 有 `secrets` 权限，这点常被误解。故实际严重度低于 issue 初判。
+### ★19 个可读 SA（逐个 `auth can-i` 遍历全部 ns）
+
+```
+argocd:argocd-application-controller      argocd:argocd-server
+cert-manager:cert-manager                 cert-manager:cert-manager-cainjector
+cnpg-system:cloudnative-pg                cosign-system:policy-controller-webhook
+external-secrets:external-secrets         external-secrets:external-secrets-cert-controller
+kube-system:expand-controller             kube-system:generic-garbage-collector
+kube-system:helm-traefik                  kube-system:helm-traefik-crd
+kube-system:namespace-controller          kube-system:persistent-volume-binder
+kube-system:traefik                       monitoring:prometheus-grafana
+monitoring:prometheus-kube-prometheus-operator
+reflector:reflector                       reloader:reloader-reloader
+```
+
+★**这一条我第一版写错了，且错在危险方向**：原文写「❌ 无任何 ServiceAccount
+能读」，依据只是抽查了几个 SA。真实数字是 19 个。**抽查得出的"无"不是"无"，
+只是"我查的那几个没有"** —— 这类以偏概全会让风险看起来比实际小。
+
+★其中 `prometheus-grafana` / `reloader` / `traefik` / `policy-controller-webhook`
+等**与 vault 毫无职能关系**，能读 unseal key 是纯粹的过宽授权。
+
+★**对 #488 原文的订正（收窄版）**：原文说「能读该 Secret 即等于持有解封能力」
+—— **成立**。我此前据错误数据推论「实际严重度低于 issue 初判」，**该推论撤回**。
+唯一站得住的订正是技术细节：kubelet 解析 `secretKeyRef` **不需要** SA 有
+`secrets` 权限（已实证：SA=vault 的 Pod 读该 secret 是 403，但 env 仍注入成功），
+故「vault 自己的 SA 不能读」与「解封能正常工作」并不矛盾。
 
 ★**已在 #535 处置的一条 issue 未提及的问题**：该 Secret 曾用 `kubectl apply`
 创建，`last-applied-configuration` 注解里留了一份完整明文（330 字节），
@@ -110,8 +135,18 @@ key 仍与密文同处一地，只是多绕一层 —— **看起来解决了，
 | 成本 | 最低 |
 | 适用场景 | 威胁模型里「攻击者能拿到 etcd 快照」被评估为可接受 |
 
-★诚实地说：**#535 已经把这个方案能做的都做了**（CA 验证、清明文注解、
-文档化取舍）。再往下只剩 rekey，而 rekey 换的是 key 的值，不改变存放位置。
+★**订正**：我第一版写「#535 已经把这个方案能做的都做了」—— **不成立**。
+那句话建立在「只有 2 个 SA 可读」的错误数据上。真实有 19 个，其中至少
+4 个（prometheus-grafana / reloader / traefik / policy-controller-webhook）
+与 vault 毫无职能关系。
+
+**方案 C 下尚未动过、且成本远低于 KMS 迁移的一条路**：
+收敛这些无关 SA 的集群级 `secrets` 读权限。这不改变「key 与密文同处一地」
+这个根本取舍，但**实实在在缩小当前的可达面** —— 从 19 个主体降到必要的少数。
+
+★这条应当**先做**，无论是否迁移 KMS：它是纯收益、无停机、可回滚。
+（本提案不包含该收敛的实施 —— 改动 kube-system / monitoring 等
+第三方 chart 的 RBAC 需逐个评估是否破坏其功能，属独立工作项。）
 
 ---
 
@@ -154,7 +189,12 @@ seal "ocikms" {
 
 1. 它是唯一**彻底**消除「key 与密文同处一地」的选项
 2. OCI 在本环境已实测可用，不是引入一个全新的外部依赖
-3. 方案 B 在单集群下是自欺欺人；方案 C 的空间已被 #535 用尽
+3. 方案 B 在单集群下是自欺欺人
+
+★但**方案 C 的空间并未用尽**（第一版此处写错了）：收敛 19 个可读 SA 中
+那些与 vault 无关的，是一条独立于本提案、成本低得多的改进路径，
+建议先做 —— 它与 KMS 迁移不冲突，且迁移后仍然值得（KMS 迁移后
+该 Secret 会变成 recovery key，仍需保护）。
 
 **但建议分两步走，不要一次做完**：
 

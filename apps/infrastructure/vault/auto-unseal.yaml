@@ -12,14 +12,36 @@
 # 拿到 etcd/备份的人也就拿到了 key。这是自托管 Vault 的经典取舍：
 # 要么接受它，要么上 KMS/云端 auto-unseal（transit / awskms / gcpckms）。
 #
-# ── 当前实测的暴露面（2026-09-05 核）────────────────────────────────
-#   ✓ 无任何 ServiceAccount 能读该 Secret —— 连 vault 自己的 SA 都不能
-#     （vault-discovery-role 只有 pods 权限；kubelet 解析 secretKeyRef
-#      不需要 SA 有 secrets 权限，这点常被误解）
+# ── 当前实测的暴露面（2026-09-05 全集群 SA 穷举）──────────────────
+#
+#   ★★**19 个 ServiceAccount 能读该 Secret**（不是"没有"——我第一版
+#     只抽查了几个 SA 就下了"无任何 SA 能读"的结论，方向错得很危险：
+#     它让风险看起来比实际小）。逐个 `auth can-i` 遍历全部 ns 的全部 SA 得：
+#
+#       argocd:argocd-application-controller / argocd:argocd-server
+#       cert-manager:cert-manager / cert-manager:cert-manager-cainjector
+#       cnpg-system:cloudnative-pg
+#       cosign-system:policy-controller-webhook
+#       external-secrets:external-secrets / :external-secrets-cert-controller
+#       kube-system:expand-controller / :generic-garbage-collector
+#       kube-system:helm-traefik / :helm-traefik-crd
+#       kube-system:namespace-controller / :persistent-volume-binder
+#       kube-system:traefik
+#       monitoring:prometheus-grafana / :prometheus-kube-prometheus-operator
+#       reflector:reflector
+#       reloader:reloader-reloader
+#
+#   ★其中 prometheus-grafana / reloader / traefik / policy-controller 等
+#     **与 vault 毫无职能关系** —— 它们能读 unseal key 是纯粹的过宽授权，
+#     属**可低成本收敛的真实风险**，不是「职能所需」。
+#     收敛这些无关 SA 的集群级 secrets 权限，成本远低于 KMS 迁移。
+#
+#   ✓ vault 自己的 SA **不能**读（vault-discovery-role 只有 pods 权限）——
+#     ★kubelet 解析 secretKeyRef **不需要** SA 有 secrets 权限，这点常被误解
+#     （已实证：SA=vault 的 Pod 对该 secret 的 API 读是 403，但 env 仍成功注入）
 #   ✓ key 从未进入 git（工作区与全历史均 0 命中）
 #   ✓ 无 velero 类备份 CR 覆盖 vault ns
-#   ⚠ argocd-application-controller 与 external-secrets 可读（二者本就有
-#     跨 ns secret 权限，属其职能所需）
+#   ✓ 无残留明文副本（managedFields / events / 各类工作负载 spec 全扫，仅 data 一处）
 #   ⚠ 拿到 etcd 快照/节点磁盘 = 拿到 key（这正是上面说的固有取舍）
 #
 # ── 未做（需要密钥仪式，不能由自动化代劳）──────────────────────────
@@ -74,7 +96,12 @@ spec:
             #   即：日常续期换的是服务端证书，而本处挂的 CA 不变。
             #   ★若将来 CA 轮换（2035 或提前重建），本挂载会随 Secret 更新自动跟上；
             #     但**若有人删掉或改名 vault-internal-tls**，解封会失败 ——
-            #     那是 fail-closed（解不开且日志明确），不是静默放行。
+            #     那是 fail-closed（绝不会漏发 unseal key），但诊断信息在
+            #     **Event 里而非容器日志**：Pod 卡 ContainerCreating、
+            #     `kubectl logs` 返回空，需 `kubectl describe pod` 看
+            #     "MountVolume.SetUp failed" / "references non-existent secret key"。
+            #     （挂载成功但 CACERT 路径错才是 exit=1 + "Error loading CA File"，
+            #      两者是不同的失败路径，排障时别混淆。）
             - name: VAULT_CACERT
               value: /vault/tls/ca.crt
             - name: UNSEAL_KEY_1
