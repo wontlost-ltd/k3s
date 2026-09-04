@@ -59,6 +59,30 @@ dispatch() {
   echo "$lane"
 }
 
+# ★复刻 workflow 末尾的「恰一 lane 断言」（verify-image-pin.yml 的 Assert exactly one lane）。
+#   加这一层是因为：审查实测发现第一版只测到 lane 字符串就停了，而 lane 断言里
+#   `case "$LANE" in cloud-pin|runner-pin)` 仍是硬编码枚举 —— lsp-pin 落到 *) 被判
+#   「lane 枚举非法」，于是 **strict 全链跑通并通过之后仍把 job 判死**（死门禁）。
+#   「lsp pin → lsp-pin」那条用例当时是绿的，还被我列为"核心验收" ——
+#   **测试名承诺 ≠ 断言力**：它验的是 detection 算出什么，不是这个 lane 能不能过 CI。
+# $1=lane $2=noop_outcome $3=renderguard_outcome → 输出 ok|failclosed
+assert_lane() {
+  local LANE="$1" NOOP="${2:-skipped}" RG="${3:-skipped}"
+  case "$LANE" in
+    none)   [[ "$NOOP" == "success" ]] && echo ok || echo failclosed ;;
+    *-pin)  [[ "$RG"   == "success" ]] && echo ok || echo failclosed ;;
+    invalid) echo ok ;;
+    *)      echo failclosed ;;
+  esac
+}
+
+# 用例：$1=desc $2=lane $3=noop $4=renderguard $5=期望（ok|failclosed）
+ta() {
+  local desc="$1" got
+  got="$(assert_lane "$2" "$3" "$4")"
+  [[ "$got" == "$5" ]] && pass "断言：${desc} → ${got}" || fail "断言：${desc}：期望 $5 得 ${got}"
+}
+
 # 用例：$1=desc $2=期望 lane $3=changed-files（换行分隔）$4=status $5=kust_images_changed（默认 false）
 tc() {
   local desc="$1" want="$2" cf st got
@@ -174,6 +198,18 @@ tc "★跨应用：同时改 cloud 与 lsp 的 image-lock → invalid" "invalid"
 tc "★跨应用：同时改 runner 与 lsp 的 image-lock → invalid" "invalid" \
   $'apps/aster-lang/runner/image-lock.yaml\napps/aster-lang/lsp/image-lock.yaml' \
   $'modified\tapps/aster-lang/runner/image-lock.yaml\nmodified\tapps/aster-lang/lsp/image-lock.yaml'
+
+echo "=== lane 断言用例（覆盖 detection 的下游消费者）==="
+ta "none + noop success"                    none      success skipped ok
+ta "★cloud-pin + renderguard success"       cloud-pin skipped success ok
+ta "★runner-pin + renderguard success"      runner-pin skipped success ok
+# ★这条是本次修复的核心：注册表新增应用后，其 lane 必须能过断言。
+#   枚举写法下它会落 *) 被判「枚举非法」→ 死门禁。
+ta "★lsp-pin + renderguard success（枚举写法下会 failclosed）" lsp-pin skipped success ok
+ta "★任意新应用 xyz-pin 同样应放行"          xyz-pin   skipped success ok
+ta "invalid → ok（Invalid 步已 fail job）"   invalid   skipped skipped ok
+ta "空 lane → failclosed（防未知 lane 假绿）" ""        skipped skipped failclosed
+ta "★-pin 但 renderguard 未跑 → failclosed"  lsp-pin   skipped skipped failclosed
 
 if [[ "$FAILED" -ne 0 ]]; then
   echo "存在失败用例，见上方 ✗。"

@@ -307,6 +307,7 @@ jobs:
               lane=invalid
             fi
           fi
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
           echo ">> 分派 lane=$lane（pin_flavor=$pin_flavor）"
           # touches_lock 供既有 strict 步条件复用。
           # ★★必须按**模式**判定（*-pin）而非枚举具体 lane 名：旧版硬编码
@@ -490,25 +491,29 @@ jobs:
         if: steps.changed.outputs.touches_lock == 'true'
         env:
           PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
+          APP_KUST: ${{ steps.changed.outputs.app_kust }}
         run: |
           set -euo pipefail
           # render 校验只对 kustomization-bound 镜像有意义（渲染出 name@sha256）。选目标树：
           #   cloud PR → 渲 cloud 树；runner 里的 launcher(kustomization-bound) PR → 渲 runner 树；
           #   runner env-bound PR（只改 deployment，无 head-kustomization）→ 跳过 render（env 无静态渲染，
           #   其部署真相已由 verify 的 env value + deployment semantic-diff 保证）。
-          if [[ "$PIN_FLAVOR" == "runner" ]]; then
-            if [[ ! -f /tmp/pr/head-kustomization.yaml ]]; then
-              echo ">> runner env-bound PR（无 kustomization 变更）→ 跳过 render（env-bound 无静态渲染）"
-              exit 0
-            fi
-            TREE=apps/aster-lang/runner
-            cp /tmp/pr/head-kustomization.yaml apps/aster-lang/runner/kustomization.yaml
-            cp /tmp/pr/head-image-lock.yaml    apps/aster-lang/runner/image-lock.yaml
-          else
-            TREE=apps/aster-lang/cloud
-            cp /tmp/pr/head-kustomization.yaml apps/aster-lang/cloud/kustomization.yaml
-            cp /tmp/pr/head-image-lock.yaml    apps/aster-lang/cloud/image-lock.yaml
+          # ★★TREE 必须从**注册表**派生，不能 if runner / else cloud。
+          #   旧写法下 lsp（及任何新应用）都落 else 分支 → 把 lsp 的 kustomization
+          #   **覆盖进 cloud 目录**，再渲染 cloud 树 —— 渲出来的是 aster-api 的镜像。
+          #   它恰好因为 grep 不到 lsp 的 digest 而红了，但那是**巧合不是设计**：
+          #   真正的问题是 lsp 的部署渲染从未被校验过。若 cloud 树里碰巧有该镜像
+          #   引用，这里就会绿，而 lsp 自己的树一眼没看。
+          #   ——校验错对象比不校验更危险，因为它看起来在工作。
+          TREE="$(dirname "$APP_KUST")"
+          if [[ ! -f /tmp/pr/head-kustomization.yaml ]]; then
+            # env-bound PR（只改 deployment，无 kustomization 变更）→ 跳过 render
+            # （env 无静态渲染，其部署真相已由 verify 的 env value + deployment semantic-diff 保证）。
+            echo ">> ${PIN_FLAVOR} env-bound PR（无 kustomization 变更）→ 跳过 render"
+            exit 0
           fi
+          cp /tmp/pr/head-kustomization.yaml "$TREE/kustomization.yaml"
+          cp /tmp/pr/head-image-lock.yaml    "$TREE/image-lock.yaml"
           rendered="$(kubectl kustomize "$TREE")"
           # 只对**在 kustomization.images 里的镜像**做 render 校验（env-bound 的 runner 镜像不在其中，跳过）。
           #   image-lock 转 JSON（数值标量转字符串防精度损坏）。
@@ -569,7 +574,12 @@ jobs:
             none)
               [[ "$NOOP_OUTCOME" == "success" ]] \
                 || { echo "::error::lane=none 但 no-op 步 outcome=$NOOP_OUTCOME（非 success）→ 条件错配 fail-closed"; exit 1; } ;;
-            cloud-pin|runner-pin)
+            # ★必须按**模式**匹配（*-pin）而非枚举 lane 名 —— 与上面 touches_lock 同一口径。
+            #   枚举写法下，注册表新增应用后其 lane（如 lsp-pin）不在名单里 → 落到 *) 分支
+            #   被判「lane 枚举非法」→ **strict 全链跑通并通过之后仍把 job 判死**。
+            #   那是死门禁：报错指向 detection，真凶却在本断言步。
+            #   本 PR 第一版就栽在这里（CI 实测 lane 枚举非法或空），与 touches_lock 同构。
+            *-pin)
               # strict lane 最终 sentinel = render-guard（touches_lock 全链最后一步；前置任一失败 job 已 fail）。
               [[ "$RENDERGUARD_OUTCOME" == "success" ]] \
                 || { echo "::error::lane=$LANE 但 render-guard(strict 最终步) outcome=$RENDERGUARD_OUTCOME（非 success）→ strict 链未完整跑 fail-closed"; exit 1; } ;;
