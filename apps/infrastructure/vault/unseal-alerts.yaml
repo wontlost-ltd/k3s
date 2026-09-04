@@ -1,0 +1,72 @@
+# Vault 自动解封的失败告警（k3s#488）
+#
+# ★为什么必须有：解封 CronJob 此前**从设计上就无法报告失败** ——
+#   `vault operator unseal || true` 吞掉解封失败，「不可达」也只打印不影响退出码，
+#   于是无论出什么事 Job 都是 succeeded。
+#   实测后果：3 个 DeadlineExceeded（8-19 ×2、8-26）静躺两周多无人发现。
+#
+#   已在 auto-unseal.yaml 里把真实失败改成 exit 1；但**光让它失败还不够** ——
+#   失败的 Job 只是躺在那里，没人在看。本文件补上「失败 → 告警」这一环。
+#   ★「让失败可见」与「让人知道失败了」是两件事，缺后者前者等于白做。
+#
+# 生效前提（与 apps/aster-lang/observability/prometheus-rule.yaml 同）：
+#   1. monitoring ns 下 kube-prometheus-stack 已运行
+#   2. Prometheus Operator 的 ruleSelector 接受 release=prometheus 标签
+#   3. kube-state-metrics 已部署（实测已有，提供 kube_job_* 指标）
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vault-unseal-alerts
+  namespace: vault
+  labels:
+    app.kubernetes.io/part-of: vault
+    app.kubernetes.io/component: alerting
+    # release 标签让 kube-prometheus-stack 默认 ruleSelector 选中
+    release: prometheus
+spec:
+  groups:
+    - name: vault.unseal
+      interval: 1m
+      rules:
+        # ★核心告警：解封 Job 失败。
+        #   指标名已实测确认存在（kube-state-metrics 同时暴露 kube_job_failed
+        #   与 kube_job_status_failed；这里用后者取失败次数）。
+        - alert: VaultUnsealJobFailed
+          expr: |
+            max by (namespace, job_name) (
+              kube_job_status_failed{namespace="vault", job_name=~"vault-auto-unseal-.*"}
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: vault
+          annotations:
+            summary: "Vault 自动解封 Job 失败（{{ $labels.job_name }}）"
+            description: >-
+              vault-auto-unseal 的一次执行失败。可能原因：Vault 不可达、
+              解封后仍处于 sealed、或 vault-internal-tls Secret 缺失/改名
+              （后者表现为 Pod 卡 ContainerCreating，诊断在 Event 而非容器日志，
+              需 kubectl describe pod）。
+              ★单副本部署下 Vault 封印 = 全平台密钥不可用，请立即处置。
+
+        # ★第二道：CronJob 长时间没有成功过。
+        #   与上一条互补 —— 上一条要求「有失败的 Job」，
+        #   但若 CronJob 被暂停/删除/调度不出来，根本不会产生失败 Job，
+        #   那种「静默停摆」比失败更隐蔽。
+        - alert: VaultUnsealNotSucceeding
+          expr: |
+            time() - max(kube_job_status_completion_time{
+              namespace="vault", job_name=~"vault-auto-unseal-.*"
+            }) > 1800
+          for: 10m
+          labels:
+            severity: warning
+            component: vault
+          annotations:
+            summary: "Vault 解封 Job 已 30 分钟未成功完成"
+            description: >-
+              调度周期是 5 分钟，超过 30 分钟没有成功记录说明
+              CronJob 被暂停、调度失败或持续超时。
+              ★注意本条在「CronJob 被删除」时也会静默失效
+              （指标随之消失），故它防的是「跑但不成功」，
+              不能替代对 CronJob 存在性的检查。
