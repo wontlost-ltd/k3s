@@ -28,18 +28,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # cloud（静态部署镜像）路径：aster-api/aster-cloud-migrate 的 kustomization-bound pin。
-  CLOUD_LOCK_PATH: apps/aster-lang/cloud/image-lock.yaml
-  CLOUD_KUST_PATH: apps/aster-lang/cloud/kustomization.yaml
-  # runner（env-bound + launcher kustomization-bound 共用同一 image-lock 文件）路径。
-  #   runner image-lock 含两 entry（aster-replay-runner=env / aster-runner-launcher=kustomization）；
-  #   env-bound 的部署真相载体是 runner/deployment.yaml 的 RUNNER_IMAGE_DIGEST env。
-  RUNNER_LOCK_PATH: apps/aster-lang/runner/image-lock.yaml
-  RUNNER_DEPLOY_PATH: apps/aster-lang/runner/deployment.yaml
-  RUNNER_KUST_PATH: apps/aster-lang/runner/kustomization.yaml
-  # 部署策略文件（deferredImages 显式豁免列表）——**不在** image-pin 门控 pin 路径，故改本文件的
-  #   人工 PR 判 pin_flavor=none → no-op。render-guard 从**可信 base 侧**读它决定 render 豁免。
-  RUNNER_DEPLOY_POLICY_PATH: apps/aster-lang/runner/deploy-policy.yaml
+  # ★应用路径不再逐个硬编码 —— 改由 .github/image-pin/apps.yaml 注册表派生（#500）。
+  #
+  #   旧写法（CLOUD_LOCK_PATH / RUNNER_LOCK_PATH / ...）的问题不是"难看"，
+  #   而是**新应用不逐个接线就完全脱管，且漏接线本身无人报警**。
+  #   aster-lsp 正是这样脱管七个月：其 pin 停在一个手工 tag，缺 token 门，
+  #   造成公网未授权访问（#519）。现在接入一个应用 = 注册表加一条数据。
+  #
+  #   ★注册表**必须**从可信 base 侧读（本 workflow 只 checkout base，不执行 head 代码）——
+  #     否则 PR 可以自带一份注册表把自己的路径声明成受信路径。
+  APPS_REGISTRY: .github/image-pin/apps.yaml
 
 jobs:
   verify:
@@ -78,6 +76,24 @@ jobs:
           fi
           yq --version
           bash scripts/image-pin/verify-cip-sync.sh
+
+      # ★注册表 ↔ 磁盘 双向一致（#500）。与 cip-sync 同规格：每个 PR 都跑、
+      #   置于 lane 断言体系之外、纯本地解析无网络无凭据。
+      #
+      #   ★反向那一半是安全关键：某目录有了 image-lock.yaml 却没登记进注册表，
+      #     其 pin 变更就**不进任何 lane、不经 cosign 验签即可合入**，且 CI 全绿。
+      #     aster-lsp 正是这样脱管七个月（#519）。这条守卫让"漏登记"立刻可见。
+      - name: Verify registry ↔ disk sync (no unregistered image-lock)
+        run: |
+          set -euo pipefail
+          # bootstrap 兼容：引入本机制的 PR 其 base 侧还没有该脚本（本 workflow 只跑
+          # 可信 base 侧，见上方 checkout 注释）。此处跳过是安全的——base 没有它
+          # 意味着该不变量此前本就不存在，跳过不会放行任何本应被拒的东西。
+          if [[ ! -f scripts/image-pin/verify-registry-sync.sh ]]; then
+            echo "::notice::base 侧无 verify-registry-sync.sh（bootstrap PR）→ 跳过"
+            exit 0
+          fi
+          bash scripts/image-pin/verify-registry-sync.sh
 
       # ★广度守卫：断言每个应用渲染出的镜像都带 @sha256（2026-09-02 事故后补）。
       #
@@ -173,56 +189,70 @@ jobs:
             scripts_present=false
             echo "::notice::base 侧无 image-pin 验签脚本（bootstrap PR）"
           fi
-          # ★★detection 泛化（信任洞闭合）：识别 cloud 路径**或** runner 路径。
-          #   任一 image-lock 被改 → strict path。改 kustomization/deployment 而不改对应 image-lock
-          #   的 PR 也进 strict（由 check-pr-shape 拒），防绕过。
-          #   互斥：一个 image-pin PR 只 pin 一个镜像（per-image 分支），不会跨 cloud/runner 同时改。
-          pin_flavor=none
-          if grep -qxF "$CLOUD_LOCK_PATH" /tmp/pr/changed-files.txt \
-             || grep -qxF "$CLOUD_KUST_PATH" /tmp/pr/changed-files.txt; then
-            pin_flavor=cloud
-          fi
-          # ★deploy-policy 也是 runner 触发路径（Codex 抓跨 PR 绕过）：strict render-guard 从可信 base 读
-          #   deploy-policy 的 deferredImages 作 render 豁免依据。若 deploy-policy 单独改能走 no-op（不触发），
-          #   攻击者可 PR-A 单独加恶意豁免（no-op success）→合入成可信 base→PR-B 的 render-guard 读该 base
-          #   豁免跳过 render。故 deploy-policy 必须触发 runner lane：单独改它 → 无 image-lock → invalid。
-          # ★deployment.yaml **不再**是触发路径（go-live topology lane 退休后）：它不含 pin 数据
-          #   （pin 真相 = image-lock + kustomization.images），改它（如 replicas/探针等日常运维）
-          #   应走 lane=none。
-          # ★kustomization.yaml 按**内容**而非文件名触发（Codex 五层法第一层：数据结构定边界）：
+          # ★★detection 由**注册表**驱动（#500），不再逐个 flavor 硬编码。
+          #   任一应用的 image-lock 被改 → strict path。改 kustomization(images 段)/
+          #   deploy-policy 而不改对应 image-lock 的 PR 也进 strict（由 check-pr-shape 拒），防绕过。
+          #
+          #   互斥不变量不变：一个 image-pin PR 只 pin 一个应用。命中多个 → 标为
+          #   multi（非法形状），让 strict path 跑起来拒它——**不能**静默取其一，
+          #   否则跨应用 PR 会被当成单应用 PR 而只校验一半。
+          #
+          # ★deploy-policy 是触发路径（Codex 抓跨 PR 绕过）：strict render-guard 从可信 base 读
+          #   它的 deferredImages 作 render 豁免依据。若单独改它能走 no-op，攻击者可
+          #   PR-A 单独加恶意豁免（no-op success）→合入成可信 base→PR-B 的 render-guard 读该
+          #   base 豁免跳过 render。故单独改它 → 无 image-lock → invalid。
+          #
+          # ★deployment.yaml **不是**触发路径（go-live topology lane 退休后）：它不含 pin 数据
+          #   （pin 真相 = image-lock + kustomization.images），改它（replicas/探针等日常运维）走 none。
+          #
+          # ★kustomization.yaml 按**内容**而非文件名触发（五层法第一层：数据结构定边界）：
           #   该文件承载两类互不相干的内容——
           #     (a) images 段    = pin 数据本体，必须严守；
           #     (b) resources 段 = 清单注册，加 PDB/NetworkPolicy 等日常运维**必须**改这里。
-          #   若按文件名一刀切，任何「新增一个清单文件」的 PR 都会被判 invalid——那只是把
-          #   「死门禁拦一切」换成「粗门禁拦一切加清单」，问题没解决。故只在 images 段**实际变化**时
-          #   才触发 runner lane；images 逐字节不变 → 视为非 pin 变更。
-          #   安全性不依赖本判定：verify-rendered-by-digest-runner.yml 对**所有**改 runner/** 的 PR
-          #   无条件跑（非 lane 门控），持续断言 launcher 渲染为 @sha256 且 RUNNER_IMAGE_DIGEST 为
-          #   sha256 形状——改 images 回浮动 tag 仍 fail-closed。
-          kust_images_changed=false
-          if grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
-            # base 侧为已 checkout 的可信文件；head 侧仅作**数据**取用（不 checkout/执行 head 代码）。
-            gh api "repos/${{ github.repository }}/contents/${RUNNER_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
-              --jq '.content' | base64 -d > /tmp/pr/head-runner-kust.yaml
-            base_imgs="$(yq -o=json '.images // []' "$RUNNER_KUST_PATH" | jq -S -c '.')"
-            head_imgs="$(yq -o=json '.images // []' /tmp/pr/head-runner-kust.yaml | jq -S -c '.')"
-            if [[ "$base_imgs" != "$head_imgs" ]]; then
-              kust_images_changed=true
-              echo ">> runner kustomization.images 变更：$base_imgs → $head_imgs"
-            else
-              echo ">> runner kustomization 被改但 images 段逐字节不变（清单注册等运维变更）"
+          #   按文件名一刀切会让任何「新增清单」的 PR 判 invalid——那只是把「死门禁拦一切」
+          #   换成「粗门禁拦一切加清单」。故只在 images 段**实际变化**时才触发。
+          #   安全性不依赖本判定：verify-rendered-by-digest*.yml 对所有相关 PR 无条件跑。
+          pin_flavor=none
+          matched=""
+          # shellcheck disable=SC2034  # DEPLOY 刻意不参与 detection——见下方说明
+          while IFS=$'\t' read -r APP LOCK KUST DEPLOY POLICY; do
+            [[ -z "$APP" ]] && continue
+            # ★DEPLOY（deployment.yaml）**故意不作触发路径**：它不含 pin 数据
+            #   （pin 真相 = image-lock + kustomization.images），改它属日常运维
+            #   （replicas/探针/PDB）应走 lane=none。它只在 strict path 里作为
+            #   env-bound 的**载体**被读取。这一行 read 保留它只为占住 TSV 列位。
+            hit=false
+            grep -qxF "$LOCK" /tmp/pr/changed-files.txt && hit=true
+            if [[ -n "$POLICY" && "$POLICY" != "null" ]] \
+               && grep -qxF "$POLICY" /tmp/pr/changed-files.txt; then hit=true; fi
+            # kustomization 按 images 段内容判定
+            if grep -qxF "$KUST" /tmp/pr/changed-files.txt; then
+              # base 侧为已 checkout 的可信文件；head 侧仅作**数据**取用（不 checkout/执行 head 代码）。
+              gh api "repos/${{ github.repository }}/contents/${KUST}?ref=${{ github.event.pull_request.head.sha }}" \
+                --jq '.content' | base64 -d > "/tmp/pr/head-${APP}-kust.yaml"
+              base_imgs="$(yq -o=json '.images // []' "$KUST" | jq -S -c '.')"
+              head_imgs="$(yq -o=json '.images // []' "/tmp/pr/head-${APP}-kust.yaml" | jq -S -c '.')"
+              if [[ "$base_imgs" != "$head_imgs" ]]; then
+                hit=true
+                echo ">> ${APP} kustomization.images 变更：$base_imgs → $head_imgs"
+              else
+                echo ">> ${APP} kustomization 被改但 images 段逐字节不变（清单注册等运维变更）"
+              fi
             fi
-          fi
-          if grep -qxF "$RUNNER_LOCK_PATH" /tmp/pr/changed-files.txt \
-             || [[ "$kust_images_changed" == "true" ]] \
-             || grep -qxF "$RUNNER_DEPLOY_POLICY_PATH" /tmp/pr/changed-files.txt; then
-            if [[ "$pin_flavor" == "cloud" ]]; then
-              # 同一 PR 同时碰 cloud + runner → 非法形状（per-image 分支不应跨目录），fail-closed 进 strict
-              #   由 check-pr-shape 拒。这里标 runner，让 strict path 跑起来拒它。
-              echo "::warning::PR 同时改 cloud 与 runner 路径（非法 image-pin 形状）→ strict path 将拒"
+            if [[ "$hit" == "true" ]]; then
+              matched="${matched}${matched:+ }${APP}"
             fi
-            pin_flavor=runner
-          fi
+          done < <(yq -r '.apps[] | [.name, .lock, .kust, (.deploy // ""), (.policy // "")] | @tsv' "$APPS_REGISTRY")
+
+          case "$(printf '%s' "$matched" | wc -w | tr -d ' ')" in
+            0) pin_flavor=none ;;
+            1) pin_flavor="$matched" ;;
+            *) # 跨应用 → 非法形状，标 multi 进 strict 由 check-pr-shape 拒
+               echo "::warning::PR 同时命中多个应用（$matched）——非法 image-pin 形状 → strict path 将拒"
+               pin_flavor="multi" ;;
+          esac
+          echo ">> pin_flavor=$pin_flavor（注册表命中：${matched:-无}）"
+
           # ★Task A4 Blocker 3 修正：pin 路径被命中（pin_flavor != none）但 base 侧脚本缺失，
           #   曾经直接 no-op success——对永久安全关键 workflow 这是 fail-open（脚本若因任何原因
           #   在 main 上缺失/被删，pin PR 即可不经验签合入）。现在改为：脚本缺失且命中 pin 路径
@@ -242,32 +272,52 @@ jobs:
           #   硬编码 expected_res = base_res + [deployment.yaml, external-secrets.yaml]，而这两项现已在
           #   base 内，故该 lane 永远不可能再通过——它唯一的现实作用是拦住一切合法 runner 配置变更
           #   （实测：加 pdb.yaml 即 fail-closed "目录文件集变更"）。死门禁本身即风险，故整体移除。
+          # ★把命中应用的路径导出，供后续 step 使用（全部来自**可信 base 侧**注册表，
+          #   非 PR 供值）。pin_flavor=none/multi 时为空。
+          APP_LOCK=""; APP_KUST=""; APP_DEPLOY=""; APP_POLICY=""
+          if [[ "$pin_flavor" != "none" && "$pin_flavor" != "multi" ]]; then
+            # ★yq(mikefarah) 无 --arg（那是 jq 语法），传变量用 strenv。
+            read -r APP_LOCK APP_KUST APP_DEPLOY APP_POLICY < <(
+              PIN_APP="$pin_flavor" yq -r \
+                '.apps[] | select(.name == strenv(PIN_APP)) | [.lock, .kust, (.deploy // ""), (.policy // "")] | @tsv' \
+                "$APPS_REGISTRY")
+          fi
+          {
+            echo "app_lock=$APP_LOCK"
+            echo "app_kust=$APP_KUST"
+            echo "app_deploy=$APP_DEPLOY"
+            echo "app_policy=$APP_POLICY"
+          } >> "$GITHUB_OUTPUT"
+
           lane=none
-          if [[ "$pin_flavor" == "cloud" ]]; then
-            lane=cloud-pin
-          elif [[ "$pin_flavor" == "runner" ]]; then
-            # runner 命中：改 image-lock → runner-pin（strict 全链验签）。
-            if grep -qxF "$RUNNER_LOCK_PATH" /tmp/pr/changed-files.txt; then
-              lane=runner-pin
+          if [[ "$pin_flavor" == "multi" ]]; then
+            # 跨应用 PR：非法形状，进 strict 由 check-pr-shape 拒（不静默取其一）。
+            lane=invalid
+          elif [[ "$pin_flavor" != "none" ]]; then
+            # 命中某个应用：改了 image-lock → <app>-pin（strict 全链验签）。
+            if grep -qxF "$APP_LOCK" /tmp/pr/changed-files.txt; then
+              lane="${pin_flavor}-pin"
             else
               # 未碰 image-lock 却碰了 kustomization（含 images 段=pin 数据本体）或 deploy-policy
               #   （render 豁免来源）→ 非法形状，fail-closed。
               # ★保留此分支是 Codex 抓的跨 PR 绕过的堵点：deploy-policy 单独改**必须** invalid，
               #   否则攻击者可 PR-A 加恶意 deferredImages 走 no-op 绿灯合入成可信 base，
               #   PR-B 的 render-guard 读该 base 豁免即可跳过 render 校验。
-              echo "::warning::PR 改了 runner kustomization/deploy-policy 但未改 image-lock（非法 pin 形状）→ invalid"
+              echo "::warning::PR 改了 ${pin_flavor} 的 kustomization/deploy-policy 但未改 image-lock（非法 pin 形状）→ invalid"
               lane=invalid
             fi
           fi
-
-          echo "lane=$lane" >> "$GITHUB_OUTPUT"
           echo ">> 分派 lane=$lane（pin_flavor=$pin_flavor）"
-          # 保留 touches_lock/pin_flavor 供既有 strict 步条件复用（strict lane = cloud-pin|runner-pin）。
-          if [[ "$lane" == "cloud-pin" || "$lane" == "runner-pin" ]]; then
-            echo "touches_lock=true"  >> "$GITHUB_OUTPUT"
-          else
-            echo "touches_lock=false" >> "$GITHUB_OUTPUT"
-          fi
+          # touches_lock 供既有 strict 步条件复用。
+          # ★★必须按**模式**判定（*-pin）而非枚举具体 lane 名：旧版硬编码
+          #   `lane == cloud-pin || lane == runner-pin`，新增应用后其 lane（如 lsp-pin）
+          #   不在名单里 → touches_lock=false → **整条 strict path 被跳过**，
+          #   即新应用的 pin PR 不经 cosign 验签就能合入。这是 fail-open，
+          #   而且表现为"CI 全绿"，比报错更危险。
+          case "$lane" in
+            *-pin) echo "touches_lock=true"  >> "$GITHUB_OUTPUT" ;;
+            *)     echo "touches_lock=false" >> "$GITHUB_OUTPUT" ;;
+          esac
           echo "pin_flavor=$pin_flavor" >> "$GITHUB_OUTPUT"
         id: changed
 
@@ -275,7 +325,7 @@ jobs:
       - name: Invalid image-pin shape (explicit failure)
         if: steps.changed.outputs.lane == 'invalid'
         run: |
-          echo "::error::PR 改了 runner kustomization.yaml（含 images 段=pin 数据）或 deploy-policy.yaml（render 豁免来源）但未改 image-lock.yaml → fail-closed。合法 pin PR 须由 image-pin bot 双写 image-lock + kustomization.images。若只想改 runner 日常运维配置（replicas/PDB/探针等），改 deployment.yaml / 新增独立清单文件即可（走 lane=none）。"
+          echo "::error::PR 改了某应用的 kustomization.yaml（含 images 段=pin 数据）或 deploy-policy.yaml（render 豁免来源）但未改对应 image-lock.yaml，或同时命中多个应用 → fail-closed。合法 pin PR 须由 image-pin bot 双写 image-lock + kustomization.images，且只针对**一个**应用。若只想改日常运维配置（replicas/PDB/探针等），改 deployment.yaml / 新增独立清单文件即可（走 lane=none）。"
           exit 1
 
       # ── 分流 A：非 pin PR（lane=none）→ no-op（发 success，不做验签）──
@@ -290,48 +340,45 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
+          APP_LOCK: ${{ steps.changed.outputs.app_lock }}
+          APP_KUST: ${{ steps.changed.outputs.app_kust }}
+          APP_DEPLOY: ${{ steps.changed.outputs.app_deploy }}
+          APP_POLICY: ${{ steps.changed.outputs.app_policy }}
         run: |
           set -euo pipefail
-          # ★按 pin_flavor 选 image-lock 路径（cloud=cloud/image-lock.yaml / runner=runner/image-lock.yaml）。
-          #   路径从可信 base 侧 env 常量取，非 PR 供值。
-          if [[ "$PIN_FLAVOR" == "runner" ]]; then
-            LOCK="$RUNNER_LOCK_PATH"
-          else
-            LOCK="$CLOUD_LOCK_PATH"
-          fi
+          # ★image-lock 路径来自**注册表**（detection 步已按命中应用导出，见 app_lock）。
+          #   全部取自可信 base 侧，非 PR 供值。
+          LOCK="$APP_LOCK"
           # 取 head image-lock（数据）。
           gh api "repos/${{ github.repository }}/contents/${LOCK}?ref=${{ github.event.pull_request.head.sha }}" \
             --jq '.content' | base64 -d > /tmp/pr/head-image-lock.yaml
           echo "PR-head image-lock sha256: $(sha256sum /tmp/pr/head-image-lock.yaml | cut -d' ' -f1)"
           # base（可信 checkout 侧）作为 diff 基线；base 无该文件则空。
           cp "$LOCK" /tmp/pr/base-image-lock.yaml 2>/dev/null || echo 'images: []' > /tmp/pr/base-image-lock.yaml
-          if [[ "$PIN_FLAVOR" == "runner" ]]; then
-            # runner 目录含两类 pin：aster-replay-runner(env-bound→deployment) 与
-            #   aster-runner-launcher(kustomization-bound→runner/kustomization)。按 PR 实际改了哪个
-            #   部署载体文件派生（都从可信 base 侧路径取，非 PR 供值）。一个 image-pin PR 只改其一。
-            if grep -qxF "$RUNNER_DEPLOY_PATH" /tmp/pr/changed-files.txt; then
-              gh api "repos/${{ github.repository }}/contents/${RUNNER_DEPLOY_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
-                --jq '.content' | base64 -d > /tmp/pr/head-deployment.yaml
-              cp "$RUNNER_DEPLOY_PATH" /tmp/pr/base-deployment.yaml
-              echo "runner env-bound：取 deployment 数据"
-            fi
-            if grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
-              gh api "repos/${{ github.repository }}/contents/${RUNNER_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
-                --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
-              cp "$RUNNER_KUST_PATH" /tmp/pr/base-kustomization.yaml
-              echo "runner kustomization-bound(launcher)：取 kustomization 数据"
-            fi
-            # ★render 豁免策略只从**可信 base 侧**读（非 PR head）——deferral 是 main 既定状态，
-            #   PR 不得在本次变更中新声明豁免绕过 render。base 无该文件则空列表（无豁免）。
-            cp "$RUNNER_DEPLOY_POLICY_PATH" /tmp/pr/base-deploy-policy.yaml 2>/dev/null \
-              || echo 'deferredImages: []' > /tmp/pr/base-deploy-policy.yaml
-          else
-            # kustomization-binding（cloud）：取 head cloud/kustomization.yaml（数据）+ base（可信侧）。
-            gh api "repos/${{ github.repository }}/contents/${CLOUD_KUST_PATH}?ref=${{ github.event.pull_request.head.sha }}" \
+          # ★载体按**注册表声明**取，而非按 flavor 名分支。
+          #   一个应用可能同时有 env-bound（deploy）与 kustomization-bound（kust）两类 pin
+          #   （runner 即如此，两者共用同一 image-lock）；按 PR 实际改了哪个载体分别取数据。
+          #   一个 image-pin PR 只改其一。
+          if [[ -n "$APP_DEPLOY" ]] && grep -qxF "$APP_DEPLOY" /tmp/pr/changed-files.txt; then
+            gh api "repos/${{ github.repository }}/contents/${APP_DEPLOY}?ref=${{ github.event.pull_request.head.sha }}" \
+              --jq '.content' | base64 -d > /tmp/pr/head-deployment.yaml
+            cp "$APP_DEPLOY" /tmp/pr/base-deployment.yaml
+            echo "${PIN_FLAVOR} env-bound：取 deployment 数据"
+          fi
+          if grep -qxF "$APP_KUST" /tmp/pr/changed-files.txt; then
+            gh api "repos/${{ github.repository }}/contents/${APP_KUST}?ref=${{ github.event.pull_request.head.sha }}" \
               --jq '.content' | base64 -d > /tmp/pr/head-kustomization.yaml
             echo "PR-head kustomization sha256: $(sha256sum /tmp/pr/head-kustomization.yaml | cut -d' ' -f1)"
-            cp "$CLOUD_KUST_PATH" /tmp/pr/base-kustomization.yaml
-            # cloud 树无 deferral（launcher 才有）；render-guard 无条件读该文件，故置空列表兜底。
+            cp "$APP_KUST" /tmp/pr/base-kustomization.yaml
+            echo "${PIN_FLAVOR} kustomization-bound：取 kustomization 数据"
+          fi
+          # ★render 豁免策略只从**可信 base 侧**读（非 PR head）——deferral 是 main 既定状态，
+          #   PR 不得在本次变更中新声明豁免绕过 render。未声明 policy 或 base 无该文件 → 空列表（无豁免）。
+          if [[ -n "$APP_POLICY" ]]; then
+            cp "$APP_POLICY" /tmp/pr/base-deploy-policy.yaml 2>/dev/null \
+              || echo 'deferredImages: []' > /tmp/pr/base-deploy-policy.yaml
+          else
+            # 该应用无 deferral 概念；render-guard 无条件读该文件，故置空列表兜底。
             echo 'deferredImages: []' > /tmp/pr/base-deploy-policy.yaml
           fi
 
@@ -341,26 +388,25 @@ jobs:
           IMAGE_PIN_BOT_LOGIN: ${{ vars.IMAGE_PIN_BOT_LOGIN }}
           IMAGE_PIN_BOT_ID: ${{ vars.IMAGE_PIN_BOT_ID }}
           PIN_FLAVOR: ${{ steps.changed.outputs.pin_flavor }}
+          APP_LOCK: ${{ steps.changed.outputs.app_lock }}
+          APP_KUST: ${{ steps.changed.outputs.app_kust }}
+          APP_DEPLOY: ${{ steps.changed.outputs.app_deploy }}
+          APP_POLICY: ${{ steps.changed.outputs.app_policy }}
         run: |
           set -euo pipefail
           # ★按 flavor 传 image-lock 与部署真相 env（路径全来自可信 base 侧 env 常量，非 PR 供值）。
           #   runner 下再按改动集分流：launcher(改 runner/kustomization.yaml) 传 KUSTOMIZATION_PATH；
           #   env-bound runner(改 runner/deployment.yaml) 传 DEPLOYMENT_PATH；cloud 传 KUSTOMIZATION_PATH（不变）。
-          if [[ "$PIN_FLAVOR" == "runner" ]]; then
-            if grep -qxF "$RUNNER_KUST_PATH" /tmp/pr/changed-files.txt; then
-              # launcher（kustomization-bound in runner dir）：whitelist {runner image-lock, runner kustomization}
-              IMAGE_LOCK_PATH="$RUNNER_LOCK_PATH" \
-              KUSTOMIZATION_PATH="$RUNNER_KUST_PATH" \
-                bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
-            else
-              # runner（env-bound）：whitelist {runner image-lock, runner deployment}
-              IMAGE_LOCK_PATH="$RUNNER_LOCK_PATH" \
-              DEPLOYMENT_PATH="$RUNNER_DEPLOY_PATH" \
-                bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
-            fi
+          # 按 PR 实际改的载体决定白名单（路径全来自可信 base 侧注册表，非 PR 供值）：
+          #   改了 kustomization → whitelist {image-lock, kustomization}
+          #   改了 deployment    → whitelist {image-lock, deployment}（env-bound）
+          if grep -qxF "$APP_KUST" /tmp/pr/changed-files.txt; then
+            IMAGE_LOCK_PATH="$APP_LOCK" \
+            KUSTOMIZATION_PATH="$APP_KUST" \
+              bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
           else
-            IMAGE_LOCK_PATH="$CLOUD_LOCK_PATH" \
-            KUSTOMIZATION_PATH="$CLOUD_KUST_PATH" \
+            IMAGE_LOCK_PATH="$APP_LOCK" \
+            DEPLOYMENT_PATH="$APP_DEPLOY" \
               bash scripts/image-pin/check-pr-shape.sh "$GITHUB_EVENT_PATH" /tmp/pr/changed-files.txt
           fi
 
