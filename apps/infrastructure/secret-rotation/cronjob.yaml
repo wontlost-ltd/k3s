@@ -38,7 +38,9 @@ spec:
               #   只剩 digest/sig，**没有任何版本 tag**，拉取直接 ErrImagePull。
               # alpine/k8s 自带上述全部工具；tag 与集群 k8s 版本对齐（v1.35）。
               # 已在集群内实跑验证 sh/curl/jq/kubectl/base64/head/tr/grep/date 均存在。
-              image: docker.io/alpine/k8s:1.35.6
+              # ★digest pin（k3s#523）：理由同 cloudflared。该 digest 实测等于
+              #   集群当前 imageID，本次变更不改变实际运行内容。
+              image: docker.io/alpine/k8s:1.35.6@sha256:b7a12c5ddf261994c33d2eaaa06fd69a0803ff6b38683bfa3d30a76dcdf92807
               command: ["/bin/sh", "/scripts/rotate-pg-password.sh"]
               env:
                 - name: VAULT_ADDR
