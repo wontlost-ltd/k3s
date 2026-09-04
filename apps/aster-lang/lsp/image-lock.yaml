@@ -1,0 +1,37 @@
+# 镜像 digest pin（image-lock）—— 机器维护，唯一可由 image-pin PR 修改的文件
+#
+# 本文件把 aster-lsp 纳入 verify-image-pin 的深度校验（issue #500）。
+# 校验内容见 verify-image-pin.yml；每 entry 三关：
+#   1. image 在 .github/image-pin/allowed-images.yaml 白名单内
+#   2. cosign verify {image}@{digest} 绑定源仓 workflow 身份
+#      + --certificate-github-workflow-sha={sourceSha}
+#   3. freshness（latest-only）：sourceSha == 源仓 sourceRef 当前 HEAD
+#
+# ★lsp 此前完全不在门控内：verify-image-pin.yml 的路径是**逐个硬编码的 env**
+#   （CLOUD_LOCK_PATH / RUNNER_LOCK_PATH），不是 glob —— 没接线就没覆盖，
+#   而「漏接线」本身无人报警。后果是实打实的：lsp 的 pin 曾停留在一个
+#   手工推送的 tag `0.0.9`（构建于 2026-01-27）长达七个月，而 WS 网关的
+#   token 门是 2026-06-17 才加的 → 线上二进制根本没有 token 门 →
+#   **公网未授权访问**（#519）。#500 改为注册表驱动即为根治。
+#
+# ── 下面这条 entry 的性质：seed（与 cloud/image-lock.yaml 同一约定）─────
+#
+# digest 与 sourceSha 均为**实测值**，不是占位符：
+#   digest    = 当前 kustomization.yaml 里 pin 的值，亦即集群在跑的 imageID
+#   sourceSha = cosign 证书扩展 githubWorkflowSha 的实际内容（已 verify 通过）
+#   runId     = 该 SHA 对应的 aster-cloud CI run
+#
+# ★但它**当前过不了 freshness**：sourceSha(211e8565) 是 2026-09-01 的构建，
+#   而 aster-cloud main 此后已前进。这不会导致 CI 失败 ——
+#   verify-image-pin.sh 的四态分派中，「entry 未变 + 载体未提供」→ 跳过
+#   （见该脚本 :131 附近的 (d) 分支）。即 seed 只在**首个真正的 image-pin PR**
+#   改动它时才被完整校验，届时 digest 与 sourceSha 会被 CI 成对写入且必然新鲜。
+#
+#   这与 cloud/image-lock.yaml 的 seed 处境相同（那边 sourceSha 未知，
+#   标了 UNVERIFIED-SEED；本文件的值已可验签，故直接写实值）。
+version: 1
+images:
+  - image: docker.io/wontlost/aster-lsp
+    digest: sha256:73285722cce9737c869e43d72a456f1bba655f895731396e98a790f8d9154027
+    sourceSha: 211e85657dbc021ebc2f727070bd96cd9d6c88e7
+    runId: "33498331173"
