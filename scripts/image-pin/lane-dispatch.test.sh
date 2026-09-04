@@ -11,12 +11,10 @@
 #       仍是触发路径；碰了它们却没改 image-lock → invalid（fail-closed）
 set -euo pipefail
 
-CLOUD_LOCK_PATH=apps/aster-lang/cloud/image-lock.yaml
-CLOUD_KUST_PATH=apps/aster-lang/cloud/kustomization.yaml
-RUNNER_LOCK_PATH=apps/aster-lang/runner/image-lock.yaml
-RUNNER_DEPLOY_PATH=apps/aster-lang/runner/deployment.yaml
-RUNNER_KUST_PATH=apps/aster-lang/runner/kustomization.yaml
-RUNNER_DEPLOY_POLICY_PATH=apps/aster-lang/runner/deploy-policy.yaml
+# ★路径不再硬编码，从**真实注册表**读（k3s#500）——这样注册表加一个应用，
+#   本测试自动覆盖它；若仍写死，测试会与 workflow 悄悄分叉。
+REGISTRY="$(cd "$(dirname "$0")/../.." && pwd)/.github/image-pin/apps.yaml"
+[[ -f "$REGISTRY" ]] || { echo "找不到注册表：$REGISTRY"; exit 1; }
 
 FAILED=0
 pass() { echo "  ✓ $1"; }
@@ -26,25 +24,63 @@ fail() { echo "  ✗ $1"; FAILED=1; }
 # $3 = kust_images_changed（true/false）——复刻 workflow 对 kustomization 的**内容级**判定：
 #   只有 images 段实际变化才算 pin 变更；只改 resources（注册新清单）不触发。
 dispatch() {
-  local cf="$1" st="$2" kust_images_changed="${3:-false}" pin_flavor lane
-  pin_flavor=none
-  if grep -qxF "$CLOUD_LOCK_PATH" "$cf" || grep -qxF "$CLOUD_KUST_PATH" "$cf"; then pin_flavor=cloud; fi
-  # ★deployment.yaml 已从触发路径移除（见文件头）；kustomization 改按 images 段内容判定。
-  if grep -qxF "$RUNNER_LOCK_PATH" "$cf" || [[ "$kust_images_changed" == "true" ]] || grep -qxF "$RUNNER_DEPLOY_POLICY_PATH" "$cf"; then
-    pin_flavor=runner
-  fi
+  local cf="$1" st="$2" kust_images_changed="${3:-false}" pin_flavor lane matched=""
+  local APP LOCK KUST DEPLOY POLICY hit
+  # ★复刻 workflow 的注册表驱动 detection：遍历每个已登记应用。
+  while IFS=$'\t' read -r APP LOCK KUST DEPLOY POLICY; do
+    [[ -z "$APP" ]] && continue
+    hit=false
+    grep -qxF "$LOCK" "$cf" && hit=true
+    if [[ -n "$POLICY" && "$POLICY" != "null" ]] && grep -qxF "$POLICY" "$cf"; then hit=true; fi
+    # kustomization 按 images 段**内容**判定（测试用第 3 参模拟 workflow 的实际 diff）
+    if grep -qxF "$KUST" "$cf" && [[ "$kust_images_changed" == "true" ]]; then hit=true; fi
+    [[ "$hit" == "true" ]] && matched="${matched}${matched:+ }${APP}"
+  done < <(yq -r '.apps[] | [.name, .lock, .kust, (.deploy // ""), (.policy // "")] | @tsv' "$REGISTRY")
+
+  case "$(printf '%s' "$matched" | wc -w | tr -d ' ')" in
+    0) pin_flavor=none ;;
+    1) pin_flavor="$matched" ;;
+    *) pin_flavor=multi ;;   # 跨应用 → 非法形状
+  esac
+
   lane=none
-  if [[ "$pin_flavor" == "cloud" ]]; then
-    lane=cloud-pin
-  elif [[ "$pin_flavor" == "runner" ]]; then
-    if grep -qxF "$RUNNER_LOCK_PATH" "$cf"; then
-      lane=runner-pin
+  if [[ "$pin_flavor" == "multi" ]]; then
+    lane=invalid
+  elif [[ "$pin_flavor" != "none" ]]; then
+    local app_lock
+    # yq(mikefarah) 无 --arg，用 strenv 传变量
+    app_lock="$(PIN_APP="$pin_flavor" yq -r '.apps[] | select(.name == strenv(PIN_APP)) | .lock' "$REGISTRY")"
+    if grep -qxF "$app_lock" "$cf"; then
+      lane="${pin_flavor}-pin"
     else
-      # 碰了 kustomization（images 段）或 deploy-policy（render 豁免源）却没改 image-lock → fail-closed。
       lane=invalid
     fi
   fi
   echo "$lane"
+}
+
+# ★复刻 workflow 末尾的「恰一 lane 断言」（verify-image-pin.yml 的 Assert exactly one lane）。
+#   加这一层是因为：审查实测发现第一版只测到 lane 字符串就停了，而 lane 断言里
+#   `case "$LANE" in cloud-pin|runner-pin)` 仍是硬编码枚举 —— lsp-pin 落到 *) 被判
+#   「lane 枚举非法」，于是 **strict 全链跑通并通过之后仍把 job 判死**（死门禁）。
+#   「lsp pin → lsp-pin」那条用例当时是绿的，还被我列为"核心验收" ——
+#   **测试名承诺 ≠ 断言力**：它验的是 detection 算出什么，不是这个 lane 能不能过 CI。
+# $1=lane $2=noop_outcome $3=renderguard_outcome → 输出 ok|failclosed
+assert_lane() {
+  local LANE="$1" NOOP="${2:-skipped}" RG="${3:-skipped}"
+  case "$LANE" in
+    none)   [[ "$NOOP" == "success" ]] && echo ok || echo failclosed ;;
+    *-pin)  [[ "$RG"   == "success" ]] && echo ok || echo failclosed ;;
+    invalid) echo ok ;;
+    *)      echo failclosed ;;
+  esac
+}
+
+# 用例：$1=desc $2=lane $3=noop $4=renderguard $5=期望（ok|failclosed）
+ta() {
+  local desc="$1" got
+  got="$(assert_lane "$2" "$3" "$4")"
+  [[ "$got" == "$5" ]] && pass "断言：${desc} → ${got}" || fail "断言：${desc}：期望 $5 得 ${got}"
 }
 
 # 用例：$1=desc $2=期望 lane $3=changed-files（换行分隔）$4=status $5=kust_images_changed（默认 false）
@@ -115,7 +151,13 @@ tc "cloud pin → cloud-pin" "cloud-pin" \
 #   夹带 runner/kustomization.yaml 命中 `*)` catch-all 直接 die（已实测：
 #   "image-pin PR 只能改 .../cloud/image-lock.yaml 和 .../cloud/kustomization.yaml, 却改了 .../runner/kustomization.yaml"）。
 #   即 lane 从 invalid 变 cloud-pin，但**最终仍 fail-closed**，只是由后置校验器而非分派器拒。
-tc "cloud+runner 混合但 runner images 不变 → cloud-pin（后由 check-pr-shape 路径白名单拒）" "cloud-pin" \
+# ★行为变更（k3s#500，刻意）：旧版 cloud 按**文件名**触发、runner 按**内容**触发 ——
+#   同一个字段两套口径。注册表化后统一为**内容**判定（images 段实际变化才算 pin 变更）。
+#   这与「按文件名一刀切会让任何新增清单的 PR 判 invalid」的既有论证一致，
+#   只是把该论证从 runner 推广到全部应用。
+#   影响：只改 kustomization.resources（注册新清单）而不动 images 的 cloud PR，
+#   从 cloud-pin 变为 none —— 与 runner 同类操作的既有行为一致。
+tc "★统一内容判定：cloud+runner 的 kustomization 都改但 images 均不变（注册清单）→ none" "none" \
   $'apps/aster-lang/cloud/kustomization.yaml\napps/aster-lang/runner/kustomization.yaml' \
   $'modified\tapps/aster-lang/cloud/kustomization.yaml\nmodified\tapps/aster-lang/runner/kustomization.yaml' \
   false
@@ -128,8 +170,49 @@ tc "deploy-policy 与 deployment 同现但无 image-lock（仍是豁免源被动
   $'modified\tapps/aster-lang/runner/deploy-policy.yaml\nmodified\tapps/aster-lang/runner/deployment.yaml'
 
 echo ""
-if [[ "$FAILED" == "0" ]]; then
-  echo "全部通过（lane 分派完备互斥：none/cloud-pin/runner-pin/invalid）。"; exit 0
-else
-  echo "存在失败用例，见上方 ✗。"; exit 1
+# ── #500：注册表化后新增应用的覆盖（lsp）──────────────────────────────
+# ★这几条是本次重构的**核心验收**：接入 lsp 只加了注册表一条数据，
+#   没有改分派逻辑，它就应当自动获得与 cloud 同等的门控。
+tc "★lsp pin（image-lock+kustomization）→ lsp-pin" "lsp-pin" \
+  $'apps/aster-lang/lsp/image-lock.yaml\napps/aster-lang/lsp/kustomization.yaml' \
+  $'modified\tapps/aster-lang/lsp/image-lock.yaml\nmodified\tapps/aster-lang/lsp/kustomization.yaml' \
+  true
+tc "★lsp 只改 kustomization.images 未改 image-lock（手改 images 绕过）→ invalid" "invalid" \
+  $'apps/aster-lang/lsp/kustomization.yaml' \
+  $'modified\tapps/aster-lang/lsp/kustomization.yaml' \
+  true
+tc "★lsp 运维：注册新清单（images 不变）→ none" "none" \
+  $'apps/aster-lang/lsp/pdb.yaml\napps/aster-lang/lsp/kustomization.yaml' \
+  $'added\tapps/aster-lang/lsp/pdb.yaml\nmodified\tapps/aster-lang/lsp/kustomization.yaml' \
+  false
+tc "★lsp 运维：只改 deployment（不含 pin 数据）→ none" "none" \
+  $'apps/aster-lang/lsp/deployment.yaml' \
+  $'modified\tapps/aster-lang/lsp/deployment.yaml'
+
+# ── 跨应用互斥：命中多个应用必须 invalid，不得静默取其一 ──────────────
+# ★若这里放行，跨应用 PR 会被当成单应用 PR 而**只校验一半** —— 另一半的
+#   image-lock 变更就完全没经过 cosign 验签。故必须 fail-closed。
+tc "★跨应用：同时改 cloud 与 lsp 的 image-lock → invalid" "invalid" \
+  $'apps/aster-lang/cloud/image-lock.yaml\napps/aster-lang/lsp/image-lock.yaml' \
+  $'modified\tapps/aster-lang/cloud/image-lock.yaml\nmodified\tapps/aster-lang/lsp/image-lock.yaml'
+tc "★跨应用：同时改 runner 与 lsp 的 image-lock → invalid" "invalid" \
+  $'apps/aster-lang/runner/image-lock.yaml\napps/aster-lang/lsp/image-lock.yaml' \
+  $'modified\tapps/aster-lang/runner/image-lock.yaml\nmodified\tapps/aster-lang/lsp/image-lock.yaml'
+
+echo "=== lane 断言用例（覆盖 detection 的下游消费者）==="
+ta "none + noop success"                    none      success skipped ok
+ta "★cloud-pin + renderguard success"       cloud-pin skipped success ok
+ta "★runner-pin + renderguard success"      runner-pin skipped success ok
+# ★这条是本次修复的核心：注册表新增应用后，其 lane 必须能过断言。
+#   枚举写法下它会落 *) 被判「枚举非法」→ 死门禁。
+ta "★lsp-pin + renderguard success（枚举写法下会 failclosed）" lsp-pin skipped success ok
+ta "★任意新应用 xyz-pin 同样应放行"          xyz-pin   skipped success ok
+ta "invalid → ok（Invalid 步已 fail job）"   invalid   skipped skipped ok
+ta "空 lane → failclosed（防未知 lane 假绿）" ""        skipped skipped failclosed
+ta "★-pin 但 renderguard 未跑 → failclosed"  lsp-pin   skipped skipped failclosed
+
+if [[ "$FAILED" -ne 0 ]]; then
+  echo "存在失败用例，见上方 ✗。"
+  exit 1
 fi
+echo "全部通过（lane 分派完备互斥 + #500 注册表化后的 lsp 与跨应用互斥覆盖）。"

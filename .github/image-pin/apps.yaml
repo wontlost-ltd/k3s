@@ -1,0 +1,50 @@
+# image-pin 应用注册表 —— verify-image-pin.yml 的 lane 由本文件派生（k3s#500）。
+#
+# ★为什么需要它：此前每个应用的路径都硬编码成一组 env 变量
+#   （CLOUD_LOCK_PATH / RUNNER_LOCK_PATH / ...），**不是 glob**。
+#   新应用不逐个接线就完全脱管，而「漏接线」本身无人报警 ——
+#   aster-lsp 正是这样脱管七个月，期间一个 tag pin 的旧镜像缺 token 门，
+#   造成公网未授权访问（#519）。
+#
+#   改为注册表后，接入一个应用 = **加一条数据**，不必改 workflow 的分派逻辑。
+#
+# ★这不是「自动发现」，是刻意的**显式登记**：
+#   image-pin 是安全门禁，其覆盖面必须是有意声明的。自动 glob 会让
+#   「新目录自动获得 pin 特权」，那是另一种风险。广度兜底由
+#   scripts/image-pin/verify-no-floating-tags.sh 负责（那个才是 glob 自动发现）。
+#
+# ── 字段语义 ────────────────────────────────────────────────────────
+#   name      lane 名（pin_flavor 取值），须唯一、仅小写字母与连字符
+#   lock      image-lock.yaml 路径（该应用的 pin 数据本体）
+#   kust      kustomization.yaml 路径；其 `images` 段是 kustomization-bound
+#             pin 的部署真相载体。按**内容**触发（images 段实际变化才算 pin 变更），
+#             故改 resources 注册新清单不会误判为 pin PR。
+#   deploy    可选。env-bound pin 的部署真相载体（如 runner 的
+#             deployment.yaml 里的 RUNNER_IMAGE_DIGEST）。无则留空。
+#   policy    可选。deploy-policy.yaml（deferredImages render 豁免来源）。
+#             ★它也是**触发路径**：单独改它必须进 strict lane，否则可以
+#             PR-A 单独加恶意豁免（no-op 通过）→ 合入成可信 base →
+#             PR-B 的 render-guard 读该 base 豁免跳过 render。
+#
+# ★互斥不变量（由 check-pr-shape 强制）：一个 image-pin PR 只 pin 一个应用。
+#   跨应用同时改 → 非法形状 → strict path 拒。
+apps:
+  - name: cloud
+    lock: apps/aster-lang/cloud/image-lock.yaml
+    kust: apps/aster-lang/cloud/kustomization.yaml
+
+  # runner 目录含两类 pin，共用同一 image-lock：
+  #   aster-replay-runner    = env-bound（真相在 deployment.yaml 的 RUNNER_IMAGE_DIGEST）
+  #   aster-runner-launcher  = kustomization-bound（真相在 kustomization.images）
+  # 故它同时有 deploy 与 policy 两个可选字段。
+  - name: runner
+    lock: apps/aster-lang/runner/image-lock.yaml
+    kust: apps/aster-lang/runner/kustomization.yaml
+    deploy: apps/aster-lang/runner/deployment.yaml
+    policy: apps/aster-lang/runner/deploy-policy.yaml
+
+  # ★lsp（#500）：纯 kustomization-bound，与 cloud 同形态。
+  #   接入前它完全不在门控内 —— digest 靠手工维护，无 cosign 验签、无 freshness 校验。
+  - name: lsp
+    lock: apps/aster-lang/lsp/image-lock.yaml
+    kust: apps/aster-lang/lsp/kustomization.yaml
