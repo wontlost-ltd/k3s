@@ -24,6 +24,6 @@ images:
     sourceSha: 54ba293a4eebbb837d331d7ef49a336e217f7bb9 # Phase 2 首个 CI PR 覆盖为真实 github.sha
     runId: "33334207037"
   - image: docker.io/wontlost/aster-cloud-migrate
-    digest: sha256:6dc1bb1d69d88dd32f4713bf472667adfbb7eaa351efd366bb9255c3d11ad147
-    sourceSha: 856df46019dd3c583beeb3015d1babe9a2db33b5
-    runId: "33801136148"
+    digest: sha256:cc965d7d5eb753218ded5414cdfeda01fe74d48df5f042b841934a9f7aab9f8e
+    sourceSha: 694ecf403cd1f49f363665c553d639c3e838f195
+    runId: "33939793665"
