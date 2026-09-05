@@ -450,8 +450,47 @@ kubectl -n vault create secret generic vault-backup-credentials \
 `last-applied-configuration` 注解，等于多存一份可读副本
 （本集群的 unseal-keys Secret 曾因此留下 330 字节明文，见 k3s#488）。
 
-★建议**另建一对 key**而非复用 `postgres-backup-credentials` ——
-两者泄露影响面不同（PG 备份 vs 全平台密钥），凭据应各自可独立轮换。
+### ★凭据来源：已决定**复用** PG 那对 key（2026-09-05）
+
+我最初建议「另建一对 key」，查证后发现该建议考虑不周：
+
+**OCI 每个用户最多只能有 2 把 Customer Secret Key**，而现有的
+`postgres-backup-credentials-in-k3s` 已占 1 把。再建一把就用满配额 ——
+而轮换的标准做法是「先建新的 → 切换 → 再删旧的」，需要临时占 2 把。
+**用满之后 PG 那把也失去轮换空间**，等于用一个隔离换掉两个可轮换性。
+
+三个选项权衡后选了复用：
+
+| | 做法 | 代价 |
+|---|---|---|
+| **A ★已选** | 复用现有 key | 配额留 1 把余量给轮换；但 PG 备份与 Vault 快照共用凭据 |
+| B | 新建第二把 | 隔离达成；但配额用满，两把都失去轮换空间 |
+| C | 建专用 IAM 用户 + 独立 key | 真隔离且各自可轮换；但要多维护一个用户/组/policy |
+
+**选 A 的理由**：隔离可以之后再补，而**备份缺口是现在就存在的风险**。
+不完美的备份远好于没有备份。
+
+实际操作（值全程在管道里，不落盘、不进任何会话）：
+
+```bash
+kubectl -n data-services get secret postgres-backup-credentials -o json \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({
+      'apiVersion':'v1','kind':'Secret','type':'Opaque',
+      'metadata':{'name':'vault-backup-credentials','namespace':'vault'},
+      'data':{k:d['data'][k] for k in ('ACCESS_KEY_ID','SECRET_ACCESS_KEY')}}))" \
+  | kubectl create -f -
+```
+
+已核验：两键 sha256 与源一致、无 `last-applied-configuration` 注解。
+
+### ⚠️ 遗留风险（已知并接受）
+
+1. **共用凭据**：一把 key 泄露同时影响 PG 备份与 Vault 快照
+2. **★key 挂在个人账号下**（`ryan.pang@wontlost.com`）——
+   人员变动会直接断掉备份链路。服务凭据不应绑在自然人身上。
+
+★两条都指向同一个正解：**建专用 IAM 服务用户**（上表选项 C）。
+建议排期做，届时 PG 与 Vault 各用一把、各自可轮换、且不依赖任何个人账号。
 
 ### 验证
 
