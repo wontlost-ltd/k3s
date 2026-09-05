@@ -480,6 +480,34 @@ vault operator raft snapshot restore -force ./restore.snap
 ★注意：恢复后的 Vault 仍需用**当时的 unseal key** 解封 ——
 快照不含 unseal key。故 unseal key 的保管与快照同等重要。
 
+### ★OCI S3 兼容层不支持 chunked encoding（踩过的坑）
+
+`aws-cli` 1.45+ 默认对 PutObject 计算 checksum，走 chunked encoding，
+而 **OCI Object Storage 的 S3 兼容层不支持**：
+
+```
+An error occurred (NotImplemented) when calling the PutObject operation:
+AWS chunked encoding not supported.
+```
+
+★**这条只在真正上传时才暴露** —— 认证、列桶、`head-object` 全部正常，
+所以极容易误判成凭据或权限问题，往错误方向排查很久。
+
+修法（已写进清单）：
+
+```yaml
+- name: AWS_REQUEST_CHECKSUM_CALCULATION
+  value: when_required
+- name: AWS_RESPONSE_CHECKSUM_VALIDATION
+  value: when_required
+```
+
+实测：设置后上传成功且回读 ContentLength 一致（70000 / 70000）。
+
+★**今后任何往 OCI 传对象的 Job 都要带这两个变量。**
+（CNPG 的 barman 走的是另一条实现路径，不受影响 —— 所以
+「PG 备份能成功」并不能证明 aws-cli 也能成功。）
+
 ### 两容器设计的由来
 
 `hashicorp/vault` 镜像**没有** `aws`/`curl`/`openssl`，只有 BusyBox `wget`，
