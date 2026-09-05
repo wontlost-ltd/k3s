@@ -70,3 +70,41 @@ spec:
               ★注意本条在「CronJob 被删除」时也会静默失效
               （指标随之消失），故它防的是「跑但不成功」，
               不能替代对 CronJob 存在性的检查。
+
+        # ── Raft 快照备份告警（k3s#488 补偿控制 A）────────────────────
+        # ★没有这条，快照静默失败与"从没配过备份"是同一个结果。
+        #   PG 那边有 CNPG 自带的备份状态；Vault 这边只能靠 Job 状态。
+        - alert: VaultSnapshotJobFailed
+          expr: |
+            max by (namespace, job_name) (
+              kube_job_status_failed{namespace="vault", job_name=~"vault-raft-snapshot-.*"}
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: vault
+          annotations:
+            summary: "Vault raft 快照备份失败（{{ $labels.job_name }}）"
+            description: >-
+              可能原因：k8s auth role 未建或过期、bucket 凭据失效、
+              快照过小（<1KiB，脚本主动拒绝）、上传后回读大小不符。
+              ★Vault 是单副本且数据绑死在 master-2 的本地盘上，
+              快照是唯一兜底 —— 失败即处于"无备份"状态。
+
+        # ★第二道：超过 36 小时没有成功快照。
+        #   调度是每天一次，36h 给了一次重试余量；
+        #   与上一条互补 —— CronJob 被暂停/删除时不会产生失败 Job。
+        - alert: VaultSnapshotStale
+          expr: |
+            time() - max(kube_job_status_completion_time{
+              namespace="vault", job_name=~"vault-raft-snapshot-.*"
+            }) > 129600
+          for: 30m
+          labels:
+            severity: warning
+            component: vault
+          annotations:
+            summary: "Vault 已超过 36 小时没有成功的 raft 快照"
+            description: >-
+              调度周期为每天 02:00 UTC。超过 36 小时无成功记录说明
+              CronJob 被暂停、调度失败或持续超时。
