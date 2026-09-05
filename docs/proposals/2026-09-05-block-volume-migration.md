@@ -1,6 +1,6 @@
 # 提案：把有状态数据迁到 OCI Block Volume
 
-**状态**：待决策（需停机窗口）
+**状态**：阶段 0 已完成（卷已挂载，未格式化）；阶段 1-3 待停机窗口
 **关联**：k3s#488（Vault 备份，#542 已合）、规模化商用差距评估
 
 ---
@@ -116,17 +116,27 @@ k3s 自带 `local-path`（默认）。挂载块存储后有两条路：
 
 ★**每一步都可回滚**，且数据在最后一刻才动。
 
-### 阶段 0：准备（无停机）
+### 阶段 0：准备（无停机）—— ★已完成
+
+```
+master-block → master-2   ATTACHED  2026-09-05T09:10Z
+agent-block  → worker-1   ATTACHED  2026-09-05T09:11Z
+```
+
+★**实测设备名是 `/dev/sdb`，不是 `/dev/oracleoci/oraclevdb`**：
+paravirtualized 挂载不创建 `/dev/oracleoci/` 符号链接。两节点
+`/proc/partitions` 均新增 `sdb`（52428800 块 = 50GB），已核实。
+
+挂载本身**不改变任何数据**（未格式化、未挂载文件系统），
+故这一步可先做、随时可 detach 回滚。
+
+余下步骤（需 SSH 到节点）：
 
 ```bash
-# 1. 挂载卷到实例（OCI 侧，不影响运行中的 k3s）
-oci compute volume-attachment attach --type paravirtualized \
-  --instance-id <master-2 OCID> --volume-id <master-block OCID>
-
-# 2. 节点上格式化并挂载（需 SSH 到节点）
-sudo mkfs.xfs /dev/oracleoci/oraclevdb
+# 格式化并挂载
+sudo mkfs.xfs /dev/sdb
 sudo mkdir -p /mnt/data
-sudo blkid /dev/oracleoci/oraclevdb          # 取 UUID
+sudo blkid /dev/sdb                          # 取 UUID
 echo 'UUID=<uuid> /mnt/data xfs defaults,_netdev,nofail 0 2' | sudo tee -a /etc/fstab
 sudo mount -a && df -h /mnt/data
 ```
@@ -200,6 +210,7 @@ kubectl get pvc -A                                     # 全部 Bound
 
 ## 7. 本提案未做的事
 
-- 未挂载任何卷、未格式化、未改任何 StorageClass
-- 未验证节点上 `/dev/oracleoci/oraclevdb` 的实际设备名（需挂载后确认）
+- ~~未挂载任何卷~~ → **已挂载**（阶段 0 完成，未格式化、未改文件系统）
+- ~~未验证设备名~~ → **已验证为 `/dev/sdb`**（非 `/dev/oracleoci/oraclevdb`）
+- 未格式化、未改任何 StorageClass、未动任何数据
 - 未做 OCI CSI 驱动的可行性验证（方案 b，暂不推荐）
