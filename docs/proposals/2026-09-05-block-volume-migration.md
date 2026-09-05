@@ -48,8 +48,8 @@ worker-1  29.4G / 25.1G 已用 / 4.3G 可用  (85%)  ← 最紧
 ## 2. 可用资源与硬约束
 
 ```
-master-block  50GB  vpu=10  AD-1  AVAILABLE（未挂载）
-agent-block   50GB  vpu=10  AD-1  AVAILABLE（未挂载）
+master-block  50GB  vpu=10  AD-1  → 已挂 master-2（阶段 0，未格式化）
+agent-block   50GB  vpu=10  AD-1  → 已挂 worker-1（阶段 0，未格式化）
 ```
 
 四个节点全在 **AD-1**，与卷同 AD（跨 AD 挂不了）。
