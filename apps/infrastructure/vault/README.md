@@ -396,3 +396,95 @@ kubectl logs -n vault vault-0 -f
 
    - Create an OIDC role mapping Vault policies to Authentik groups/users as needed.
 
+
+---
+
+## Raft 快照备份（`raft-snapshot.yaml`）
+
+### 为什么需要
+
+**Vault 此前零备份**，而 PG 有完整 PITR（每小时 barman → 同一个 bucket）。
+这是最不对称的一处风险：
+
+> 备份做得最好的组件（PG）依赖着备份做得最差的组件（Vault）——
+> PG 的密码、TLS 证书都存在 Vault 里。`master-2` 磁盘损坏时，
+> PG 备份恢复得出来，但**解不开**。
+
+Vault 的数据在 `local-path` PV 上、绑死 `master-2`（PV nodeAffinity），
+单副本、无处漂移。快照是**唯一的兜底**。
+
+### 一次性前置（人工，需 Vault 特权 token）
+
+自动化不能代劳这两步 —— 它们需要能写 policy/auth 的 token，
+而那种 token 一旦交给 CronJob，本身就成了新的风险面。
+
+**1. 建只读快照 policy 与 K8s auth role**
+
+```bash
+# 用你自己的特权 token 执行（token 不要进任何文件）
+vault policy write raft-snapshot - <<'POLICY'
+path "sys/storage/raft/snapshot" {
+  capabilities = ["read"]
+}
+POLICY
+
+vault write auth/kubernetes/role/raft-snapshot \
+  bound_service_account_names=vault-snapshot \
+  bound_service_account_namespaces=vault \
+  policies=raft-snapshot \
+  ttl=10m
+```
+
+★该 policy 是**只读单路径**：只能拉快照，不能读任何 secret、不能改配置。
+即便 token 泄露，攻击者拿到的是「能备份」而非「能读密钥」。
+
+**2. 建 bucket 凭据 Secret**
+
+```bash
+kubectl -n vault create secret generic vault-backup-credentials \
+  --from-literal=ACCESS_KEY_ID='<OCI S3 兼容 access key>' \
+  --from-literal=SECRET_ACCESS_KEY='<secret>'
+```
+
+★用 `create` **不要用 `apply`**：`apply` 会把明文写进
+`last-applied-configuration` 注解，等于多存一份可读副本
+（本集群的 unseal-keys Secret 曾因此留下 330 字节明文，见 k3s#488）。
+
+★建议**另建一对 key**而非复用 `postgres-backup-credentials` ——
+两者泄露影响面不同（PG 备份 vs 全平台密钥），凭据应各自可独立轮换。
+
+### 验证
+
+```bash
+kubectl -n vault create job vault-snap-test --from=cronjob/vault-raft-snapshot
+kubectl -n vault logs job/vault-snap-test -c snapshot   # initContainer：取快照
+kubectl -n vault logs job/vault-snap-test -c upload     # 主容器：上传+回读校验
+```
+
+预期：快照大小 ≥1KiB、远端 ContentLength 与本地一致、Job `succeeded=1`。
+
+### ★恢复演练（尚未做，建议排期）
+
+**备份没验证过恢复 = 不知道有没有备份。**
+本条是已知缺口：目前只验证了「能产出快照并上传」，
+**未验证「快照能恢复出一个可用的 Vault」**。
+
+恢复大致流程（需独立环境，勿在生产演练）：
+
+```bash
+aws --endpoint-url "$S3_ENDPOINT" s3 cp \
+  "s3://bucket-backup/vault/vault-raft-<TS>.snap" ./restore.snap
+vault operator raft snapshot restore -force ./restore.snap
+```
+
+★注意：恢复后的 Vault 仍需用**当时的 unseal key** 解封 ——
+快照不含 unseal key。故 unseal key 的保管与快照同等重要。
+
+### 两容器设计的由来
+
+`hashicorp/vault` 镜像**没有** `aws`/`curl`/`openssl`，只有 BusyBox `wget`，
+而 BusyBox `wget` 不支持 `--ca-certificate`，无法带内部 CA 调 Vault API。
+`alpine/k8s` 镜像有 `aws` 但**没有** `vault` CLI。
+
+故：initContainer 用 vault 取快照 → `emptyDir` → 主容器用 aws 上传。
+不自建镜像是因为那要维护一条构建链，收益不抵成本。

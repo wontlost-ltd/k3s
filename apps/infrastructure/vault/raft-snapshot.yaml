@@ -1,0 +1,168 @@
+# Vault Raft 快照 → OCI Object Storage（k3s#488 补偿控制 A）
+#
+# ★为什么必须有：**Vault 此前零备份**，而 PG 有完整 PITR（每小时 barman →
+#   同一个 bucket，可恢复窗口回溯到 2026-08-06）。这是最不对称的一处风险：
+#
+#     备份做得最好的组件（PG）依赖着备份做得最差的组件（Vault）——
+#     PG 的密码、TLS 证书都存在 Vault 里。master-2 磁盘损坏时，
+#     PG 备份恢复得出来，但**解不开**，因为密钥随 Vault 一起没了。
+#
+#   而 Vault 的数据在 `local-path` PV 上、绑死 master-2（PV nodeAffinity），
+#   单副本、无处漂移。故快照不是"锦上添花"，是**唯一的兜底**。
+#
+# ── 认证：走 Kubernetes auth，不落任何静态 token ──────────────────
+#
+# ★不用 root token 也不用长期 token：本 Job 的 SA 通过 Vault 的
+#   Kubernetes auth（mountPath=kubernetes，与 external-secrets 同一套）
+#   换取短时效 token。凭据永不进 git、不进 Secret、不进环境变量。
+#
+# ★前置（人工，需持有 Vault 特权 token，见本目录 README）：
+#     vault policy write raft-snapshot - <<'EOF'
+#     path "sys/storage/raft/snapshot" { capabilities = ["read"] }
+#     EOF
+#     vault write auth/kubernetes/role/raft-snapshot \
+#       bound_service_account_names=vault-snapshot \
+#       bound_service_account_namespaces=vault \
+#       policies=raft-snapshot ttl=10m
+#
+#   ★该 policy 是**只读单路径**：只能拉快照，不能读任何 secret、
+#     不能改配置。即便 token 泄露，攻击者拿到的是"能备份"而非"能读密钥"。
+#     （但快照本身含全部密文 —— 故 bucket 的访问控制同样关键，见下。）
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-snapshot
+  namespace: vault
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-raft-snapshot
+  namespace: vault
+spec:
+  # 每天 02:00 UTC —— 避开 PG 备份（每小时 :02）与 auto-unseal（每 5 分钟）。
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  # ★保留 7 个失败：与 auto-unseal 的 3 个不同 —— 快照是每天一次，
+  #   保 7 个约等于"最近一周的失败都留着"，便于看出是偶发还是持续。
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # 快照可能较大（当前 Vault 数据 10Gi PV），给足时间但不无限等。
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          serviceAccountName: vault-snapshot
+          restartPolicy: Never
+
+          # ★两容器分工（实测得出，不是设计洁癖）：
+          #   hashicorp/vault 镜像**没有** aws / curl / openssl，只有 BusyBox wget，
+          #   而 BusyBox wget 不支持 --ca-certificate，无法带内部 CA 调 Vault API。
+          #   alpine/k8s 镜像有 aws 但**没有** vault CLI。
+          #   故：initContainer 用 vault 取快照 → emptyDir → 主容器用 aws 上传。
+          #   （不自建镜像：那要维护一条构建链，收益不抵成本。）
+          initContainers:
+            - name: snapshot
+              image: hashicorp/vault:1.19.0
+              env:
+                - name: VAULT_ADDR
+                  value: https://vault-0.vault-internal:8200
+                # ★验证内部 CA，绝不 VAULT_SKIP_VERIFY —— 快照响应里是**全部密文**，
+                #   是集群内最敏感的一次传输。
+                - name: VAULT_CACERT
+                  value: /vault/tls/ca.crt
+              volumeMounts:
+                - name: vault-tls
+                  mountPath: /vault/tls
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  # ★set -e：auto-unseal 的教训 —— 那边用 `|| true` 吞掉全部失败，
+                  #   Job 永远 succeeded，真出事无人知晓。这里任何一步失败都必须
+                  #   让 Job 失败，否则"有备份"是假的。
+
+                  echo ">> 用 Kubernetes auth 换短时效 token（不落任何静态凭据）"
+                  JWT="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+                  VAULT_TOKEN="$(vault write -field=token \
+                    auth/kubernetes/login role=raft-snapshot jwt="$JWT")"
+                  export VAULT_TOKEN
+
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  echo "$TS" > /work/ts
+                  vault operator raft snapshot save "/work/vault-raft-${TS}.snap"
+
+                  # ★校验非空：不做这步的话，0 字节文件也会被当成"备份成功"上传，
+                  #   而那正是最危险的假绿——以为有备份，恢复时才发现是空的。
+                  SZ="$(wc -c < "/work/vault-raft-${TS}.snap")"
+                  echo ">> 快照大小: ${SZ} 字节"
+                  [ "$SZ" -ge 1024 ] || { echo "快照过小（${SZ} 字节），疑似失败" >&2; exit 1; }
+
+          containers:
+            - name: upload
+              # digest pin 与 secret-rotation 同一镜像（已在信任根内）
+              image: docker.io/alpine/k8s:1.35.6@sha256:b7a12c5ddf261994c33d2eaaa06fd69a0803ff6b38683bfa3d30a76dcdf92807
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: vault-backup-credentials
+                      key: ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: vault-backup-credentials
+                      key: SECRET_ACCESS_KEY
+              envFrom:
+                - configMapRef:
+                    name: vault-backup-target
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TS="$(cat /work/ts)"
+                  F="/work/vault-raft-${TS}.snap"
+                  SZ="$(wc -c < "$F")"
+                  echo ">> 上传 ${F} (${SZ} 字节)"
+                  aws --endpoint-url "$S3_ENDPOINT" s3 cp \
+                    "$F" "s3://${S3_BUCKET}/vault/vault-raft-${TS}.snap"
+
+                  # ★回读校验大小一致 —— 上传"成功"但内容截断是真实存在的失败模式。
+                  R="$(aws --endpoint-url "$S3_ENDPOINT" s3api head-object \
+                    --bucket "$S3_BUCKET" --key "vault/vault-raft-${TS}.snap" \
+                    --query ContentLength --output text)"
+                  echo ">> 远端大小: ${R}"
+                  [ "$R" = "$SZ" ] || { echo "远端大小 ${R} != 本地 ${SZ}" >&2; exit 1; }
+                  echo ">> 完成: s3://${S3_BUCKET}/vault/vault-raft-${TS}.snap"
+
+          volumes:
+            - name: vault-tls
+              secret:
+                secretName: vault-internal-tls
+                items:
+                  - key: ca.crt
+                    path: ca.crt
+            - name: work
+              emptyDir:
+                # ★emptyDir 而非 PV：快照含全部密文，用完随 Pod 销毁，
+                #   不在节点磁盘上留残留。
+                sizeLimit: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-backup-target
+  namespace: vault
+data:
+  S3_ENDPOINT: https://axuwdowxwpud.compat.objectstorage.ap-melbourne-1.oraclecloud.com
+  S3_BUCKET: bucket-backup
