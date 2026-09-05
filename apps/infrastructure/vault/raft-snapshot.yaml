@@ -119,6 +119,18 @@ spec:
                     secretKeyRef:
                       name: vault-backup-credentials
                       key: SECRET_ACCESS_KEY
+                # ★OCI Object Storage 的 S3 兼容层**不支持 AWS chunked encoding**。
+                #   aws-cli 1.45+ 默认对 PutObject 开启 checksum 计算，会用
+                #   chunked encoding 传输，OCI 直接拒：
+                #     "An error occurred (NotImplemented) when calling the
+                #      PutObject operation: AWS chunked encoding not supported."
+                #   ★这条只在**真正上传时**才暴露 —— 认证、列桶、head-object
+                #     全都正常，所以很容易误以为凭据或权限有问题。
+                #   实测：设成 when_required 后上传成功且回读大小一致（70000/70000）。
+                - name: AWS_REQUEST_CHECKSUM_CALCULATION
+                  value: when_required
+                - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+                  value: when_required
               envFrom:
                 - configMapRef:
                     name: vault-backup-target
