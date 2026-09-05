@@ -1,0 +1,53 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: restore-drill
+  namespace: data-services
+spec:
+  instances: 1
+  # ★★必须显式指定与生产**相同的**镜像版本。
+  #   不写 imageName 时 CNPG 用它自己的默认版本（实测 18.1），
+  #   而备份是 PG 16.4 产出的 —— PostgreSQL 无法启动更旧主版本的数据目录：
+  #     "The data directory was initialized by PostgreSQL version 16,
+  #      which is not compatible" → "control file appears to be corrupt"
+  #   ★这条恰恰说明恢复演练的价值：备份一直是好的，但"能恢复"此前从未被验证。
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  # ★资源给得比生产小：这是一次性验证，不是长期负载。
+  #   节点 CPU requests 已 55-83%，不能按生产规格再要一份。
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits:   {cpu: 500m, memory: 768Mi}
+  # ★钉到 master-1（CPU requests 最低 55%），避开承载生产 PG+Vault 的 master-2
+  affinity:
+    nodeSelector:
+      kubernetes.io/hostname: master-1
+  storage:
+    size: 5Gi
+  # ★关键：从 S3 备份 bootstrap，**只读**源备份，不碰生产集群
+  bootstrap:
+    recovery:
+      source: prod-backup
+  externalClusters:
+    - name: prod-backup
+      # ★serverName 必须显式指定为**生产集群名** —— 不写的话 CNPG 用
+      #   本集群名（restore-drill）拼路径，去找不存在的
+      #   shared-postgres/restore-drill/base/，报 "no target backup found"。
+      #   实际数据在 shared-postgres/shared-postgres/base/（cluster 名嵌两层）。
+      barmanObjectStore:
+        # ★serverName 在 barmanObjectStore **这一层**（不是 externalClusters 顶层，
+        #   放错层会被 API server 以 strict decoding error 拒掉）。
+        #   必须显式指定为生产集群名 —— 不写则 CNPG 用本集群名（restore-drill）
+        #   拼路径，去找不存在的 shared-postgres/restore-drill/base/，
+        #   报 "no target backup found"。实际数据在 shared-postgres/shared-postgres/base/。
+        serverName: shared-postgres
+        destinationPath: s3://bucket-backup/shared-postgres/
+        endpointURL: https://axuwdowxwpud.compat.objectstorage.ap-melbourne-1.oraclecloud.com
+        s3Credentials:
+          accessKeyId:
+            name: postgres-backup-credentials
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: postgres-backup-credentials
+            key: SECRET_ACCESS_KEY
+        wal:
+          maxParallel: 2
