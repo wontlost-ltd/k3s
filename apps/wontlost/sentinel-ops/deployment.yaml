@@ -1,0 +1,99 @@
+# Sentinel Ops Deployment
+#
+# vaadin-motion 的公开演示应用（https://sentinel-ops.wontlost.com）。
+# 纯无状态：演示数据在内存里（QueuePanel.seed()），重启即重置——对演示
+# 而言这正是想要的行为，每位访问者都从同一个已知状态开始。
+#
+# 因此不挂 PVC、不连数据库、不需要任何 Secret，这也是与 ckeditor-builder
+# 最主要的差别。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-ops
+  namespace: wontlost-sentinel-ops
+  labels:
+    app: sentinel-ops
+    app.kubernetes.io/name: sentinel-ops
+    app.kubernetes.io/part-of: wontlost
+spec:
+  replicas: 1
+  # Recreate 而非 RollingUpdate：Vaadin 的 UI 状态存在服务端 session 里，
+  # 单副本下滚动更新会让两个 pod 同时在跑，用户可能被 Traefik 轮询到
+  # 没有其 session 的新 pod，页面直接失效。演示应用停机几秒无所谓。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sentinel-ops
+  template:
+    metadata:
+      labels:
+        app: sentinel-ops
+        app.kubernetes.io/name: sentinel-ops
+    spec:
+      automountServiceAccountToken: false
+      # 无长任务，30s 足够让 in-flight 请求收尾。
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sentinel-ops
+          # image 不写 tag，由 kustomization.yaml 的 images: 段统一管理；
+          # CI（release-demo.yml）通过 kustomize edit set image 写入 digest。
+          image: wontlost/sentinel-ops
+          imagePullPolicy: IfNotPresent  # digest 不可变，无需 Always
+          ports:
+            - containerPort: 8090
+          securityContext:
+            allowPrivilegeEscalation: false
+            # 只读 root FS。Spring Boot 与 Vaadin 在生产模式下只往 /tmp 写
+            # （JVM 临时区、Tomcat work dir、Vaadin production bundle 缓存），
+            # 该路径已挂 emptyDir。应用本身没有任何写盘逻辑。
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 250m
+          # 探针走 Actuator，不打 Vaadin UI 路由——后者每次都会触发一次
+          # 完整的前端 bootstrap，既浪费 CPU 又让探针耗时不可预测。
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30  # 最长 150s 启动窗口
+      volumes:
+        # 只读 rootfs 的配套可写区。sizeLimit 防止容器无限写盘拖垮节点；
+        # 本地实测启动后 /tmp 占用远低于此，超过即说明出现了写盘异常。
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
