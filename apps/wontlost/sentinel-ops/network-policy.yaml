@@ -8,7 +8,16 @@
 # kustomization.yaml 的 resources 列表。
 #
 # 本应用的网络面比 ckeditor-builder 简单得多：无数据库、无外部 API 调用，
-# 出站实际上只需要 DNS。入站只允许 Traefik 与 Prometheus。
+# 出站实际上只需要 DNS。
+#
+# 入站来源是 **cloudflared（cloudflare namespace）而不是 Traefik**：本站的
+# Cloudflare Tunnel public hostname 直接指向
+#   http://sentinel-ops.wontlost-sentinel-ops.svc.cluster.local:80
+# 流量不经过 Traefik。最初照搬 ckeditor-builder 时把入站写成了只允许
+# kube-system，那样一旦启用会立刻 502——ckeditor-builder 的 tunnel 同样是
+# 直连 Service，它那条 kube-system 规则实际也没有被这条路径用到。
+# Ingress 对象仍然保留：集群内其他消费者或将来切回 Traefik 时用得上，
+# 故 kube-system 也一并放行。
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -37,7 +46,18 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # cloudflared (cloudflare namespace) → :8090
+    # 这是生产流量的实际入口：tunnel 直连 Service，不经 Traefik。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflare
+      ports:
+        - protocol: TCP
+          port: 8090
     # Traefik (kube-system) → :8090
+    # Ingress 对象仍在，保留这条以便集群内经 Traefik 访问，
+    # 以及将来若把 tunnel 指回 Traefik 时不必再改策略。
     - from:
         - namespaceSelector:
             matchLabels:
