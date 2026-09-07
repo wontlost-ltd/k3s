@@ -15,6 +15,7 @@ resources:
 # Docker Hub，pod 会处于 ImagePullBackOff 直到第一次 demo-v* 发布跑完。
 # 这是预期内的——ArgoCD 会保持重试，镜像出现后自动恢复。
 images:
-- name: wontlost/sentinel-ops
+- digest: sha256:fdc461f7fc09dc4ab36a296027ac7c247e891cf684df6ed2db07871a6ba02300
+  name: wontlost/sentinel-ops
   newName: wontlost/sentinel-ops
-  newTag: "0.1.0"
+  newTag: 0.1.0
