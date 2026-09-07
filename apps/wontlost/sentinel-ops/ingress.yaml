@@ -1,0 +1,31 @@
+# Sentinel Ops Ingress
+# 使用 Reflector 复制的通配符证书（与 ckeditor-builder 相同机制）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sentinel-ops
+  namespace: wontlost-sentinel-ops
+  labels:
+    app: sentinel-ops
+    app.kubernetes.io/name: sentinel-ops
+    app.kubernetes.io/part-of: wontlost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: sentinel-ops.wontlost.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sentinel-ops
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - sentinel-ops.wontlost.com
+      secretName: wontlost-com-tls

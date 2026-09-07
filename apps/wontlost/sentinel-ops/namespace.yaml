@@ -1,0 +1,7 @@
+# Sentinel Ops Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wontlost-sentinel-ops
+  labels:
+    app.kubernetes.io/part-of: wontlost
