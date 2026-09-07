@@ -1,0 +1,84 @@
+# Sentinel Ops NetworkPolicy
+#
+# IMPORTANT (rollout note)：本文件存在于 git 但 kustomization.yaml 暂未引用，
+# 即 ArgoCD 不会立即 apply。沿用 ckeditor-builder 的同一约定——2026-05-29
+# cloudflare-tunnel 的同类型策略触发过生产 502（k3s/commit/4b64fb5），此后
+# 每条 NetworkPolicy 改动都要求配套 post-deploy-smoke 覆盖。待 sentinel-ops
+# 的 smoke 端点加入 scripts/post-deploy-smoke.sh 后，再把本文件加入
+# kustomization.yaml 的 resources 列表。
+#
+# 本应用的网络面比 ckeditor-builder 简单得多：无数据库、无外部 API 调用，
+# 出站实际上只需要 DNS。入站只允许 Traefik 与 Prometheus。
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: wontlost-sentinel-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinel-ops-ingress
+  namespace: wontlost-sentinel-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: sentinel-ops
+  policyTypes:
+    - Ingress
+  ingress:
+    # Traefik (kube-system) → :8090
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8090
+    # Prometheus scrape
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinel-ops-egress
+  namespace: wontlost-sentinel-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: sentinel-ops
+  policyTypes:
+    - Egress
+  egress:
+    # DNS —— 这是本应用唯一的出站需求。演示数据全在内存，
+    # 不连数据库、不调外部 API，因此这里没有 443 规则。
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

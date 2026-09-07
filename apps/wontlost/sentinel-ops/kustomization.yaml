@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- namespace.yaml
+- deployment.yaml
+- service.yaml
+- ingress.yaml
+# network-policy.yaml 暂不引用，原因见该文件顶部的 rollout note。
+
+# 镜像引用由应用仓库 (wontlost-ltd/vaadin-motion) 的 release-demo.yml
+# 通过 `kustomize edit set image` 自动写入 immutable digest。
+#
+# 初始值仅作占位。注意：首次合入时 wontlost/sentinel-ops 尚未推送到
+# Docker Hub，pod 会处于 ImagePullBackOff 直到第一次 demo-v* 发布跑完。
+# 这是预期内的——ArgoCD 会保持重试，镜像出现后自动恢复。
+images:
+- name: wontlost/sentinel-ops
+  newName: wontlost/sentinel-ops
+  newTag: "0.1.0"
