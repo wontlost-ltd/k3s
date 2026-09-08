@@ -11,6 +11,21 @@ metadata:
     app.kubernetes.io/part-of: cloudflare-tunnel
 spec:
   replicas: 1
+  # ★先起后停（2026-09-08 加）：本 Deployment 是单副本，且此前未声明 strategy，
+  #   走 k8s 默认 maxSurge=25% / maxUnavailable=25% —— 对 replicas:1 会分别
+  #   **向下取整为 0** 和**向上取整为 1**，即滚更时旧 pod 先终止、新 pod 才创建。
+  #   本 tunnel 是 14 个生产域名（argocd / vault / grafana / prometheus /
+  #   postgres 等）的唯一入口，那个空窗期全部不可达。
+  #   改成 surge=1 / unavailable=0：新 pod 就绪后才停旧 pod，升级零中断。
+  #   容量：cloudflared requests 仅 cpu 25m / memory 32Mi，多起一个副本对
+  #   节点（实测内存水位 67-74%）无压力。
+  #   ★双跑窗口内两个副本会同时连 Cloudflare 边缘——这是 cloudflared 支持的
+  #     常规形态（多副本高可用即如此），边缘按连接分发，不会冲突或重复投递。
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: cloudflared
