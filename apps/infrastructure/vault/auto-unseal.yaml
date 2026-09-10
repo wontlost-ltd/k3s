@@ -81,7 +81,25 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
-      activeDeadlineSeconds: 50
+      # ★50 → 240（2026-09-10，两次 DeadlineExceeded 后定位）
+      #
+      #   activeDeadlineSeconds **从 Job 创建即开始计时**，覆盖
+      #   「调度等待 + 拉镜像 + 容器运行」全过程，而不只是脚本执行时间。
+      #   实测脚本本体约 3s，看似 50s 有 16 倍余量——但那是镜像已缓存时。
+      #
+      #   实证根因：master-3 上**没有** hashicorp/vault:1.19.0 缓存
+      #   （逐节点查 .status.images：master-1/2、worker-1 有，master-3 无）。
+      #   本 Job 无 nodeSelector，调度到 master-3 时需现拉 ~161MiB 镜像；
+      #   本地实测一次正常拉取 12.8s，网络慢/registry 限流时突破 50s 很容易。
+      #   两次失败（09-08 21:40、09-09 09:15）均为 DeadlineExceeded，
+      #   而 vault-0 已连续 43 天未重启且全程 Sealed=false —— 即 Vault
+      #   本身从未出问题，失败纯属这条超时线画得太紧。
+      #
+      #   240s 的取舍：仍**远小于** 5 分钟调度周期，配合 concurrencyPolicy:
+      #   Forbid 不会出现两个 Job 叠加；同时给「冷节点拉镜像」留足余量。
+      #   ★这不会掩盖真实故障：脚本对「不可达」与「解封后仍 sealed」都是
+      #     exit 1，会照常产生失败 Job 并触发 VaultUnsealJobFailed。
+      activeDeadlineSeconds: 240
       template:
         spec:
           serviceAccountName: vault
@@ -127,6 +145,19 @@ spec:
                 secretKeyRef:
                   name: vault-unseal-keys
                   key: UNSEAL_KEY_3
+            # ★补 resources（2026-09-10）：此前整个字段是空的（resources: {}），
+            #   Pod 因此是 **BestEffort** QoS —— 节点内存吃紧时它排在最先被
+            #   驱逐/挤占的一档。本 Job 是「Vault 封印后唯一的自动恢复路径」，
+            #   恰恰不该是最先被牺牲的那个。
+            #   实测本体只跑 `vault status` + 至多 3 次 unseal，占用极小；
+            #   给出 requests 后 QoS 升为 Burstable，且不限制峰值（不设 cpu
+            #   limit，避免 CFS 节流把 3s 的活拖长）。
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
             volumeMounts:
             - name: vault-tls
               mountPath: /vault/tls
