@@ -66,12 +66,15 @@ out=$("$RUNTIME" run --rm -v "$TMP":/repo:ro -w /repo "$IMG" \
        detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact --verbose 2>&1)
 rc=$?
 set -e
-if echo "$out" | grep -q "RuleID:[[:space:]]*connection-string-inline-credential"; then
-  echo "✓ 正向(DSN)：连接串内联凭据被抓到"
-else
-  echo "✗ 正向(DSN)失败：未命中 connection-string-inline-credential 规则"
-  echo "$out" | tail -3
+# 与规则 1 同一判据：断言**命中数精确等于 6**（六个 scheme 各一）。
+# 只断言「至少抓到一个」的话，把 scheme 列表收窄成只剩 postgres 仍会全绿。
+dsn_hits=$(echo "$out" | grep -c "RuleID:[[:space:]]*connection-string-inline-credential" || true)
+if [ "$dsn_hits" -ne 6 ]; then
+  echo "✗ 正向(DSN)失败：规则 2 只命中 $dsn_hits/6 个 scheme（应为 6）"
+  echo "$out" | grep -E "Finding|RuleID|Line" | head -14
   fail=1
+else
+  echo "✓ 正向(DSN)：规则 2 六个 scheme 全部命中（$dsn_hits/6）"
 fi
 rm -f "$TMP/should-be-caught-dsn.sh"
 
