@@ -40,15 +40,20 @@ cp "$TD/should-be-caught.sh" "$TMP/"
 cp .gitleaks.toml "$TMP/"
 set +e
 out=$("$RUNTIME" run --rm -v "$TMP":/repo:ro -w /repo "$IMG" \
-       detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact 2>&1)
+       detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact --verbose 2>&1)
 rc=$?
 set -e
-if [ "$rc" -eq 0 ]; then
-  echo "✗ 正向失败：含明文凭据的夹具**未被抓到**，规则已失效"
-  echo "$out" | tail -3
+# ★判据是**内容**而非退出码：gitleaks 对「配置加载失败(FTL)」也返回 1，
+#   与「抓到了」不可区分。审计实测：把 secretGroup 改成越界值 → FTL、exit 1
+#   → 本用例会打印「✓ 抓到」。这是 127 陷阱的同构残留（只修了 127，
+#   没修「非 0 有多种含义」）。故改为 grep RuleID，并顺带断言五族全中。
+hits=$(echo "$out" | grep -c "RuleID:[[:space:]]*hardcoded-password-env-assignment" || true)
+if [ "$hits" -ne 5 ]; then
+  echo "✗ 正向失败：规则 1 只命中 $hits/5 个关键词族（应为 5）"
+  echo "$out" | grep -E "Finding|RuleID|Line" | head -12
   fail=1
 else
-  echo "✓ 正向：明文凭据被抓到"
+  echo "✓ 正向：规则 1 五个关键词族全部命中（$hits/5）"
 fi
 
 # ①b 正向（规则 2 独立）：连接串内联凭据
@@ -58,14 +63,15 @@ rm -f "$TMP/should-be-caught.sh"
 cp "$TD/should-be-caught-dsn.sh" "$TMP/"
 set +e
 out=$("$RUNTIME" run --rm -v "$TMP":/repo:ro -w /repo "$IMG" \
-       detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact 2>&1)
+       detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact --verbose 2>&1)
 rc=$?
 set -e
-if [ "$rc" -eq 0 ]; then
-  echo "✗ 正向(DSN)失败：连接串内联凭据未被抓到"
-  fail=1
-else
+if echo "$out" | grep -q "RuleID:[[:space:]]*connection-string-inline-credential"; then
   echo "✓ 正向(DSN)：连接串内联凭据被抓到"
+else
+  echo "✗ 正向(DSN)失败：未命中 connection-string-inline-credential 规则"
+  echo "$out" | tail -3
+  fail=1
 fi
 rm -f "$TMP/should-be-caught-dsn.sh"
 
@@ -76,7 +82,7 @@ cp "$TD/should-not-fire.sh" "$TMP/"
 # （上面正向用例正是靠这条：抓到了才 exit 非 0，所以走 else 分支。）
 set +e
 out=$("$RUNTIME" run --rm -v "$TMP":/repo:ro -w /repo "$IMG" \
-       detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact 2>&1)
+       detect --source=/repo --config=/repo/.gitleaks.toml --no-git --no-banner --redact --verbose 2>&1)
 rc=$?
 set -e
 if [ "$rc" -eq 0 ]; then
