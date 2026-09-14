@@ -43,8 +43,13 @@ keywords = ["password", "passwd", "pwd", "secret", "token",
 [rules.allowlist]
 regexTarget = "match"
 regexes = [
-  # 从 K8s Secret / 环境注入的**引用**，不是明文
-  '''\$\{?[A-Za-z_][A-Za-z0-9_]*\}?''',
+  # 从 K8s Secret / 环境注入的**引用**，不是明文。
+  #
+  # ★不再列 `${VAR}` 与 `$(...)` 两条：本规则的值字符类是 `[^"'\s$]`，
+  #   **`$` 已被排除**，含 `$` 的值在正则阶段就 nomatch，根本走不到 allowlist。
+  #   留着它们是「看起来在守、实际不可达」的死条款——与 core 那条已删的
+  #   NEWLINE 豁免同型。复审实测：删掉这两条，自测全绿（因为从未激活）。
+  #   若将来放宽值字符类使其接受 `$`，需同时把这两条加回并补反向夹具。
   '''valueFrom''',
   '''secretKeyRef''',
   # 明显的占位符与示例。
@@ -53,8 +58,7 @@ regexes = [
   #   实测：本仓 13 处命中全是文档占位符，正是被这一条漏掉的。
   '''(?i)["'](?:<[^>]*>|\{\{[^}]*\}\}|x{3,}|\*{3,})["']''',
   '''(?i)["'][^"']*(?:changeme|change[-_ ]me|placeholder|example|sample|redacted|dummy|your[-_ ]|my[-_ ]|initial[-_ ]|test[-_ ]|fake|foo|bar|TODO|FIXME)[^"']*["']''',
-  # 命令替换生成的随机值不是硬编码（$(openssl rand ...) / `pwgen`）
-  '''\$\(|`''',
+
   # 全大写下划线常量名当值（多为变量名而非密码）
   '''["'][A-Z][A-Z0-9_]{7,}["']''',
 ]
