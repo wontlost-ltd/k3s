@@ -1,0 +1,106 @@
+# gitleaks 自定义规则（issue #486 复盘项的补强）
+#
+# ══ ★为什么需要自定义规则：默认规则集漏掉了本仓真实发生过的那一类 ══════
+#
+# 实测（gitleaks v8.30.1，与 workflow 钉的同一版本）：
+#
+#   leak.sh:
+#     PGPASSWORD="Sup3rS3cr3t-Prod-Db-Pw-2026!" psql -h prod.db -U admin
+#
+#   $ gitleaks detect --source=/repo --no-banner --redact --verbose
+#   INF 2 commits scanned.
+#   INF no leaks found          ← **漏报**
+#
+# 默认规则集擅长有**固定前缀/结构**的凭据（AWS AKIA…、GitHub ghp_…、
+# Slack xoxb-… 等），而本仓 #486 泄露的恰恰是「环境变量 = 任意字符串」
+# 这种**无结构**形态——正是默认规则覆盖不到的盲区。
+#
+# 只装一个扫不出本仓已发生过的泄露的扫描器，等于制造「已被覆盖」的错觉。
+# 故按**本仓真实泄露形态**补规则。
+#
+# ── 误报控制 ──────────────────────────────────────────────────
+# 这类规则天生容易误报（占位符、示例、从 Secret 注入的引用）。
+# 用 allowlist 排除明显非凭据的写法，而不是放宽正则——
+# 放宽正则会让规则重新变成摆设。
+
+title = "k3s 仓凭据扫描规则"
+
+# 继承 gitleaks 默认规则集，只做**增量**补充。
+# 不 extend 的话会丢掉 AWS/GitHub/Slack 等全部默认覆盖。
+[extend]
+useDefault = true
+
+# ── 规则 1：数据库/服务密码类环境变量被赋成明文字面量 ──────────────
+[[rules]]
+id = "hardcoded-password-env-assignment"
+description = "密码类环境变量被赋成明文字面量（#486 的泄露形态）"
+# PGPASSWORD="..." / DB_PASSWORD='...' / MYSQL_PWD=... / REDIS_PASSWORD="..."
+regex = '''(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|PWD|SECRET|TOKEN))\s*=\s*["']([^"'\s$]{8,})["']'''
+secretGroup = 2
+keywords = ["password", "passwd", "pwd", "secret", "token",
+            "PASSWORD", "PASSWD", "PWD", "SECRET", "TOKEN"]
+
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  # 从 K8s Secret / 环境注入的**引用**，不是明文
+  '''\$\{?[A-Za-z_][A-Za-z0-9_]*\}?''',
+  '''valueFrom''',
+  '''secretKeyRef''',
+  # 明显的占位符与示例。
+  # ★占位符常是**多词**（your-secure-password / admin-initial-password），
+  #   所以关键词后面要允许 [-_ ] 连接的任意后缀，不能只配一个 \w+。
+  #   实测：本仓 13 处命中全是文档占位符，正是被这一条漏掉的。
+  '''(?i)["'](?:<[^>]*>|\{\{[^}]*\}\}|x{3,}|\*{3,})["']''',
+  '''(?i)["'][^"']*(?:changeme|change[-_ ]me|placeholder|example|sample|redacted|dummy|your[-_ ]|my[-_ ]|initial[-_ ]|test[-_ ]|fake|foo|bar|TODO|FIXME)[^"']*["']''',
+  # 命令替换生成的随机值不是硬编码（$(openssl rand ...) / `pwgen`）
+  '''\$\(|`''',
+  # 全大写下划线常量名当值（多为变量名而非密码）
+  '''["'][A-Z][A-Z0-9_]{7,}["']''',
+]
+
+# ── 规则 2：连接串里内联凭据 ────────────────────────────────────
+[[rules]]
+id = "connection-string-inline-credential"
+description = "数据库连接串中内联明文凭据（postgres://user:pass@host）"
+regex = '''(?i)\b(?:postgres|postgresql|mysql|mongodb|redis|amqp)(?:\+\w+)?://[^:/\s]+:([^@/\s]{6,})@'''
+secretGroup = 1
+keywords = ["postgres://", "postgresql://", "mysql://", "mongodb://",
+            "redis://", "amqp://"]
+
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  '''\$\{?[A-Za-z_][A-Za-z0-9_]*\}?''',   # ${PGPASSWORD} 之类的引用
+  '''(?i):(?:password|pass|pwd|changeme|example|placeholder|xxx+)@''',
+]
+
+# ── 全局豁免 ────────────────────────────────────────────────
+[allowlist]
+description = "全局豁免：文档与示例、本规则文件自身"
+paths = [
+  # ★本文件含示例正则与占位符，会自我命中
+  '''\.gitleaks\.toml$''',
+  # 规则的自测夹具（内含**故意**的假凭据，用于钉住规则本身）。
+  # ★不要用 `^` 锚定：gitleaks 报的 File 是扫描根下的路径（/repo/...），
+  #   `^scripts/...` 匹配不上——实测因此漏掉，两个夹具被当成真泄露。
+  '''scripts/secret-scan/testdata/''',
+  # workflow 文件的注释里含一条示例密码（用于说明默认规则为何漏报）
+  '''\.github/workflows/secret-scan\.yml$''',
+  # ★文档与示例文件豁免——这是**刻意的取舍**，理由如下：
+  #
+  #   实测本仓工作区：初版规则命中 13 处，**全部**是 README / *.example 里的
+  #   自述式占位符（your-secure-password / admin-password / super-secret-password
+  #   / real-secret 之类）。放宽占位符正则能消掉 8 处，剩 5 处仍是同类——
+  #   继续放宽下去，正则最终会宽到连真凭据都放行，那才是最坏结果。
+  #
+  #   取舍：文档里的凭据**本就该是占位符**，真要泄露也是从可执行文件泄露的
+  #   （#486 那次正是两个 tracked 的 setup **脚本**）。故对 .md / .example
+  #   豁免，对脚本与清单保持全强度。
+  #
+  #   ⚠ 代价：真往 README 里贴了真密码，本规则不会报。这一点必须写明，
+  #     而不是让它静默存在——豁免清单是技术债登记簿，不是许可证。
+  '''\.md$''',
+  '''\.example$''',
+  '''\.sample$''',
+]
