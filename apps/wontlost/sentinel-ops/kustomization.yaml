@@ -15,7 +15,7 @@ resources:
 # 正确拦下——本仓库要求所有镜像 digest 固定，占位不能例外。现已由首次
 # demo-v0.1.0 发布写入真实 digest。
 images:
-- digest: sha256:d30e6457651ab011982d40ded42c3f746be0e727424c7ca35a94936dfa96798b
+- digest: sha256:d4ddddb0c9dc4e311a6a2af7439b552ef289f551711b249e81163b005482c9ca
   name: wontlost/sentinel-ops
   newName: wontlost/sentinel-ops
-  newTag: 0.1.2
+  newTag: 0.1.3
