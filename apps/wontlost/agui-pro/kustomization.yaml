@@ -10,9 +10,9 @@ resources:
 # network-policy.yaml 暂不引用，原因见该文件顶部的 rollout note。
 
 # 镜像引用由应用仓库 (wontlost-ltd/agui-examples) 的 release-demo.yml
-# 通过 `kustomize edit set image` 自动写入 immutable digest。首次发布的 digest 由手工写入。
+# 通过 `kustomize edit set image` 自动写入 immutable digest。首次 demo-v0.1.0 发布的 digest 由手工写入。
 images:
 - name: wontlost/agui-pro-starter
   newName: wontlost/agui-pro-starter
   newTag: 0.1.0
-  digest: sha256:PENDING_FIRST_RELEASE
+  digest: sha256:e9d689a63dd2a4a8c9b2700ba51e6dc71fa9ee5b487c7c5561987528b24f84f9
