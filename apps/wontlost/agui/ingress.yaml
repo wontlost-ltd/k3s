@@ -1,0 +1,31 @@
+# AG-UI for Vaadin — Atlas Order Desk Ingress
+# 使用 Reflector 复制的通配符证书（与 sentinel-ops 相同机制；namespace 需列入 wildcard-certificates.yaml 的允许列表）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agui
+  namespace: wontlost-agui
+  labels:
+    app: agui
+    app.kubernetes.io/name: agui
+    app.kubernetes.io/part-of: wontlost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: agui.wontlost.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agui
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - agui.wontlost.com
+      secretName: wontlost-com-tls

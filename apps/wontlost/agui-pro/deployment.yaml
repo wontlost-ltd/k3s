@@ -1,0 +1,96 @@
+# AG-UI for Vaadin Pro / Enterprise — support desk Deployment
+#
+# AG-UI for Vaadin Pro / Enterprise 的公开演示（https://agui-pro.wontlost.com）。Spring Security 内存用户，H2 内存库，license key 来自 Vault。
+# 沿用 sentinel-ops 的约定：Recreate（Vaadin 的 UI 状态在服务端 session 里，单副本滚动更新会把用户轮询到没有其
+# session 的新 pod）、只读 rootfs + /tmp emptyDir、探针走 Actuator。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agui-pro
+  namespace: wontlost-agui-pro
+  labels:
+    app: agui-pro
+    app.kubernetes.io/name: agui-pro
+    app.kubernetes.io/part-of: wontlost
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: agui-pro
+  template:
+    metadata:
+      labels:
+        app: agui-pro
+        app.kubernetes.io/name: agui-pro
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agui-pro
+          # image 不写 tag，由 kustomization.yaml 的 images: 段统一管理；
+          # CI（wontlost-ltd/agui-examples 的 release-demo.yml）通过 kustomize edit set image 写入 digest。
+          image: wontlost/agui-pro-starter
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8091
+          env:
+            # 演示用内存 H2：只读 rootfs 下没有可写的数据目录，重启即重置，每位访问者从同一状态开始
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:h2:mem:pro;DB_CLOSE_DELAY=-1
+            # Pro license key 从 Vault 注入，不进镜像；缺失时应用照常运行，只挂"未授权"横幅
+            - name: AGUI_PRO_LICENSE
+              valueFrom:
+                secretKeyRef:
+                  name: agui-pro-license
+                  key: AGUI_PRO_LICENSE
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: 384Mi
+              cpu: 100m
+            limits:
+              memory: 768Mi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8091
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8091
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8091
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

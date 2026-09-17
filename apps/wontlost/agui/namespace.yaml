@@ -1,0 +1,7 @@
+# AG-UI for Vaadin — Atlas Order Desk Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wontlost-agui
+  labels:
+    app.kubernetes.io/part-of: wontlost

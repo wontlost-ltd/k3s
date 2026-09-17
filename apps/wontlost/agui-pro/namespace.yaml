@@ -1,0 +1,7 @@
+# AG-UI for Vaadin Pro / Enterprise — support desk Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wontlost-agui-pro
+  labels:
+    app.kubernetes.io/part-of: wontlost
