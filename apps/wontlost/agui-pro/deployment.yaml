@@ -42,10 +42,17 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8091
+          # 数据库账号（SPRING_DATASOURCE_USERNAME / PASSWORD）来自 Vault，见 external-secrets.yaml
+          envFrom:
+            - secretRef:
+                name: agui-pro-database
           env:
-            # 演示用内存 H2：只读 rootfs 下没有可写的数据目录，重启即重置，每位访问者从同一状态开始
+            # Always Free Autonomous Database，mTLS 钱包挂在 /app/wallet；LOW 服务够演示用
             - name: SPRING_DATASOURCE_URL
-              value: jdbc:h2:mem:pro;DB_CLOSE_DELAY=-1
+              value: jdbc:oracle:thin:@ckeditoratp_low?TNS_ADMIN=/app/wallet
+            # free tier 的会话数有限，连接池封顶，与 oracle-adb-user.sql 里 SESSIONS_PER_USER 8 对应
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "5"
             # Pro license key 从 Vault 注入，不进镜像；缺失时应用照常运行，只挂"未授权"横幅
             - name: AGUI_PRO_LICENSE
               valueFrom:
@@ -62,6 +69,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: oracle-wallet
+              mountPath: /app/wallet
+              readOnly: true
           resources:
             requests:
               memory: 384Mi
@@ -94,3 +104,6 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
+        - name: oracle-wallet
+          secret:
+            secretName: oracle-wallet
