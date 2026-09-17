@@ -17,6 +17,10 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: wontlost-sentinel-ops
       server: https://kubernetes.default.svc
+    - namespace: wontlost-agui
+      server: https://kubernetes.default.svc
+    - namespace: wontlost-agui-pro
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
