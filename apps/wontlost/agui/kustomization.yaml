@@ -11,7 +11,7 @@ resources:
 # 镜像引用由应用仓库 (wontlost-ltd/agui-examples) 的 release-demo.yml
 # 通过 `kustomize edit set image` 自动写入 immutable digest。首次 demo-v0.1.0 发布的 digest 由手工写入。
 images:
-- digest: sha256:93e8a17c81119dfca727ddf24ef2feaaf604821500e01048e14176fbcced5ae5
+- digest: sha256:ffe238a84809b3ba16eead3a39373ff5eaeb97059bc66dc8e69b691eb1cc0032
   name: wontlost/agui-starter
   newName: wontlost/agui-starter
-  newTag: 0.1.2
+  newTag: 0.1.3
