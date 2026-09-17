@@ -1,0 +1,19 @@
+# AG-UI for Vaadin — Atlas Order Desk Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: agui
+  namespace: wontlost-agui
+  labels:
+    app: agui
+    app.kubernetes.io/name: agui
+    app.kubernetes.io/part-of: wontlost
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8090
+      protocol: TCP
+      name: http
+  selector:
+    app: agui
