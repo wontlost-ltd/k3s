@@ -14,5 +14,5 @@ resources:
 images:
 - name: wontlost/agui-pro-starter
   newName: wontlost/agui-pro-starter
-  newTag: 0.1.0
-  digest: sha256:e9d689a63dd2a4a8c9b2700ba51e6dc71fa9ee5b487c7c5561987528b24f84f9
+  newTag: 0.1.1
+  digest: sha256:b60bf9511a42d7e1177aa2315c91604c910f2c43fd6955edec9e199706da15d8
