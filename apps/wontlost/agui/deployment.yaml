@@ -1,0 +1,85 @@
+# AG-UI for Vaadin — Atlas Order Desk Deployment
+#
+# agui-vaadin 开源组件的公开演示（https://agui.wontlost.com）。纯无状态：订单库与会话都在内存里，重启即重置。
+# 沿用 sentinel-ops 的约定：Recreate（Vaadin 的 UI 状态在服务端 session 里，单副本滚动更新会把用户轮询到没有其
+# session 的新 pod）、只读 rootfs + /tmp emptyDir、探针走 Actuator。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agui
+  namespace: wontlost-agui
+  labels:
+    app: agui
+    app.kubernetes.io/name: agui
+    app.kubernetes.io/part-of: wontlost
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: agui
+  template:
+    metadata:
+      labels:
+        app: agui
+        app.kubernetes.io/name: agui
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agui
+          # image 不写 tag，由 kustomization.yaml 的 images: 段统一管理；
+          # CI（wontlost-ltd/agui-examples 的 release-demo.yml）通过 kustomize edit set image 写入 digest。
+          image: wontlost/agui-starter
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

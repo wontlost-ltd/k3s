@@ -1,0 +1,19 @@
+# AG-UI for Vaadin Pro / Enterprise — support desk Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: agui-pro
+  namespace: wontlost-agui-pro
+  labels:
+    app: agui-pro
+    app.kubernetes.io/name: agui-pro
+    app.kubernetes.io/part-of: wontlost
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8091
+      protocol: TCP
+      name: http
+  selector:
+    app: agui-pro
