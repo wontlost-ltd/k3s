@@ -42,10 +42,13 @@ oci iam dynamic-group get \
 用真实 key OCID 重写 policy 的两条语句(第 2 条本就对,一并写全保持一致):
 
 ```bash
+# ⚠️ 改 --statements 时**必须同时带 --version-date**,否则报
+#   「If updating either statements or version date, both parameters
+#    must be specified.」。传空串 = 不锚定版本、权限持续有效
+#   (unseal 授权不该某天因版本日期到期而失效)。
 oci iam policy update \
-  --policy-id "$(oci iam policy list \
-      --compartment-id ocid1.tenancy.oc1..aaaaaaaarmxr4dda6atrhji7o5hswrqz7towcjctrnrtd3kuuldcyjbrcs7a \
-      --all --query "data[?name=='vault-unseal-kms'].id | [0]" --raw-output)" \
+  --policy-id ocid1.policy.oc1..aaaaaaaa4kszeevus3bkebpmiil4leh4yy7n6yeddzqwaijjeoo6a7fwwcqq \
+  --version-date "" \
   --statements '[
     "Allow dynamic-group vault-unseal-instances to use keys in tenancy where target.key.id = '"'"'ocid1.key.oc1.ap-melbourne-1.f5vlukbcaaclq.abwwkljrpdxjzlyideb675qx3nfs5h34sss4tcsejpw4uudt7koezd4qwgeq'"'"'",
     "Allow dynamic-group vault-unseal-instances to use key-delegate in tenancy where target.key.id = '"'"'ocid1.key.oc1.ap-melbourne-1.f5vlukbcaaclq.abwwkljrpdxjzlyideb675qx3nfs5h34sss4tcsejpw4uudt7koezd4qwgeq'"'"'"
