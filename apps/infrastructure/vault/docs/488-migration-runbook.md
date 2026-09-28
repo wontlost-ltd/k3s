@@ -34,24 +34,38 @@ seal "ocikms" {
 
 提交后 ArgoCD 同步,但 **pod 不会自动重启加载新 seal**——需手动 rollout(下一步)。
 
-### 2. 迁移仪式（人工，需 3 把 shamir key 在场，不可逆）
+### 2. 迁移仪式（人工，不可逆）
+
+> **3 把 shamir key 从哪来?** 就在集群里 —— `vault operator init` 当初用
+> 默认 5 shares / 门槛 3,这 3 把存在 `vault -n vault secret/vault-unseal-keys`
+> 的 `UNSEAL_KEY_1/2/3`(auto-unseal CronJob 一直用它们解封)。故**不需要
+> 你另外保管**,迁移时从 Secret 读出即可。
+>
+> ⚠️ 迁移完成前**不要删**这个 Secret —— 它既是迁移用的 key,也是回退凭据。
 
 ```bash
-# a) 重启 vault-0 加载含 ocikms seal 的新 config
+# a) 先把 3 把 shamir key 读进本地变量(从集群 Secret,base64 解码)
+K1=$(kubectl -n vault get secret vault-unseal-keys -o jsonpath='{.data.UNSEAL_KEY_1}' | base64 -d)
+K2=$(kubectl -n vault get secret vault-unseal-keys -o jsonpath='{.data.UNSEAL_KEY_2}' | base64 -d)
+K3=$(kubectl -n vault get secret vault-unseal-keys -o jsonpath='{.data.UNSEAL_KEY_3}' | base64 -d)
+
+# b) 重启 vault-0 加载含 ocikms seal 的新 config
 kubectl -n vault rollout restart statefulset vault
 kubectl -n vault rollout status statefulset vault --timeout=120s
 
-# b) vault-0 重启后处于 sealed 且等待迁移。执行迁移解封:
-#    -migrate 告诉 Vault:从 shamir 迁到 config 里的新 seal(ocikms)
-kubectl -n vault exec -it vault-0 -- vault operator unseal -migrate   # 输入 shamir key 1
-kubectl -n vault exec -it vault-0 -- vault operator unseal -migrate   # 输入 shamir key 2
-kubectl -n vault exec -it vault-0 -- vault operator unseal -migrate   # 输入 shamir key 3
-#    达到 threshold(通常 3)后,Vault 用 ocikms 完成解封并记录迁移。
+# c) vault-0 重启后处于 sealed 且等待迁移。用这 3 把 key 逐个 -migrate:
+#    -migrate 告诉 Vault:从 shamir 迁到 config 里的新 seal(ocikms)。
+#    达到门槛 3 后,Vault 用 ocikms 完成解封并记录迁移。
+kubectl -n vault exec -i vault-0 -- vault operator unseal -migrate "$K1"
+kubectl -n vault exec -i vault-0 -- vault operator unseal -migrate "$K2"
+kubectl -n vault exec -i vault-0 -- vault operator unseal -migrate "$K3"
 
-# c) 确认已解封且 seal 类型变为 ocikms:
+# d) 确认已解封且 seal 类型变为 kms:
 kubectl -n vault exec vault-0 -- vault status
-#    期望:Sealed=false, Seal Type=awskms/ocikms(显示为 ocikms 或 kms)
+#    期望:Sealed=false;Seal Type 显示 ocikms(旧 Recovery Seal Type=shamir)
 ```
+
+> ⚠️ 用完 unset 掉本地变量,别留在 shell 历史:`unset K1 K2 K3`
 
 ### 3. 验证 KMS auto-unseal 真的生效
 
