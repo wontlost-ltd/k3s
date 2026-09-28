@@ -21,6 +21,9 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: wontlost-agui-pro
       server: https://kubernetes.default.svc
+    # LLM 出口网关 —— 无此条目 ArgoCD 会拒绝把应用同步进该命名空间
+    - namespace: wontlost-llm-gateway
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace

@@ -1,0 +1,85 @@
+# NetworkPolicy for wontlost-llm-gateway
+#
+# ⚠️ 按本仓库约定，本文件**先随目录提交、但暂不纳入 kustomization.yaml
+# 的 resources**，待部署后有冒烟测试覆盖再启用——sentinel-ops 记录过
+# 一次 NetworkPolicy 引发的生产 502（2026-05-29），故网络策略与工作负载
+# 分两步走，不一次性上线。
+#
+# 内容已按网关的实际连接面写好：
+#   入站：只放行来自 cloudflare tunnel 命名空间的 8080；
+#   出站：DNS + 外网 443（转发到上游供应商）。
+---
+# 默认全拒
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: wontlost-llm-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 入站：只允许 cloudflared 到 8080
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway-ingress
+  namespace: wontlost-llm-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: llm-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # 来自 cloudflare tunnel 命名空间的 cloudflared
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflare
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 出站：DNS + 外网 443（转发到上游供应商）
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway-egress
+  namespace: wontlost-llm-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: llm-gateway
+  policyTypes:
+    - Egress
+  egress:
+    # 集群 DNS（解析上游域名）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 外网 HTTPS（上游供应商）——仅外部，排除集群内网段
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
