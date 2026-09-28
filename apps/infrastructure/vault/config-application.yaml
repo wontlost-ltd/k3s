@@ -20,7 +20,10 @@ spec:
     targetRevision: main
     path: apps/infrastructure/vault
     directory:
-      include: '{internal-tls.yaml,auto-unseal.yaml,servers-transport.yaml,unseal-alerts.yaml,raft-snapshot.yaml}'
+      # auto-unseal.yaml / unseal-alerts.yaml 已随 #488 迁移到 OCI KMS
+      # auto-unseal 移除：KMS 自动解封后不再需要 CronJob 与 unseal Secret,
+      # 监控该 Job 的告警也随之失去对象。
+      include: '{internal-tls.yaml,servers-transport.yaml,raft-snapshot.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: vault
