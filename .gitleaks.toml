@@ -108,3 +108,20 @@ paths = [
   '''\.example$''',
   '''\.sample$''',
 ]
+
+# ── 内容豁免:镜像 tag 被 generic-api-key 默认规则误命中 ──────────────
+#
+# gitleaks 默认规则集的 generic-api-key 会把
+#   image: .../policy-api:jvm-20260105193745
+# 这类「仓库名:类型-14位时间戳」的镜像 tag 当成密钥(高熵、含冒号)。
+# 它是 CI 产出的镜像 tag,**不是凭据**——只出现在历史里的旧
+# deployment.yaml(该文件当前工作区已不存在)。
+#
+# 用**内容正则**精准豁免这一形态,而非豁免整个文件:后者会把该文件
+# 其余内容也放行,削弱检测强度。正则只认「:jvm-<时间戳>」这个特征,
+# 不会误放真凭据。
+regexTarget = "match"
+regexes = [
+  # 镜像 tag:<name>:jvm-<YYYYMMDDHHMMSS>
+  '''[a-z0-9-]+:jvm-\d{14}''',
+]
