@@ -15,7 +15,7 @@
 #   http://sentinel-ops.wontlost-sentinel-ops.svc.cluster.local:80
 # 流量不经过 Traefik。最初照搬 ckeditor-builder 时把入站写成了只允许
 # kube-system，那样一旦启用会立刻 502——ckeditor-builder 的 tunnel 同样是
-# 直连 Service，它那条 kube-system 规则实际也没有被这条路径用到。
+# 直连 Service（它那条同样的缺陷已在 #663 一并修正,加了 cloudflare 入站）。
 # Ingress 对象仍然保留：集群内其他消费者或将来切回 Traefik 时用得上，
 # 故 kube-system 也一并放行。
 ---
