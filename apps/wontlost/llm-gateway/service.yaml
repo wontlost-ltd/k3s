@@ -1,0 +1,25 @@
+# LLM 出口网关 Service —— ClusterIP，**不对公网**
+#
+# 刻意不建 Ingress：网关只经集群内已有的 Cloudflare Tunnel 到达
+# （在 Cloudflare 控制台把某 public hostname 指向本 Service 的集群内地址：
+#   http://llm-gateway.wontlost-llm-gateway.svc.cluster.local:80）。
+# 这样网关不暴露任何公网端口，攻击面仅限走 tunnel 的流量，
+# 再叠加 X-Gateway-Token 校验作第二道。
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway
+  namespace: wontlost-llm-gateway
+  labels:
+    app: llm-gateway
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: wontlost
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: llm-gateway

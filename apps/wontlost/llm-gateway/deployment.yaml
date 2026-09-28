@@ -1,0 +1,128 @@
+# LLM 出口网关 Deployment（nginx-unprivileged 反代）
+#
+# 纯无状态、无盘：只把请求从集群出口 IP 转发到上游供应商，绕开上游 WAF
+# 对 Cloudflare ASN 的拦截。硬化写法照 sentinel-ops 与 data 的既有约定。
+#
+# ## 为何用 nginx-unprivileged 而非官方 nginx
+#
+# 官方 nginx 镜像 master 需 root（监听 80 / 写 /var/run），与本仓库
+# runAsNonRoot 的硬性约定冲突。nginx-unprivileged 默认非 root（UID 101）、
+# 监听 8080，天然满足。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+  namespace: wontlost-llm-gateway
+  labels:
+    app: llm-gateway
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: wontlost
+spec:
+  # 双副本：无状态,可安全并跑,滚动更新不掉线。cloudflared→service 会
+  # 在两副本间轮询,无 session 亲和性问题(网关本身不持状态)。
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llm-gateway
+  template:
+    metadata:
+      labels:
+        app: llm-gateway
+        app.kubernetes.io/name: llm-gateway
+      annotations:
+        # ConfigMap 变了要重启 pod 才生效(nginx 不热加载挂载的模板)。
+        # ArgoCD 不自动滚动,故用 checksum 触发:改了 config 即改此值。
+        # 这里留手动约定——改 configmap.yaml 时同步 bump 下面的日期。
+        config/revision: "2026-09-28"
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          # ★按 digest 固定(issue #491 的约定)。多架构 index digest,
+          #   取自 2026-09-28 的 docker.io/nginxinc/nginx-unprivileged:alpine
+          #   (registry docker-content-digest)。保留 :alpine 仅为可读性——
+          #   Kubernetes 同时给 tag 与 digest 时以 digest 为准。
+          #   升级:
+          #     TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:nginxinc/nginx-unprivileged:pull" | jq -r .token)
+          #     curl -sI -H "Authorization: Bearer $TOKEN" \
+          #       -H "Accept: application/vnd.oci.image.index.v1+json" \
+          #       https://registry-1.docker.io/v2/nginxinc/nginx-unprivileged/manifests/alpine \
+          #       | grep -i docker-content-digest
+          image: nginxinc/nginx-unprivileged:alpine@sha256:6a23acdfca2b9cfbcec61419e3f1426bcbedb91362f2f19306a8567423bb4612
+          imagePullPolicy: IfNotPresent  # digest 不可变,无需 Always
+          ports:
+            - containerPort: 8080
+              name: http
+          # 密钥经 ExternalSecret → env,再由镜像 entrypoint 的 envsubst
+          # 渲染进 conf.d。nginx.conf/模板本身不含任何密钥。
+          envFrom:
+            - secretRef:
+                name: llm-gateway-secrets
+          env:
+            # 只对这两个变量做 envsubst,不误伤 nginx 自身的 $host/$uri 等。
+            - name: NGINX_ENVSUBST_FILTER
+              value: "GATEWAY_TOKEN|RUNANYTIME_KEY"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # 模板源(只读)——entrypoint 读它,渲染到 conf.d
+            - name: nginx-templates
+              mountPath: /etc/nginx/templates
+              readOnly: true
+            # 只读根 fs 的配套可写区
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            # entrypoint 渲染产物落这里,须可写
+            - name: conf-d
+              mountPath: /etc/nginx/conf.d
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 25m
+            limits:
+              memory: 128Mi
+              cpu: 100m
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: nginx-templates
+          configMap:
+            name: llm-gateway-nginx
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: run
+          emptyDir: {}
+        - name: conf-d
+          emptyDir: {}

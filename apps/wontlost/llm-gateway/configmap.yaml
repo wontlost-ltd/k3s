@@ -1,0 +1,95 @@
+# LLM 出口网关的 nginx 配置（server 片段模板）
+#
+# ## 这个网关解决什么问题
+#
+# Keystone 的 `/api/generate` 部署在 Cloudflare Worker 上，出站请求源自
+# Cloudflare 自有 ASN（AS13335）。上游供应商 runanytime.hxi.me 的 WAF
+# 按 IP/ASN 拦截 Cloudflare 出口，回 403「Attention Required!」拦截页——
+# 而同一密钥、同一请求体从普通 IP 是 200（已实测，2026-09-28）。
+#
+# 本网关跑在 k3s（OCI 墨尔本，普通 ISP 出口 IP），实测该出口可达上游 200。
+# Worker → 本网关 → 上游，即绕开按 ASN 的拦截。
+#
+# ## 为何是 .template 而非 nginx.conf
+#
+# 用 nginxinc/nginx-unprivileged 镜像内置的 entrypoint 机制：
+# 启动时 `20-envsubst-on-templates.sh` 把 /etc/nginx/templates/*.template
+# 经 envsubst 渲染进 /etc/nginx/conf.d/。它渲染的是 **http 块内的 server
+# 片段**，故本文件只写 server 片段，不写整份 nginx.conf——省掉 initContainer。
+#
+# envsubst 只替换我们**显式列出**的变量（DEFINED，见 deployment 的
+# NGINX_ENVSUBST_FILTER），不会误伤 nginx 自身的 $host / $uri 等。
+#
+# ## 两件事：鉴权 + 按 host 路由
+#
+# 1. **共享密钥鉴权**：请求须带 `X-Gateway-Token`，与 Vault 下发的
+#    ${GATEWAY_TOKEN} 比对，不符即 401。网关虽只经 Cloudflare Tunnel 到达
+#    （不开公网端口），这仍是第二道闸——即便 tunnel 被误配也不会被白刷额度。
+# 2. **按路径前缀路由**（需求 5 的多供应商扩展）：加供应商 = 加一个
+#    location + 一个 Vault 密钥，不改镜像、不改 Deployment。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-nginx
+  namespace: wontlost-llm-gateway
+  labels:
+    app: llm-gateway
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: wontlost
+data:
+  # 文件名须以 .template 结尾，entrypoint 才会 envsubst 它。
+  default.conf.template: |
+    # 关于 DNS 解析：
+    #
+    # 刻意**不写 `resolver` 指令**。`resolver` 需要一个 IP（不能是域名），
+    # 本地 `nginx -t` 已证实写域名会在配置加载期直接 [emerg] 失败；而
+    # CoreDNS 的 ClusterIP（k3s 惯例 10.43.0.10）是约定、非保证，写死有风险。
+    #
+    # 上游是**固定域名**（runanytime.hxi.me），并非需要运行时动态解析的
+    # 场景。故让 nginx 在启动时经系统解析器（/etc/resolv.conf → 集群内
+    # 指向 CoreDNS）解析一次即可，与任何普通反代无异。
+    #
+    # 代价：上游 IP 若变化，需重启 pod 才会重新解析。对 Cloudflare 托管的
+    # 上游（IP 稳定、由 CF 边缘承载）可接受。若将来上游改为 IP 易变的
+    # 直连源,再引入 `resolver <CoreDNS-IP>` + 变量式 proxy_pass。
+
+    # 生成请求实测 19–61s，超时留足。
+    proxy_connect_timeout 15s;
+    proxy_send_timeout    150s;
+    proxy_read_timeout    150s;
+    send_timeout          150s;
+
+    server {
+      listen 8080;
+      server_name _;
+
+      # 健康检查：不校验 token、不打上游。k8s 探针与 tunnel 用。
+      location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 'ok\n';
+      }
+
+      # /runanytime/* → runanytime.hxi.me/*
+      location /runanytime/ {
+        # ── 共享密钥鉴权 ──
+        # ${GATEWAY_TOKEN} 由 envsubst 从环境变量渲染（ExternalSecret → env）。
+        # 缺头或不符即 401，绝不透传到上游。
+        if ($http_x_gateway_token != "${GATEWAY_TOKEN}") {
+          return 401;
+        }
+        # 上游密钥由网关注入；Worker 只持 GATEWAY_TOKEN，上游密钥留集群内。
+        proxy_set_header Authorization "Bearer ${RUNANYTIME_KEY}";
+        proxy_set_header Host runanytime.hxi.me;
+        # 字面量 proxy_pass —— nginx 启动时解析一次（见顶部 DNS 说明）。
+        # SNI 必须开：上游在 Cloudflare 之后，缺 SNI 会握手失败。
+        rewrite ^/runanytime/(.*)$ /$1 break;
+        proxy_pass https://runanytime.hxi.me;
+        proxy_ssl_server_name on;
+      }
+
+      # 未匹配路径一律 404——不做默认转发，避免变成开放代理。
+      location / {
+        return 404;
+      }
+    }

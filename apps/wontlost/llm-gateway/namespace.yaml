@@ -1,0 +1,12 @@
+# LLM 出口网关的命名空间
+#
+# 由 argocd/applicationsets/wontlost.yaml 自动纳管（Application 名
+# wontlost-llm-gateway，destination.namespace 同名）。ApplicationSet 已带
+# CreateNamespace=true，此文件仍显式声明——与 sentinel-ops / agui 一致，
+# 让命名空间的标签（part-of）在 Git 里可见、可被 NetworkPolicy 选择。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wontlost-llm-gateway
+  labels:
+    app.kubernetes.io/part-of: wontlost

@@ -1,0 +1,20 @@
+# LLM 出口网关 —— Kustomize 汇总
+#
+# ⚠️ 本文件的存在是 ArgoCD 发现本应用的**前提**：
+# argocd/applicationsets/wontlost.yaml 的 git files generator 扫的正是
+# apps/wontlost/*/kustomization.yaml，命中才自动建 Application
+# （名 wontlost-llm-gateway、namespace 同名）。缺此文件即不被纳管
+# （apps/wontlost/data 无此文件，故未被管理）。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - external-secrets.yaml
+  - deployment.yaml
+  - service.yaml
+  # network-policy.yaml 暂不引用 —— 按仓库约定，网络策略待部署后有冒烟
+  # 测试覆盖再启用（sentinel-ops 记录的 2026-05-29 NetworkPolicy 致 502）。
+  # 文件已随目录提交,启用时把下面一行取消注释即可。
+  # - network-policy.yaml
