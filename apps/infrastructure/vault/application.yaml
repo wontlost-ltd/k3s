@@ -134,34 +134,25 @@ spec:
                   }
                 }
 
-                # ══ OCI KMS auto-unseal（k3s#488）══════════════════════════
+                # ══ OCI KMS auto-unseal（k3s#488，已启用）════════════════
                 #
-                # ⚠️ **默认注释掉**：启用它 = 从 shamir 迁到 KMS,是一次性、
-                #   不可逆的迁移仪式(见 docs/488-migration-runbook.md)。
-                #   合并本 PR 只把配置就位,**不触发迁移** —— pod 即便因其他
-                #   原因重启,注释态的 seal 不生效,Vault 仍走 shamir,不会
-                #   因 KMS 权限未通而起不来。
+                # 启用于迁移窗口(2026-09-29)。从 shamir 迁到 KMS 的仪式见
+                # docs/488-migration-runbook.md:合并本变更 → rollout restart →
+                # unseal -migrate ×3(key 取自 vault-unseal-keys Secret) →
+                # 删 pod 验证自动解封 → rekey + 删 auto-unseal Secret。
                 #
-                # 迁移窗口执行时:
-                #   1) 取消下面整段注释,提交并让 ArgoCD 同步
-                #   2) kubectl -n vault rollout restart statefulset vault
-                #   3) vault operator unseal -migrate ×3(输 3 把 shamir key)
-                #   4) 删 pod 验证自动解封 → 成功后 rekey + 删 auto-unseal Secret
+                # auth_type_api_key = "false" —— 走 master 节点 instance
+                #   principal(dynamic-group vault-unseal-instances 匹配),不落 API key。
+                # 前置已核实:KMS key、policy 两条真实 OCID、dynamic-group matching-rule。
                 #
-                # 前置(已核实):KMS key 已建、policy vault-unseal-kms 两条语句
-                #   填真实 key OCID、dynamic-group vault-unseal-instances 的
-                #   matching-rule 匹配 compartment 所有实例。
-                #
-                # auth_type_api_key 用字符串 "false" —— 走 master 节点的
-                #   instance principal(dynamic-group 匹配的身份),不落 API key。
-                #
-                # seal "ocikms" {
-                #   crypto_endpoint     = "https://f5vlukbcaaclq-crypto.kms.ap-melbourne-1.oraclecloud.com"
-                #   management_endpoint = "https://f5vlukbcaaclq-management.kms.ap-melbourne-1.oraclecloud.com"
-                #   key_id              = "ocid1.key.oc1.ap-melbourne-1.f5vlukbcaaclq.abwwkljrpdxjzlyideb675qx3nfs5h34sss4tcsejpw4uudt7koezd4qwgeq"
-                #   auth_type_api_key   = "false"
-                # }
-                # ═══════════════════════════════════════════════════════════
+                # ⚠️ 回退:若 KMS 权限没通致 Vault 起不来,注释掉本段 seal、
+                #   rollout,用 shamir key 手动 unseal(不带 -migrate)即退回。
+                seal "ocikms" {
+                  crypto_endpoint     = "https://f5vlukbcaaclq-crypto.kms.ap-melbourne-1.oraclecloud.com"
+                  management_endpoint = "https://f5vlukbcaaclq-management.kms.ap-melbourne-1.oraclecloud.com"
+                  key_id              = "ocid1.key.oc1.ap-melbourne-1.f5vlukbcaaclq.abwwkljrpdxjzlyideb675qx3nfs5h34sss4tcsejpw4uudt7koezd4qwgeq"
+                  auth_type_api_key   = "false"
+                }
 
                 service_registration "kubernetes" {}
 
