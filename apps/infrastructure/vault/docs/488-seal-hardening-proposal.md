@@ -54,22 +54,65 @@ seal 的设计目的是「即使拿到存储也读不到数据」。key 与密�
 > 能读的 SA 应只剩 auto-unseal CronJob 的 SA(+ 必要的系统控制器)。
 > **不改判据、用同一条命令验证收敛前后**。
 
-### 第 2 层:KMS / transit auto-unseal（中期，需人工密钥仪式）
+### 第 2 层:OCI KMS auto-unseal（中期，需人工密钥仪式）★已定选型
 
-根治「key 与密文同集群」的唯一办法是把 unseal 委托给**集群外**的密钥:
+根治「key 与密文同集群」的唯一办法是把 unseal 委托给**集群外**的密钥。
+**决策(2026-09-28):用 OCI KMS,不用 transit。**
 
-- **选项 A — cloud KMS**(`awskms` / `gcpckms` / `azurekeyvault`):
-  seal stanza 指向云 KMS,key 不再落地集群。本集群在 OCI,可评估
-  **OCI KMS**(Vault 的 `ocikms` seal)或经 transit 桥接。
-- **选项 B — transit auto-unseal**:另起一个**独立信任域**的 Vault(或
-  同集群外的实例)作 transit,主 Vault 用它解封。仍需那个 transit 实例
-  自身的 seal 管理,只是把问题移到边界更清晰的地方。
+#### 为何选 OCI KMS 而非 transit
 
-**为何必须人工:**
-- 迁移 seal 类型是 `vault operator unseal -migrate` 流程,**不可逆**,
-  且中途需现有 3 把 key 在场。
-- 迁移后应 **rekey** 淘汰旧 key。
-- 这两步是密钥仪式,不能由 CI/自动化持有或代劳。
+| 维度 | OCI KMS（`ocikms` seal） | transit（独立 Vault 实例） |
+|---|---|---|
+| 信任边界 | key **移出集群**,真正解决「同集群」 | 只移到另一个实例,问题换地方 |
+| 成本 | **免费**(见下) | 要另跑一个 Vault 实例:占算力,自身仍要管 seal |
+| 运维 | OCI 托管,无需维护 | 多一套要运维、要备份、要监控的东西 |
+| HSM | FIPS 140-2 Level 3(共享 HSM) | 取决于 transit 实例自身配置 |
+
+#### 成本核算：落在 OCI Always Free 内，$0
+
+OCI KMS 按**「密钥版本 / 月」**计费,**不按 API 调用数**:
+
+- Always Free:**前 20 个 key 版本 / 月 = $0.00**(所有租户长期享有,非试用限定)。
+- 超出:约 $0.5334 / 版本 / 月(2023 订购文档,可能变;但用不到)。
+
+本场景实际需求 = **1 个 KMS master key(1 个版本)**:
+- Vault auto-unseal 只需 1 把 KMS key 来加解密 root/data key。
+- 迁移后解封机制变为 **Vault 进程启动时自己调 KMS `Decrypt`**,不再靠
+  每 5 分钟的 CronJob;KMS 调用量 ≈ Pod 重启次数,且**不按调用计费**。
+- 即便将来做 key 轮换(每次产生新版本),20 版本额度也够用多年。
+
+> ⚠️ **选型陷阱**:必须用**默认的 Virtual Vault(共享 HSM)**,前 20 版本免费;
+> **不要**选 Virtual Private Vault —— 它是含 1000 版本的**整包收费** + 独立
+> HSM,本场景不需要,会平白产生费用。
+
+#### 迁移步骤（人工，不可逆，须密钥保管人在场）
+
+1. **OCI 侧准备**(可先行,零风险,不影响运行中的 Vault):
+   - 建一个 **Virtual Vault**(默认共享型),在其中建一把 **AES 对称 master key**。
+   - 建一个 **Dynamic Group** 匹配 Vault 所在的 OCI 实例(或用实例 principal),
+     授予 `manage keys` / `use keys` 到该 Vault 的 policy —— 让 Vault Pod 能调 KMS。
+   - 记录:KMS vault 的 `crypto endpoint`、`management endpoint`、key 的 OCID。
+2. **Vault 配置改 seal stanza**(GitOps 可写,但**先不 apply**):
+   ```hcl
+   seal "ocikms" {
+     crypto_endpoint    = "<vault-crypto-endpoint>"
+     management_endpoint = "<vault-management-endpoint>"
+     key_id             = "<master-key-ocid>"
+     auth_type_api_key  = false   # 用实例 principal,不落 API key
+   }
+   ```
+3. **迁移仪式**(人工):
+   - `vault operator unseal -migrate`,中途需**现有 3 把 shamir key 在场**。
+   - 迁移**不可逆**:seal 类型从 shamir 变为 ocikms。
+4. **善后**:
+   - 迁移后 **rekey** 淘汰旧的 shamir key。
+   - **删除** `vault-auto-unseal` CronJob 与 `vault-unseal-keys` Secret —— KMS
+     解封后它们不再需要,留着反而是残留的攻击面(这一步反过来直接消解了
+     第 1 层要收敛的那个 Secret)。
+
+**为何整个第 2 层必须人工:** `unseal -migrate` 与 rekey 是不可逆的密钥仪式,
+需现有 key 在场,不能由 CI/自动化持有或代劳。**只有第 1 步(OCI 侧建 vault/key)
+可先行且零风险**,其余须在计划内的运维窗口人工执行。
 
 ## 三、已完成、无需再做的部分（避免重复投入）
 
@@ -87,9 +130,13 @@ seal 的设计目的是「即使拿到存储也读不到数据」。key 与密�
    「哪些 SA 该收敛」的确切清单 —— 这一步只读、零风险,可立即做。
 2. **按清单做 RBAC 收敛 PR**(第 1 层第 1/2 项),每改一个 chart 用同一条
    穷举命令验证「能读者减少且功能不破」。
-3. **KMS 迁移作为独立的、计划内的运维窗口**执行,需密钥保管人在场。
+3. **OCI KMS 迁移**(选型已定,见第 2 层):OCI 侧建 vault/key 可先行、零风险;
+   `unseal -migrate` + rekey 在计划内运维窗口人工执行,需密钥保管人在场。
+   迁移完成后 auto-unseal CronJob 与 unseal Secret 可一并删除。
 
 ## 五、留给决策者的问题
 
 - 第 1 层是否现在就推进?(纯 RBAC,可 GitOps,我可以先做只读审计出清单)
-- 第 2 层选 OCI KMS 还是 transit?这决定选型与迁移窗口。
+- ~~第 2 层选 OCI KMS 还是 transit?~~ **已定:OCI KMS Virtual Vault(免费,理由见第 2 层)。**
+  下一步是否要我先做 OCI 侧的零风险准备(建 Virtual Vault + AES key + dynamic group/policy)?
+  迁移仪式本身须你在运维窗口人工执行。
