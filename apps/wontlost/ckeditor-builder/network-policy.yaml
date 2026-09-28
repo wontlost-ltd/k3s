@@ -13,9 +13,10 @@
 #   - 出 DNS（kube-system）
 #   - 出 npmjs.org / Cloudflare R2（CKEditor 构建产物上传）走外部 443
 #
-# 入站只允许 Traefik；出站显式列举。沿用 aster-lsp 已经验证可工作的
-# 模式（同样 Spring Boot + 外部 HTTPS 调用，没有 east-west 反向代理
-# 这一类被 0.0.0.0/0 except 规则误伤的场景）。
+# 入站放行 cloudflared(生产入口,tunnel 直连 Service)+ Traefik(Ingress
+# 仍在,集群内/将来切回用)+ Prometheus;出站显式列举。沿用 aster-lsp
+# 已经验证可工作的模式（同样 Spring Boot + 外部 HTTPS 调用，没有 east-west
+# 反向代理这一类被 0.0.0.0/0 except 规则误伤的场景）。
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -44,7 +45,20 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # cloudflared (cloudflare namespace) → :8082
+    # ★这是生产流量的实际入口:Cloudflare Tunnel 的 public hostname
+    #   ckeditor-builder.wontlost.com 直连本 Service,**不经 Traefik**
+    #   (见 docs/CLOUDFLARE_TUNNEL_ROUTES.md)。与 sentinel-ops 同源
+    #   (#581):最初照搬只写了 kube-system,那样一旦启用会立刻 502。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflare
+      ports:
+        - protocol: TCP
+          port: 8082
     # Traefik (kube-system) → :8082 web port
+    # Ingress 对象仍在,保留此条供集群内经 Traefik 访问、或将来切回 Traefik。
     - from:
         - namespaceSelector:
             matchLabels:
