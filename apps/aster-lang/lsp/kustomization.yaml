@@ -30,7 +30,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aster-lsp
-
 resources:
   - namespace.yaml
   - deployment.yaml
@@ -55,7 +54,6 @@ resources:
   #   届时需先把 peer 内的 podSelector 改成 namespace-only（参考 cloud 目录的做法），
   #   再取消下一行注释。
   # - network-policy.yaml
-
 # 镜像 digest pin —— 由 CI 的 image-pin 流程用
 # `kustomize edit set image` 自动写入 immutable digest。
 # 初始值仅作占位，避免 ArgoCD 首次 sync 时找不到 image 字段。
@@ -85,4 +83,4 @@ resources:
 images:
   - name: docker.io/wontlost/aster-lsp
     newName: docker.io/wontlost/aster-lsp
-    digest: sha256:73285722cce9737c869e43d72a456f1bba655f895731396e98a790f8d9154027
+    digest: sha256:28127e126c9e85e82cbfe01db9abc50623749960fb5804fc838d383fd96e98e3
