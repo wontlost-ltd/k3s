@@ -115,6 +115,23 @@ spec:
         connectionLimit: 5
         passwordSecret:
           name: aster-migrator-postgres-credentials
+      # AI 工作台运行时角色（ADR 0049 Part D，apps/aster-lang/ai）。
+      #   只用 aster_cloud 库下的 ai_workspace schema，不触碰 cloud 自身的表。
+      #   连接数 10：服务端 Hikari 池上限 5，留出重启时旧连接尚未被服务端回收的余量。
+      #
+      # ★schema 不由 CNPG 创建（managed.roles 只管角色），须在角色建好后人工执行一次：
+      #   kubectl -n data-services exec -it shared-postgres-1 -- psql -U postgres -d aster_cloud \
+      #     -c 'GRANT CONNECT ON DATABASE aster_cloud TO aster_ai_user;' \
+      #     -c 'CREATE SCHEMA IF NOT EXISTS ai_workspace AUTHORIZATION aster_ai_user;'
+      #   schema 归 aster_ai_user 所有，服务启动时以幂等 DDL 在其中建表；
+      #   本步骤不授予它其他 schema 的任何权限。
+      - name: aster_ai_user
+        ensure: present
+        login: true
+        inherit: true
+        connectionLimit: 10
+        passwordSecret:
+          name: aster-ai-postgres-credentials
 
   # Superuser secret
   superuserSecret:

@@ -1,0 +1,18 @@
+# tag-fail CIP：aster-ai-workspace（闭 unresolved-tag TOCTOU）
+#
+# CI 会推送可变 tag（latest / <sha7>），但部署只允许 cosign-verified digest；
+# tag 形式一律在准入阶段拒绝，杜绝「同 tag 换内容 + IfNotPresent 用节点缓存旧层」。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-ai-workspace-reject-tag
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-ai-workspace:**"
+  authorities:
+    - static:
+        action: fail
+        message: "受控仓 aster-ai-workspace 只允许 cosign-verified digest；tag 形式一律拒绝（S2-0 TOCTOU 闭合）"
+  mode: enforce

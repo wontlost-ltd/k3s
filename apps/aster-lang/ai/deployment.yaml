@@ -1,0 +1,159 @@
+# Aster AI 工作台 Deployment（ADR 0049 Part D）
+#
+# Spring Boot + Vaadin 的 AG-UI 工作台：所有模型调用经 aster-cloud /api/llm/*，
+# 会话持久化在 shared-postgres 的 aster_cloud 库 ai_workspace schema。
+# 结构沿用 aster-api（securityContext / OTel / reloader）与 agui-pro（Recreate、Actuator 探针、
+# /tmp emptyDir）的约定。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    # 凭据（DB 密码、HMAC/交接/票据密钥、Pro license）以 env+secretKeyRef 注入，
+    # 只在容器启动时快照；轮换后须滚动重启才生效，故交给 reloader 自动处理。
+    reloader.stakater.com/auto: "true"
+  name: aster-ai-workspace
+  namespace: aster-ai
+  labels:
+    app: aster-ai-workspace
+    app.kubernetes.io/name: aster-ai-workspace
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  replicas: 1
+  # Vaadin 的 UI 状态保存在服务端 session 中；滚动更新期间新旧 pod 并存会把用户
+  # 轮询到没有其 session 的 pod 上，故用 Recreate（与 agui-pro 同约定）。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: aster-ai-workspace
+  template:
+    metadata:
+      labels:
+        app: aster-ai-workspace
+        app.kubernetes.io/name: aster-ai-workspace
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aster-ai-workspace
+          # 此处 tag 只是模板占位，不是运行真相：同目录 kustomization.yaml 的 images 段
+          # 在渲染时把它改写为 @sha256:<digest>（由源仓 CI 的 image-pin PR 双写
+          # image-lock + kustomization，verify-image-pin 验签）。
+          # imagePullPolicy: IfNotPresent 的安全前提正是「渲染结果为不可变 digest」，
+          # verify-no-floating-tags.sh 在每个 PR 上断言这一点。要换版本改 kustomization，不要改这一行。
+          image: docker.io/wontlost/aster-ai-workspace:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            # OTel 约定与 aster-api 保持一致（collector 地址、采样率、资源属性）。
+            # 当前镜像未内置 OTel SDK / micrometer-tracing，这组变量暂不产生 trace；
+            # 服务接入 tracing 依赖后无需改清单即生效。aster-api 的 OTEL_TRACES_EXPORTER=cdi
+            # 是 Quarkus 专有值，此处不沿用。
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector-opentelemetry-collector.otel-system.svc:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_TRACES_SAMPLER
+              value: "parentbased_traceidratio"
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "0.1"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.name=aster-ai-workspace,deployment.environment=prod"
+            # 会话库：shared-postgres 的 aster_cloud 库、ai_workspace schema。
+            # schema 需人工预先建好并授权给 aster_ai_user（SQL 见 postgres-cluster/manifests/cluster.yaml
+            # 中 aster_ai_user 角色的注释）；服务启动时只在该 schema 内建表。
+            - name: AIW_DB_URL
+              value: "jdbc:postgresql://shared-postgres-rw.data-services.svc.cluster.local:5432/aster_cloud?currentSchema=ai_workspace"
+            - name: AIW_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-db-credentials
+                  key: username
+            - name: AIW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-db-credentials
+                  key: password
+            # 调用 aster-cloud /api/llm/* 的基地址，以及 postMessage 唯一允许的父页面 origin。
+            # 两者都只写 origin（无路径）：origin 比较是逐字符串的，带路径会让 iframe 桥失效。
+            - name: AIW_CLOUD_URL
+              value: "https://aster-lang.cloud"
+            - name: AIW_CLOUD_ORIGIN
+              value: "https://aster-lang.cloud"
+            # 服务 → cloud 请求签名的 HMAC 共享密钥（与 cloud 的 AI_WORKSPACE_HMAC_KEY 同值）
+            - name: AIW_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-app-secrets
+                  key: AIW_HMAC_KEY
+            # cloud 签发交接令牌的 Ed25519 公钥（base64 X.509 DER，与 cloud 的私钥成对）
+            - name: AIW_HANDOFF_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-app-secrets
+                  key: AIW_HANDOFF_PUBLIC_KEY
+            # run 票据签名密钥（仅本服务内部使用）
+            - name: AIW_TICKET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-app-secrets
+                  key: AIW_TICKET_KEY
+            # Pro license：缺失或无效时服务降级为基础聊天（会话仅存内存），不阻止启动
+            - name: AGUI_PRO_LICENSE
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-app-secrets
+                  key: AGUI_PRO_LICENSE
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # 只读根文件系统下唯一可写目录（镜像 JAVA_OPTS 已设 -Djava.io.tmpdir=/tmp）
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: 384Mi
+              cpu: 100m
+            limits:
+              memory: 768Mi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Spring Boot + Vaadin 冷启动在 arm64 小节点上较慢：startupProbe 给足 150s，
+          # 期间 liveness/readiness 不介入，避免启动未完即被重启。
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

@@ -1,0 +1,19 @@
+# Aster AI 工作台 Service —— Cloudflare Tunnel 直连目标（80 → 8080）
+apiVersion: v1
+kind: Service
+metadata:
+  name: aster-ai-workspace
+  namespace: aster-ai
+  labels:
+    app: aster-ai-workspace
+    app.kubernetes.io/name: aster-ai-workspace
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: aster-ai-workspace

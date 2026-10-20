@@ -1,0 +1,18 @@
+# Aster AI 工作台 PodDisruptionBudget
+#
+# 单副本（Recreate）部署：用 maxUnavailable: 1 而非 minAvailable: 1，
+# 否则节点 drain 会被永久阻塞（单副本无法满足「至少 1 个可用」）。
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aster-ai-workspace
+  namespace: aster-ai
+  labels:
+    app: aster-ai-workspace
+    app.kubernetes.io/name: aster-ai-workspace
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: aster-ai-workspace

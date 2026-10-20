@@ -1,0 +1,33 @@
+# Aster AI 工作台（ADR 0049 Part D）—— ai.aster-lang.cloud
+#
+# 由 ApplicationSet aster-lang-apps 按 `apps/aster-lang/*/kustomization.yaml` 自动发现，
+# 派生 Application aster-ai、目标命名空间 aster-ai（argocd/projects/aster-lang.yaml 已登记）。
+#
+# 上线前的人工步骤（全部完成前 pod 不会就绪，属预期）：
+#   1. allowed-images.yaml 加信任根条目（受 ruleset 保护，只走人工 PR）
+#   2. Vault 写入 secret/apps/aster-ai-workspace 与 secret/data-services/aster-ai-db（见 external-secrets.yaml）
+#   3. 在 aster_cloud 库建 ai_workspace schema（SQL 见 postgres-cluster cluster.yaml 的 aster_ai_user 注释）
+#   4. Cloudflare Tunnel 添加 public hostname（见 docs/CLOUDFLARE_TUNNEL_ROUTES.md）
+#   5. 源仓 main 首次 CI 构建签名后，image-pin PR 把下方 images 段的占位 digest 换成真值
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aster-ai
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - pdb.yaml
+  - external-secrets.yaml
+  # ★network-policy.yaml 暂不启用 —— 与 apps/aster-lang/cloud、lsp 同因，不是遗漏。
+  #   k3s 的 kube-router 对 NetworkPolicy 的处理有已知缺陷（组合 peer 会退化成
+  #   deny-all-including-traefik，实测 ingress 全黑）。本目录的策略已全部写成
+  #   namespace-only peer，待 CNI 满足条件（k3s 升级含 patch，或换 Calico）后
+  #   取消下一行注释即可启用。
+  # - network-policy.yaml
+# 镜像 digest pin（部署真相）—— 由源仓 CI 的 image-pin PR 与 image-lock.yaml 双写，
+# verify-image-pin 校验两者 digest 一致；verify-no-floating-tags.sh 断言渲染结果必带 @sha256。
+# ★当前值是 bootstrap 全零占位（见 image-lock.yaml 头部说明），首个 CI pin PR 写入真值。
+images:
+  - name: docker.io/wontlost/aster-ai-workspace
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

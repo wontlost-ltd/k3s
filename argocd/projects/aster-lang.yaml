@@ -28,6 +28,9 @@ spec:
     # aster-aster-runner 与本白名单不符 → ArgoCD 拒 sync。
     - namespace: aster-runner
       server: https://kubernetes.default.svc
+    # aster-ai：AI 工作台（ADR 0049 Part D，apps/aster-lang/ai → 派生 ns aster-ai）
+    - namespace: aster-ai
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
