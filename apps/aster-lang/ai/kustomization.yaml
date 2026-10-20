@@ -3,12 +3,13 @@
 # 由 ApplicationSet aster-lang-apps 按 `apps/aster-lang/*/kustomization.yaml` 自动发现，
 # 派生 Application aster-ai、目标命名空间 aster-ai（argocd/projects/aster-lang.yaml 已登记）。
 #
-# 上线前的人工步骤（全部完成前 pod 不会就绪，属预期）：
+# 上线前的人工步骤（Deployment 当前 replicas: 0，按序完成后才翻 1）：
 #   1. allowed-images.yaml 加信任根条目（受 ruleset 保护，只走人工 PR）
 #   2. Vault 写入 secret/apps/aster-ai-workspace 与 secret/data-services/aster-ai-db（见 external-secrets.yaml）
 #   3. 在 aster_cloud 库建 ai_workspace schema（SQL 见 postgres-cluster cluster.yaml 的 aster_ai_user 注释）
 #   4. Cloudflare Tunnel 添加 public hostname（见 docs/CLOUDFLARE_TUNNEL_ROUTES.md）
 #   5. 源仓 main 首次 CI 构建签名后，image-pin PR 把下方 images 段的占位 digest 换成真值
+#   6. 以上全部完成后，另开 PR 把 deployment.yaml 的 replicas 从 0 翻为 1（解门条件见该处注释）
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aster-ai
