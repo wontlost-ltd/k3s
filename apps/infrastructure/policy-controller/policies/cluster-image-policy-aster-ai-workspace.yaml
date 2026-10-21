@@ -1,0 +1,22 @@
+# digest-verify CIP：aster-ai-workspace（ADR 0049 Part D）
+# 信任根：sourceRepo wontlost-ltd/aster-ai-workspace, workflowFile deploy.yml,
+#   sourceRef refs/heads/main（对齐该仓 deploy.yml 的 cosign keyless 签名身份）。
+#
+# 生效前提：aster-ai 命名空间带 policy.sigstore.dev/include: "true"（见 apps/aster-lang/ai/namespace.yaml）。
+# ★须与 allowed-images.yaml 的 aster-ai-workspace 条目原子同落：verify-cip-sync.sh 的
+#   「N 仓 → 2N CIP」契约在只有 CIP、没有信任根条目时会报数量漂移。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-ai-workspace
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-ai-workspace@sha256:**"
+  authorities:
+    - keyless:
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subject: https://github.com/wontlost-ltd/aster-ai-workspace/.github/workflows/deploy.yml@refs/heads/main
+  mode: enforce

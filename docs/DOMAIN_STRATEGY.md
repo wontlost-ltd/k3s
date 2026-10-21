@@ -17,6 +17,10 @@ This document outlines the domain allocation strategy for the K3s cluster.
 
 Internal/DevOps services - consider restricting access via Authentik.
 
+Exception: `ai.aster-lang.cloud` is a public, user-facing service. It is not behind Authentik;
+users arrive via a single-use handoff token issued by `aster-lang.cloud`, and the route is a
+manual Cloudflare Tunnel public hostname (see `docs/CLOUDFLARE_TUNNEL_ROUTES.md`).
+
 | Subdomain | Service | Status |
 |-----------|---------|--------|
 | `auth.aster-lang.cloud` | Authentik (SSO/IdP) | Active |
@@ -27,6 +31,7 @@ Internal/DevOps services - consider restricting access via Authentik.
 | `alertmanager.aster-lang.cloud` | Alert Manager | Active |
 | `traefik.aster-lang.cloud` | Traefik Dashboard | Future |
 | `longhorn.aster-lang.cloud` | Longhorn Storage UI | Future |
+| `ai.aster-lang.cloud` | Aster AI Workspace (AG-UI, embedded in aster-lang.cloud; `apps/aster-lang/ai`) | Planned |
 
 ## Multi-Domain Services
 

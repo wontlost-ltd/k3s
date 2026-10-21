@@ -1,0 +1,11 @@
+# Aster AI 工作台命名空间（ADR 0049 Part D）
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aster-ai
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    # sigstore policy-controller 准入的 opt-in 主闸：没有此标签，
+    # wontlost-aster-ai-workspace / -reject-tag 两条 CIP 对本命名空间完全不生效
+    # （webhook 的 namespaceSelector 直接跳过），与 aster-cloud / aster-lsp 同约定。
+    policy.sigstore.dev/include: "true"

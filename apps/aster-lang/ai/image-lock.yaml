@@ -1,0 +1,27 @@
+# 镜像 digest pin（image-lock）—— 机器维护，唯一可由 image-pin PR 修改的文件
+#
+# 每 entry 由 verify-image-pin 三关校验（见 .github/workflows/verify-image-pin.yml）：
+#   1. image 在 .github/image-pin/allowed-images.yaml 白名单内
+#   2. cosign verify {image}@{digest} 绑定源仓 workflow 身份
+#      + --certificate-github-workflow-sha={sourceSha}
+#   3. freshness（latest-only）：sourceSha == 源仓 sourceRef 当前 HEAD
+#
+# ── 下面这条 entry 的性质：bootstrap 种子（与 runner-launcher 首次引入同一约定）──
+#
+# aster-ai-workspace 是全新镜像，引入时尚无任何经 CI 签名的 digest，故按
+# runner-launcher 的先例种入惰性占位：digest 全零 + sourceSha=UNVERIFIED-SEED + runId="0"。
+#
+# ★为什么必须有这条占位、不能留空：源仓 scripts/ci/open-image-pin-pr.sh 要求本镜像在
+#   image-lock 与 kustomization.images 中**各恰好出现 1 次**才会写入；留空则首个 CI pin PR
+#   直接失败，链路死锁。
+# ★为什么占位是安全的：全零 digest 无法解析到任何真实镜像，且没有 cosign 签名，
+#   必被 wontlost-aster-ai-workspace CIP 在准入阶段拒绝 —— 最坏是「不可部署」，
+#   不会「部署了别的镜像」。verify-image-pin.sh 对未变 entry 不做值形状校验，故种子不阻塞其它 PR。
+# ★首个真 pin：源仓 deploy.yml 在 main 构建 + 签名后由 image-pin-pr job 成对写入
+#   digest / sourceSha / runId，届时完整经过上述三关。
+version: 1
+images:
+  - image: docker.io/wontlost/aster-ai-workspace
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    sourceSha: UNVERIFIED-SEED # 首个 CI image-pin PR 覆盖为真实 github.sha
+    runId: "0"

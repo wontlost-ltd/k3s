@@ -1,0 +1,35 @@
+# Aster AI 工作台 Ingress
+#
+# 公网路径是 Cloudflare Tunnel 直连 Service（见 docs/CLOUDFLARE_TUNNEL_ROUTES.md），
+# 不经 Traefik；本 Ingress 服务于集群内访问与将来切回 Traefik 的场景。
+# 证书为 aster-lang.cloud 通配证书，由 Reflector 反射到本命名空间
+# （apps/infrastructure/cert-manager/wildcard-certificates.yaml 的 reflection-allowed-namespaces）。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aster-ai-workspace
+  namespace: aster-ai
+  labels:
+    app: aster-ai-workspace
+    app.kubernetes.io/name: aster-ai-workspace
+    app.kubernetes.io/part-of: aster-lang
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ai.aster-lang.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aster-ai-workspace
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ai.aster-lang.cloud
+      secretName: aster-lang-cloud-tls

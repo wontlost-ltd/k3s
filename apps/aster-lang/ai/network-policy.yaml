@@ -1,0 +1,111 @@
+# NetworkPolicy for aster-ai namespace（当前未列入 resources，原因见同目录 kustomization.yaml）
+#
+# 默认拒绝 + 显式放行。所有 peer 都是 **namespace-only** 选择器（peer 内不带 podSelector），
+# 规避 k3s kube-router 对组合 peer 的已知缺陷，CNI 满足条件后可直接启用。
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: aster-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aster-ai-workspace-ingress
+  namespace: aster-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: aster-ai-workspace
+  policyTypes:
+    - Ingress
+  ingress:
+    # 公网流量：Cloudflare Tunnel 直连 Service，来源是 cloudflare 命名空间的 cloudflared
+    # （写成 kube-system 会 502，见 docs/CLOUDFLARE_TUNNEL_ROUTES.md）
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflare
+      ports:
+        - protocol: TCP
+          port: 8080
+    # 集群内经 Traefik 的访问（Ingress 对象）
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Prometheus 抓取 /actuator/prometheus
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aster-ai-workspace-egress
+  namespace: aster-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: aster-ai-workspace
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+    # shared-postgres（会话持久化）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data-services
+      ports:
+        - protocol: TCP
+          port: 5432
+    # OTel collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+      ports:
+        - protocol: TCP
+          port: 4317
+    # aster-cloud（https://aster-lang.cloud，Cloudflare 边缘，集群外）
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

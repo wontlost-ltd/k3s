@@ -52,3 +52,9 @@ apps:
   - name: lsp
     lock: apps/aster-lang/lsp/image-lock.yaml
     kust: apps/aster-lang/lsp/kustomization.yaml
+
+  # ai（ADR 0049 Part D）：AI 工作台，纯 kustomization-bound，与 cloud / lsp 同形态。
+  #   源仓 wontlost-ltd/aster-ai-workspace 的 deploy.yml 经 open-image-pin-pr.sh 双写这两个文件。
+  - name: ai
+    lock: apps/aster-lang/ai/image-lock.yaml
+    kust: apps/aster-lang/ai/kustomization.yaml
