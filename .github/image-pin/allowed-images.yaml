@@ -78,3 +78,13 @@ images:
     workflowFile: ci.yml
     sourceRef: refs/heads/main
     deployBinding: kustomization      # 接管后 pin 落 lsp/kustomization images transformer
+
+  # ── aster-ai-workspace 镜像（ADR 0049 Part D）────────────────────────
+  # AI 工作台（Spring Boot + Vaadin，arm64），源仓 wontlost-ltd/aster-ai-workspace 的
+  # deploy.yml 在 main 上构建并 cosign keyless 签名。★verify-cip-sync 的 2N 契约因本条从
+  # 5 仓/10 CIP 升为 6 仓/12 CIP——两条 aster-ai-workspace CIP 已随 apps/aster-lang/ai 落地。
+  - image: docker.io/wontlost/aster-ai-workspace
+    sourceRepo: wontlost-ltd/aster-ai-workspace   # 唯一合法源仓
+    workflowFile: deploy.yml                      # 唯一合法签发 workflow
+    sourceRef: refs/heads/main                    # 只信 main 构建
+    deployBinding: kustomization      # 静态部署镜像：pin 落 ai/kustomization images transformer
