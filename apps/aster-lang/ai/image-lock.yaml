@@ -22,6 +22,6 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-ai-workspace
-    digest: sha256:3e69b09429414e5c0bd92d06f3e871070fdcd582819a7c008cc947aa6a2377b3
-    sourceSha: 9ca83d87127e23ffde3bb662b3e5cb270f8129fd # 首个 CI image-pin PR 覆盖为真实 github.sha
-    runId: "39579293032"
+    digest: sha256:f02d82814057e3e496eb7eb750b4cb55fd961713b9eaf77a0393fc9cf352d0b4
+    sourceSha: 1d81fa31fe1a4500194f5c1d0c16835da9a8bc27 # 首个 CI image-pin PR 覆盖为真实 github.sha
+    runId: "39705374357"
