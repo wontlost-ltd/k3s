@@ -110,6 +110,14 @@ spec:
                 secretKeyRef:
                   name: aster-ai-app-secrets
                   key: AIW_TICKET_KEY
+            # cloud → 本服务 GDPR 导出/清除接口的 HMAC 密钥（与 cloud 的 AI_WORKSPACE_GDPR_HMAC_KEY 同值，
+            # ≥32 字节且不得与 AIW_HMAC_KEY 相同）。optional：未下发时接口返回 503，不阻止启动。
+            - name: AIW_GDPR_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aster-ai-app-secrets
+                  key: AIW_GDPR_HMAC_KEY
+                  optional: true
             # Pro license：缺失或无效时服务降级为基础聊天（会话仅存内存），不阻止启动
             - name: AGUI_PRO_LICENSE
               valueFrom:
