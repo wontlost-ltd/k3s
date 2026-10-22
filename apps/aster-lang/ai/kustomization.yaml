@@ -31,4 +31,4 @@ resources:
 # ★当前值是 bootstrap 全零占位（见 image-lock.yaml 头部说明），首个 CI pin PR 写入真值。
 images:
   - name: docker.io/wontlost/aster-ai-workspace
-    digest: sha256:19465b7ec602f3a0c5c6756916c8e14d0638a8ffe99f15e4e51c911dbc50ebbf
+    digest: sha256:1ed4be763c621822fb2850b885d68918eeb43ce092194157d3b7ae7e8eb11fe2
