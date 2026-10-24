@@ -1,0 +1,90 @@
+name: image-pin-behind-rerun
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+concurrency:
+  group: image-pin-behind-rerun-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  rerun-source:
+    if: startsWith(github.event.pull_request.head.ref, 'image-pin/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Inspect PR metadata and parse image-pin body
+        id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          source scripts/image-pin/parse-behind-pr-body.sh
+          if ! parsed="$(parse_image_pin_pr_body "$PR_BODY")"; then
+            echo "::notice::PR 描述缺少有效的 image/sourceSha/runId，跳过重跑"
+            exit 0
+          fi
+          mapfile -t values <<<"$parsed"
+          source_repo="${values[0]}"
+          source_sha="${values[1]}"
+          run_id="${values[2]}"
+          pr_state="$(gh pr view "$PR_NUMBER" -R "${{ github.repository }}" --json mergeStateStatus,baseRefOid --jq '[.mergeStateStatus, .baseRefOid] | @tsv')"
+          read -r merge_state base_sha <<<"$pr_state"
+          if [[ "$merge_state" != BEHIND || "$PR_HEAD" != image-pin/* ]]; then
+            echo "PR 状态为 $merge_state，不触发源仓重跑"
+            exit 0
+          fi
+          rerun_key="<!-- image-pin-behind-rerun:${run_id}:${base_sha} -->"
+          comments="$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" --paginate --jq '.[].body')"
+          if [[ "$comments" == *"$rerun_key"* ]]; then
+            echo "该 source run 已针对当前 base 重跑过"
+            exit 0
+          fi
+          printf 'source_repo=%s\nsource_sha=%s\nrun_id=%s\nrerun_key=%s\n' \
+            "$source_repo" "$source_sha" "$run_id" "$rerun_key" >> "$GITHUB_OUTPUT"
+
+      - name: Mint source workflow token
+        if: steps.inspect.outputs.source_repo != ''
+        id: source-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.IMAGE_PIN_APP_CLIENT_ID }}
+          private-key: ${{ secrets.IMAGE_PIN_APP_PRIVATE_KEY }}
+          owner: wontlost-ltd
+          repositories: |
+            aster-api
+            aster-cloud
+          permission-actions: write
+
+      - name: Rerun failed source image-pin job
+        if: steps.inspect.outputs.source_repo != ''
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
+          SOURCE_REPO: ${{ steps.inspect.outputs.source_repo }}
+        run: gh run rerun "${{ steps.inspect.outputs.run_id }}" -R "$SOURCE_REPO" --failed
+
+      - name: Record rerun on the pull request
+        if: steps.inspect.outputs.source_repo != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPO: ${{ steps.inspect.outputs.source_repo }}
+          SOURCE_SHA: ${{ steps.inspect.outputs.source_sha }}
+          SOURCE_RUN_ID: ${{ steps.inspect.outputs.run_id }}
+          RERUN_KEY: ${{ steps.inspect.outputs.rerun_key }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" -R "${{ github.repository }}" --body "image-pin PR 落后于 main，已重跑源仓失败 job。源仓：`${SOURCE_REPO}`；PR 记录的 sourceSha：`${SOURCE_SHA}`；原 runId：`${SOURCE_RUN_ID}`。image-pin 脚本会以最新 k3s main 重建分支；本 workflow 不执行合并。${RERUN_KEY}"
