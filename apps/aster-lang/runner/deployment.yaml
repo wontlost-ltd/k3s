@@ -62,7 +62,7 @@ spec:
             # ★Fork A：runner 镜像 digest 载体。placeholder——image-pin 脚本第三写目标 patch 此 value
             #   （runner workflow 的 image-pin 步指向本 Deployment 的此 env，见 Unit 6 Task 6.3）。
             - name: RUNNER_IMAGE_DIGEST
-              value: sha256:fbf2274d052d9f223ac90d3a31928a62805dd93a08842775731ccf5e943a6438
+              value: sha256:c455a994915b6980e08c70775ee0e8e69555c4ef08f078946b0820f203ad31c0
             # ★HMAC key 隔离（绝不 fallback 到 plan-gate key）：从专用 secret 读。
             - name: ASTER_RUNNER_LAUNCHER_HMAC_KEY
               valueFrom:
