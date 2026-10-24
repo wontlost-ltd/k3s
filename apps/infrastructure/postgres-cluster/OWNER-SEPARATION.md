@@ -65,7 +65,14 @@ kubectl get cluster -n data-services shared-postgres \
 > ESO `mergePolicy: Merge`）。这四条 **不满足时 operator 完全不 reconcile 且不报错**
 > ——2026-07-31 已踩过一次，详见 `../secret-rotation/README.md`。
 
-### 步骤 2：超级用户执行一次 owner 移交 ⚠️ 人工
+### 步骤 2：超级用户执行一次 owner 移交 ⚠️ 人工（首轮移交，ADR 0050 §2.1.3）
+
+> **ADR 0050 之后的分工**：本步骤是**唯一需要超级用户**的动作，负责把既有对象（schema、全部表、序列、视图、
+> `flyway_schema_history`）一次性交给 `aster_migrator`。此后 aster-api 的 Flyway `afterMigrate` 回调（`afterMigrate__owner_selfcheck.sql`）
+> 在每次启动时幂等维护默认权限与审计表 REVOKE，并**自检**：schema/表/序列/视图 owner、审计表 ACL `ar`、业务表 ACL `arwd`。
+> 生产以 `aster.db.owner-check=strict` 运行，自检不符会让 Flyway 失败、Pod 不就绪（fail-closed）；本地/CI 为 `lenient` 仅 NOTICE。
+> 因此：**先完成本步骤并把步骤 3 的核对输出贴到 `docs/runbooks/release-evidence.md`，再合入带自检回调的 aster-api 版本**。
+> 若跳过本步骤直接上 strict，新 Pod 会在自检处失败，这是有意为之的信号，不是回调缺陷。
 
 `ALTER TABLE ... OWNER TO` 要求执行者是**当前 owner 或超级用户**。
 新的 `aster_migrator` 首次部署时还不拥有旧表，故这一步必须由 `postgres` 做一次。
@@ -125,7 +132,10 @@ SQL
 > 新增审计表（如 `audit_chain_anchors`）时，第 3 步要相应补一条 REVOKE——
 > 默认权限会给它 `arwd`，而审计表应当只有 `ar`。
 
-同时 Flyway 迁移 `V6.24.0` 会做同样的事作为幂等兜底——两者顺序无关，先跑哪个都行。
+`V6.24.0` 只覆盖审计对象；全量归属与默认权限的持续维护由 ADR 0050 的 `afterMigrate` 自检回调承担。
+新建数据库（如清库重建）时的最小前置：`CREATE DATABASE aster_api OWNER aster_api_user;`、`CREATE EXTENSION pgcrypto;`、
+`ALTER SCHEMA public OWNER TO aster_migrator;`、`GRANT USAGE ON SCHEMA public TO aster_api_user;` 再加上面第 4 步的两条默认权限——
+之后由 Flyway 建表并由回调自检（2026-10-24 生产重建即按此执行）。
 
 ### 步骤 3：核对（务必实跑，不要只看 Synced/Healthy）
 
@@ -165,6 +175,15 @@ UPDATE audit_logs SET performed_by='probe' WHERE id=(SELECT MIN(id) FROM audit_l
 kubectl exec -n data-services shared-postgres-1 -- psql -U aster_api_user -d aster_api -c "
 ALTER TABLE audit_logs DISABLE TRIGGER trg_audit_logs_append_only;"
 # 期望：ERROR: must be owner of table audit_logs
+```
+
+### 步骤 3b：回调自检的预期日志（ADR 0050 之后）
+
+```sh
+kubectl logs -n aster-cloud -l app=aster-api --tail=200 | grep -E "owner-selfcheck"
+# strict 且一致：  NOTICE  owner-selfcheck: ok (schema=aster_migrator tables=NN sequences=NN views=NN audit=ar business=arwd)
+# strict 且不符：  ERROR   owner-selfcheck: mismatch ... → Flyway 失败，Pod 不就绪；按步骤 2 修复后重启
+# 角色不存在（本地/CI）：NOTICE owner-selfcheck: role aster_migrator missing, skipped
 ```
 
 ### 步骤 4：确认应用正常
