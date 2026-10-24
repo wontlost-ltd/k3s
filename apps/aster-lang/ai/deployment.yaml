@@ -74,6 +74,9 @@ spec:
             # 会话库：shared-postgres 的 aster_cloud 库、ai_workspace schema。
             # schema 需人工预先建好并授权给 aster_ai_user（SQL 见 postgres-cluster/manifests/cluster.yaml
             # 中 aster_ai_user 角色的注释）；服务启动时只在该 schema 内建表。
+            # ADR 0050 Task 9：ai_workspace schema 归属自检，生产 strict（不符即 Pod 不就绪）
+            - name: AIW_DB_OWNER_CHECK
+              value: "strict"
             - name: AIW_DB_URL
               value: "jdbc:postgresql://shared-postgres-rw.data-services.svc.cluster.local:5432/aster_cloud?currentSchema=ai_workspace"
             - name: AIW_DB_USERNAME
