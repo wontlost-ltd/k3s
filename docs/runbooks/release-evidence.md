@@ -7,7 +7,7 @@
 
 | 日期 | 执行者 | 项目 | 证据 |
 |---|---|---|---|
-| （待填） | （待填） | aster-cloud → Settings → Builds：main 自动构建/部署 = 关闭 | 控制台截图路径：`docs/runbooks/evidence/<日期>-workers-builds-off.png` |
+| 2026-10-24 | ryan.pang（控制台） | aster-cloud → Settings → Builds：「Disable builds」= 开启（Git 连接保留；此后所有生产部署只走 GitHub Actions `deploy-worker`） | 当日 GitHub 侧已验证两次 `deploy-worker` 由 `workflow_run` 触发并通过（run 40049075928 校验步骤修复前、40052568213 修复后，均 Build + deploy 与 Verify 成功）；截图由操作者补入 `docs/runbooks/evidence/2026-10-24-workers-builds-off.png` |
 
 核对命令（切换后的每次生产部署都应来自 GitHub Actions，message 含 `deploy-worker` 的 run id）：
 
@@ -15,7 +15,7 @@
 npx wrangler deployments list --name aster-cloud | head -20
 ```
 
-仓库变量：`gh variable set ENABLE_CI_WORKER_DEPLOY --body true -R wontlost-ltd/aster-cloud`（日期：待填）。
+仓库变量：`gh variable set ENABLE_CI_WORKER_DEPLOY --body true -R wontlost-ltd/aster-cloud`（2026-10-24 00:40Z 已设置）。
 
 ## 2. aster_api 首轮 owner 移交（Task 3 前置，OWNER-SEPARATION.md 步骤 2）
 
