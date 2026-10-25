@@ -1,6 +1,6 @@
 # secret-rotation 的最小权限
 #
-# 只需要一件事：给两个 ExternalSecret 打注解以触发立即刷新。
+# 只需要一件事：给 ExternalSecret 打注解以触发立即刷新，并读其状态确认已刷新。
 # 它**不需要**读写任何 Secret——密码只在 Vault 与 Cloudflare 之间流动，
 # 下发由 ExternalSecrets Operator 负责。
 apiVersion: v1
@@ -66,7 +66,10 @@ subjects:
     name: secret-rotation
     namespace: secret-rotation
 ---
-# aster-cloud：应用 Pod 用的凭据
+# aster-cloud：应用侧凭据（aster-api Pod、aster-cloud 迁移 Job……）
+# 按标签 secret-rotation.aster-lang.cloud/pg-aster-api-user=true 找出全部消费方，故需要 list；
+# resourceNames 无法约束 list，也无法预知将来新增的消费方名字，所以不再按名字限定。
+# 仍只有 get/list/patch，不含 create/delete，且只作用于 ExternalSecret 本身（不碰 Secret）。
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -75,8 +78,7 @@ metadata:
 rules:
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets"]
-    verbs: ["get", "patch"]
-    resourceNames: ["aster-api-db-credentials"]
+    verbs: ["get", "list", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

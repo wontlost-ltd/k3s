@@ -19,6 +19,19 @@ set -eu
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 die() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ERROR: $*" >&2; exit 1; }
 
+# ── 调度守卫：CronJob 只限每季度 1-7 号，这里再限「周日」，合起来才是第一个周日 ──
+# （cron 的日/星期字段同时受限时按「或」匹配，无法单靠 schedule 表达，见 cronjob.yaml。）
+# 手工轮换设 ROTATION_FORCE=1 跳过守卫（README「手工触发」）。
+if [ "${ROTATION_FORCE:-0}" != "1" ] && [ "$(date -u +%u)" != "7" ]; then
+    log "今天不是周日（非每季度第一个周日），跳过轮换。手工轮换请设 ROTATION_FORCE=1。"
+    exit 0
+fi
+ROTATION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# 读同一 Vault 密码的应用侧 ExternalSecret 一律打此标签；步骤 7 按标签全部刷新，
+# 新增消费方只要带上标签就会被覆盖，不再依赖脚本里的硬编码名单。
+CONSUMER_LABEL="secret-rotation.aster-lang.cloud/pg-aster-api-user=true"
+CONSUMER_NAMESPACE="${CONSUMER_NAMESPACE:-aster-cloud}"
+
 VAULT_ADDR="${VAULT_ADDR:?}"
 # Vault 服务端证书的签发 CA（issue #487）。由 Reflector 从 vault ns 复制到本 ns，
 # 再以 secret volume 只挂 ca.crt 挂进来（见 cronjob.yaml）。
@@ -205,11 +218,36 @@ if [ -n "$PRE_ACCESS" ] && [ "$PRE_ACCESS" != "$POST_ACCESS" ]; then
 fi
 log "Hyperdrive 已同步；access_client_id 保持不变"
 
-# ── 7. 催应用侧 ExternalSecret 刷新，Reloader 随后滚动重启 ──
-log "触发 ExternalSecret 刷新（aster-cloud）"
-kubectl annotate externalsecret -n aster-cloud aster-api-db-credentials \
-    "force-sync=$(date +%s)" --overwrite > /dev/null \
-    || log "警告：aster-cloud ESO 刷新触发失败（将在 1h 内自动刷新）"
+# ── 7. 催应用侧 ExternalSecret 刷新，并等它们**全部**拿到新密码 ──
+# ★只刷新 aster-api 那一份是不够的：aster-cloud 迁移 Job 的 aster-cloud-db-credentials 读同一
+#   Vault 密码，若只等 1h 定时刷新，这期间部署跑迁移必然认证失败（2026-10-25 实测）。
+log "触发应用侧 ExternalSecret 刷新（${CONSUMER_NAMESPACE}，标签 ${CONSUMER_LABEL}）"
+CONSUMERS="$(kubectl get externalsecret -n "${CONSUMER_NAMESPACE}" -l "${CONSUMER_LABEL}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')" \
+    || die "列出应用侧 ExternalSecret 失败（Vault/数据库/Hyperdrive 已切到新密码，需人工刷新消费方）"
+[ -n "$CONSUMERS" ] || die "没有带 ${CONSUMER_LABEL} 标签的 ExternalSecret——标签被删了？需人工刷新消费方"
+for es in $CONSUMERS; do
+    kubectl annotate externalsecret -n "${CONSUMER_NAMESPACE}" "$es" "force-sync=$(date +%s)" --overwrite > /dev/null \
+        || die "触发 ${es} 刷新失败（需人工刷新，否则其消费方最长 1h 内用旧密码）"
+done
+
+# 等每一份都在本次轮换开始之后成功刷新（refreshTime 为 RFC3339 UTC，可按字符串比较）。
+deadline=$(( $(date +%s) + 180 ))
+for es in $CONSUMERS; do
+    while :; do
+        refreshed="$(kubectl get externalsecret -n "${CONSUMER_NAMESPACE}" "$es" -o jsonpath='{.status.refreshTime}' 2>/dev/null || true)"
+        ready="$(kubectl get externalsecret -n "${CONSUMER_NAMESPACE}" "$es" \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+        # RFC3339 UTC 时间戳可按字符串比较；用 jq 比较（busybox sh 的 test 不保证支持 \<）
+        if [ "$ready" = "True" ] && [ -n "$refreshed" ] \
+            && [ "$(jq -rn --arg a "$refreshed" --arg b "$ROTATION_STARTED_AT" '$a >= $b')" = "true" ]; then
+            log "${es} 已刷新（refreshTime=${refreshed}）"
+            break
+        fi
+        [ "$(date +%s)" -lt "$deadline" ] || die "${es} 在 180s 内未刷新到新密码（refreshTime=${refreshed:-无} ready=${ready:-无}），需人工处理"
+        sleep 5
+    done
+done
 
 log "轮换完成。Reloader 将在 Secret 更新后自动滚动重启 aster-api。"
 log "如需人工核验：kubectl -n aster-cloud rollout status deploy/aster-api"
