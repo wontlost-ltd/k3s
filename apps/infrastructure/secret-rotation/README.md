@@ -1,6 +1,6 @@
 # secret-rotation —— 季度自动轮换 PG 密码
 
-每季度第一个周日 03:00 UTC 自动轮换 `aster_api_user` 的密码。
+每季度第一个周日 03:00 UTC 自动轮换 `aster_api_user` 的密码（CronJob 限每季度 1-7 号，脚本再限周日；cron 的日/星期字段同时受限时按「或」匹配，不能只靠 schedule）。
 
 ## 为什么需要编排
 
@@ -12,6 +12,10 @@ Vault (真相源)
   │                            └─→ CNPG managed role（自动 ALTER ROLE 改库内密码）
   ├─→ ExternalSecret(1h) ─→ aster-cloud/aster-api-db-credentials
   │                            └─→ aster-api Pod（★env 注入，需 Reloader 重启才生效）
+  ├─→ ExternalSecret(1h) ─→ aster-cloud/aster-cloud-db-credentials
+  │                            └─→ aster-cloud 迁移 Job（PostSync hook）
+  │   ★应用侧消费方一律带标签 `secret-rotation.aster-lang.cloud/pg-aster-api-user=true`，
+  │     第 6 步按标签全部刷新并等待；新增消费方必须带上此标签
   └─✗  Cloudflare Hyperdrive —— 凭据存在 **Cloudflare 侧、不读 Vault**
                                  必须主动 PATCH，且不更新时**无任何告警**
 ```
@@ -27,7 +31,7 @@ Vault (真相源)
 3. 催 ExternalSecret → CNPG ALTER ROLE
 4. ★轮询等待**数据库真的接受新密码**    ← 超时则回滚 Vault
 5. 同步 Hyperdrive
-6. 催应用侧 ESO → Reloader 滚动重启
+6. 按标签催应用侧全部 ESO，等每一份都在本次轮换后刷新 → Reloader 滚动重启
 ```
 
 ★ **第 4 步不能省，第 5 步不能提前**：实测 Cloudflare 在 PATCH 时会**真的去连一次
@@ -81,7 +85,11 @@ vault write auth/kubernetes/role/secret-rotation \
 ## 手工触发（验证用）
 
 ```bash
-kubectl create job -n secret-rotation --from=cronjob/rotate-pg-password rotate-manual-$(date +%s)
+# 非第一个周日的手工轮换需 ROTATION_FORCE=1，否则脚本按调度守卫直接跳过
+kubectl create job -n secret-rotation --from=cronjob/rotate-pg-password rotate-manual-$(date +%s) \
+    --dry-run=client -o yaml \
+  | kubectl set env --local -f - ROTATION_FORCE=1 -o yaml \
+  | kubectl apply -f -
 kubectl logs -n secret-rotation -l app=rotate-pg-password --tail=50 -f
 ```
 

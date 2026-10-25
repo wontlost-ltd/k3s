@@ -1,15 +1,17 @@
 # 季度自动轮换 aster_api_user 的 PG 密码
 #
 # 时间窗：每季度（1/4/7/10 月）第一个周日 03:00 UTC。
-# cron 无法直接表达"第一个周日"，故用 `1-7` 日 + `SUN` 的惯用法：
-# 某月 1-7 号里唯一的那个周日必然是第一个周日。
+# ★cron 的「日」与「星期」两个字段**同时**受限时按「或」匹配：`1-7 … SUN` 实际是
+#   「1-7 号每天 + 当月每个周日」（2026-10 实测在 1-7 号与 11/18/25 日都轮换了，
+#   25 日那次让 aster-cloud 迁移 Job 拿到旧密码而失败）。
+# 故调度只限 1-7 号，脚本开头再判断「今天是周日」：1-7 号里唯一的周日即第一个周日。
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: rotate-pg-password
   namespace: secret-rotation
 spec:
-  schedule: "0 3 1-7 1,4,7,10 SUN"
+  schedule: "0 3 1-7 1,4,7,10 *"
   timeZone: "UTC"
   concurrencyPolicy: Forbid        # 绝不允许两次轮换重叠
   startingDeadlineSeconds: 3600    # 错过窗口超过 1h 就跳过，不在业务高峰补跑
