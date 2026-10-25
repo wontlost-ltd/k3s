@@ -1,0 +1,62 @@
+# 部署阻塞类告警：aster-cloud 数据库迁移 Job
+#
+# 为什么单独告警（而不是靠 kube-prometheus-stack 自带的 KubeJobFailed）：
+#   迁移 Job 是 ArgoCD PostSync hook，失败时 ArgoCD 仍显示 Synced/Healthy，
+#   而 aster-cloud CI 的「Wait for migration applied」会在下一次部署时失败、Worker 部署被跳过。
+#   2026-10-25 的事故里通用 KubeJobFailed（warning）照常送达，却没有说明它会阻塞部署、
+#   也没有处置步骤，2.5 小时后才在部署失败时被发现。故这里给出 critical 级别与可执行的处置说明。
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aster-deploy-blocker-rules
+  namespace: aster-observability
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    app.kubernetes.io/component: alerting
+    # release 标签让 kube-prometheus-stack 默认 ruleSelector 选中
+    release: prometheus
+spec:
+  groups:
+    - name: aster.deploy-blockers
+      interval: 30s
+      rules:
+        - alert: AsterCloudMigrationJobFailed
+          # kube_job_failed{condition="true"} 即 Job 的 Failed 条件成立（backoffLimit 用尽）。
+          expr: |
+            max by (namespace, job_name) (
+              kube_job_failed{namespace="aster-cloud", job_name=~"aster-cloud-migrate.*", condition="true"}
+            ) > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "aster-cloud 数据库迁移 Job 失败——会阻塞后续 aster-cloud 部署"
+            description: |
+              Job {{ $labels.namespace }}/{{ $labels.job_name }} 已失败（重试用尽）。
+              影响：迁移未应用；aster-cloud CI 的「Wait for migration applied」会失败，Worker 部署被跳过。
+              处置：
+                1. 看原因：kubectl -n aster-cloud logs job/{{ $labels.job_name }} --tail=50
+                2. 若为 28P01 password authentication failed：DB 密码已轮换而 aster-cloud-db-credentials 尚未刷新。
+                   kubectl -n aster-cloud annotate externalsecret aster-cloud-db-credentials force-sync=$(date +%s) --overwrite
+                3. 修复后让 ArgoCD 重新 sync aster-cloud（hook-delete-policy 含 BeforeHookCreation，会先删旧 Job 再建新 Job），
+                   再重跑 aster-cloud main 上失败的 CI。
+              背景：k3s apps/aster-lang/cloud/migrate-job.yaml、apps/infrastructure/secret-rotation/README.md
+
+        - alert: AsterCloudMigrationJobStuck
+          # 迁移通常几十秒完成；运行超过 15 分钟多半是 Secret 缺失（CreateContainerConfigError）
+          # 或连库挂起，CI 的迁移门禁会先于它超时。
+          expr: |
+            max by (namespace, job_name) (
+              kube_job_status_active{namespace="aster-cloud", job_name=~"aster-cloud-migrate.*"}
+            ) > 0
+          for: 15m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "aster-cloud 数据库迁移 Job 运行超过 15 分钟"
+            description: |
+              Job {{ $labels.namespace }}/{{ $labels.job_name }} 仍有活跃 Pod。
+              检查：kubectl -n aster-cloud get pods -l job-name={{ $labels.job_name }}；
+              kubectl -n aster-cloud describe pod -l job-name={{ $labels.job_name }}（Secret 缺失 / 镜像拉取 / 连库超时）。

@@ -1,0 +1,86 @@
+# 部署阻塞告警单元测试（promtool test rules）
+#
+# 跑法（从仓根）：
+#   python3 -c "import yaml;d=yaml.safe_load(open('apps/aster-lang/observability/deploy-blocker-rules.yaml'));\
+#     open('.tmp-deploy-blocker-rules.yaml','w').write(yaml.safe_dump({'groups':d['spec']['groups']},allow_unicode=True))"
+#   promtool test rules apps/aster-lang/observability/tests/deploy-blocker-rules-test.yaml
+#   rm .tmp-deploy-blocker-rules.yaml
+rule_files:
+  - ../../../../.tmp-deploy-blocker-rules.yaml
+evaluation_interval: 30s
+
+tests:
+  # kube-state-metrics 对同一 Job 同时导出 condition=true/false/unknown 三条序列
+  - interval: 1m
+    name: 迁移 Job 失败超过 2 分钟即 critical
+    input_series:
+      - series: 'kube_job_failed{namespace="aster-cloud",job_name="aster-cloud-migrate",condition="true"}'
+        values: '0 0 1+0x10'
+      - series: 'kube_job_failed{namespace="aster-cloud",job_name="aster-cloud-migrate",condition="false"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AsterCloudMigrationJobFailed
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AsterCloudMigrationJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              namespace: aster-cloud
+              job_name: aster-cloud-migrate
+            exp_annotations:
+              description: "Job aster-cloud/aster-cloud-migrate 已失败（重试用尽）。\n影响：迁移未应用；aster-cloud CI 的「Wait for migration applied」会失败，Worker 部署被跳过。\n处置：\n  1. 看原因：kubectl -n aster-cloud logs job/aster-cloud-migrate --tail=50\n  2. 若为 28P01 password authentication failed：DB 密码已轮换而 aster-cloud-db-credentials 尚未刷新。\n     kubectl -n aster-cloud annotate externalsecret aster-cloud-db-credentials force-sync=$(date +%s) --overwrite\n  3. 修复后让 ArgoCD 重新 sync aster-cloud（hook-delete-policy 含 BeforeHookCreation，会先删旧 Job 再建新 Job），\n     再重跑 aster-cloud main 上失败的 CI。\n背景：k3s apps/aster-lang/cloud/migrate-job.yaml、apps/infrastructure/secret-rotation/README.md\n"
+              summary: aster-cloud 数据库迁移 Job 失败——会阻塞后续 aster-cloud 部署
+
+  - interval: 1m
+    name: 其它命名空间或其它 Job 失败不触发
+    input_series:
+      - series: 'kube_job_failed{namespace="secret-rotation",job_name="aster-cloud-migrate",condition="true"}'
+        values: '1+0x10'
+      - series: 'kube_job_failed{namespace="aster-cloud",job_name="some-other-job",condition="true"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: AsterCloudMigrationJobFailed
+        exp_alerts: []
+
+  - interval: 1m
+    name: 迁移 Job 成功后不再告警
+    input_series:
+      - series: 'kube_job_failed{namespace="aster-cloud",job_name="aster-cloud-migrate",condition="true"}'
+        values: '1 1 1 1 1 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: AsterCloudMigrationJobFailed
+        exp_alerts: []
+
+  - interval: 1m
+    name: 迁移 Job 活跃超过 15 分钟为 warning，短时运行不告警
+    input_series:
+      - series: 'kube_job_status_active{namespace="aster-cloud",job_name="aster-cloud-migrate"}'
+        values: '1+0x30'
+      - series: 'kube_job_status_active{namespace="aster-cloud",job_name="aster-cloud-migrate-quick"}'
+        values: '1 1 1 0+0x27'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AsterCloudMigrationJobStuck
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: AsterCloudMigrationJobStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              namespace: aster-cloud
+              job_name: aster-cloud-migrate
+            exp_annotations:
+              description: 'Job aster-cloud/aster-cloud-migrate 仍有活跃 Pod。
+            
+                检查：kubectl -n aster-cloud get pods -l job-name=aster-cloud-migrate；
+            
+                kubectl -n aster-cloud describe pod -l job-name=aster-cloud-migrate（Secret 缺失 / 镜像拉取 / 连库超时）。
+            
+                '
+              summary: aster-cloud 数据库迁移 Job 运行超过 15 分钟
