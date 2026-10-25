@@ -21,8 +21,11 @@ metadata:
     # 迁移失败不阻塞 deployment（aster-cloud 跑在 CF，K8s 里也没 cloud deployment 要更新）
     # 但迁移失败会让 ArgoCD app 标 Degraded，足够触发关注。
     argocd.argoproj.io/hook: PostSync
-    # 仅在成功时删除；失败时保留以便 kubectl logs 调试
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    # 成功即删除；失败时保留以便 kubectl logs 调试，直到下一次 sync 创建新 hook 前再删除。
+    # ★必须带 BeforeHookCreation：Job 的 spec.template 不可变，残留的失败 Job 会让之后每次
+    #   sync 都以「field is immutable」失败（2026-10-25：DB 密码轮换后 ExternalSecret 晚 25 分钟
+    #   刷新，一次迁移失败的 Job 一直阻塞后续部署，CI 的迁移门禁随之失败、Worker 部署被跳过）。
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   ttlSecondsAfterFinished: 86400  # 24h 后自动清理
   # 给瞬时失败（DB 连接抖动、ExternalSecret 尚未 reconcile）2 次重试余地，
