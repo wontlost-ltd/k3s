@@ -9,6 +9,7 @@ resources:
   - namespace.yaml
   - prometheus-rule.yaml
   - slo-burn-rate.yaml
+  - deploy-blocker-rules.yaml
   - service-monitor.yaml
 
 # Grafana dashboard ConfigMap
