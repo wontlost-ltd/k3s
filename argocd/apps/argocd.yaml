@@ -83,6 +83,25 @@ spec:
           replicas: 1
           pdb:
             enabled: false
+          # 暴露 application-controller 指标（argocd_app_info / argocd_app_sync_total …）并由
+          # kube-prometheus-stack 抓取，供 apps/aster-lang/observability/argocd-rules.yaml 告警。
+          # ★缺它时 hook 失败的 sync 在 ArgoCD 里仍显示 Synced/Healthy，没有任何告警（2026-10-25：
+          #   aster-cloud 迁移 hook 失败阻塞部署 2.5 小时无人察觉）。只开 controller，不开 server/repo-server。
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+              # 单节点资源紧张，60s 足够（告警窗口为 15m/30m）
+              interval: 60s
+              additionalLabels:
+                release: prometheus
+              # ★只保留告警用到的两个指标族（约 200 条序列 / 46 个 app）。Prometheus 内存已用到
+              #   limit 的约 72%（~737Mi/1Gi，22 万序列），controller 全量指标里按 app×verb×kind 展开的
+              #   argocd_app_k8s_request_total 等会多出数千条序列。需要更多指标时在这里放开。
+              metricRelabelings:
+                - sourceLabels: [__name__]
+                  regex: argocd_app_info|argocd_app_sync_total
+                  action: keep
           # NOTE: reconciler concurrency caps are configured via
           # configs.params (controller.* keys) further down in this file —
           # not via direct env injection here, which would duplicate the
