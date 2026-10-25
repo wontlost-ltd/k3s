@@ -10,6 +10,7 @@ resources:
   - prometheus-rule.yaml
   - slo-burn-rate.yaml
   - deploy-blocker-rules.yaml
+  - argocd-rules.yaml
   - service-monitor.yaml
 
 # Grafana dashboard ConfigMap

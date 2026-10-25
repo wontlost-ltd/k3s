@@ -1,0 +1,102 @@
+# ArgoCD 同步告警单元测试（promtool test rules）
+#
+# 跑法（从仓根）：
+#   python3 -c "import yaml;d=yaml.safe_load(open('apps/aster-lang/observability/argocd-rules.yaml'));\
+#     open('.tmp-argocd-rules.yaml','w').write(yaml.safe_dump({'groups':d['spec']['groups']},allow_unicode=True))"
+#   promtool test rules apps/aster-lang/observability/tests/argocd-rules-test.yaml
+#   rm .tmp-argocd-rules.yaml
+rule_files:
+- ../../../../.tmp-argocd-rules.yaml
+evaluation_interval: 1m
+tests:
+- interval: 1m
+  name: 已存在超过 15 分钟的失败计数再加一即告警，之后无新增则在 15 分钟后恢复
+  input_series:
+  - series: argocd_app_sync_total{name="aster-cloud",project="aster-lang",phase="Failed",dry_run="false"}
+    values: 2x25 3x30
+  - series: argocd_app_sync_total{name="aster-cloud",project="aster-lang",phase="Succeeded",dry_run="false"}
+    values: 5+1x55
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ArgoCDAppSyncFailed
+    exp_alerts: []
+  - eval_time: 28m
+    alertname: ArgoCDAppSyncFailed
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        team: platform
+        name: aster-cloud
+        project: aster-lang
+      exp_annotations:
+        summary: ArgoCD 应用 aster-cloud 同步失败
+        description: 'aster-cloud（project aster-lang）在过去 15 分钟内有 sync 操作失败。
+
+          app 可能仍显示 Synced/Healthy——hook（如迁移 Job）失败或资源应用失败都会落在这里。
+
+          查看：kubectl -n argocd get application aster-cloud -o jsonpath=''{.status.operationState.message}''
+
+          '
+  - eval_time: 45m
+    alertname: ArgoCDAppSyncFailed
+    exp_alerts: []
+- interval: 1m
+  name: 失败序列首次出现（如 controller 重启后第一次失败）也告警
+  input_series:
+  - series: argocd_app_sync_total{name="aster-cloud",project="aster-lang",phase="Failed",dry_run="false"}
+    values: _x10 1x30
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: ArgoCDAppSyncFailed
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        team: platform
+        name: aster-cloud
+        project: aster-lang
+      exp_annotations:
+        summary: ArgoCD 应用 aster-cloud 同步失败
+        description: 'aster-cloud（project aster-lang）在过去 15 分钟内有 sync 操作失败。
+
+          app 可能仍显示 Synced/Healthy——hook（如迁移 Job）失败或资源应用失败都会落在这里。
+
+          查看：kubectl -n argocd get application aster-cloud -o jsonpath=''{.status.operationState.message}''
+
+          '
+- interval: 1m
+  name: 长期存在但不再增长的失败计数不告警；dry run 失败不告警
+  input_series:
+  - series: argocd_app_sync_total{name="monitoring",project="infrastructure",phase="Failed",dry_run="false"}
+    values: 4x40
+  - series: argocd_app_sync_total{name="aster-ai",project="aster-lang",phase="Failed",dry_run="true"}
+    values: 0x10 1x30
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: ArgoCDAppSyncFailed
+    exp_alerts: []
+- interval: 1m
+  name: OutOfSync 持续 30 分钟才告警
+  input_series:
+  - series: argocd_app_info{name="aster-cloud",dest_namespace="aster-cloud",sync_status="OutOfSync",health_status="Healthy"}
+    values: 1x45
+  - series: argocd_app_info{name="aster-ai",dest_namespace="aster-ai",sync_status="Synced",health_status="Healthy"}
+    values: 1x45
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ArgoCDAppOutOfSync
+    exp_alerts: []
+  - eval_time: 40m
+    alertname: ArgoCDAppOutOfSync
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        team: platform
+        name: aster-cloud
+        dest_namespace: aster-cloud
+      exp_annotations:
+        summary: ArgoCD 应用 aster-cloud 已 30 分钟未同步
+        description: 'aster-cloud（aster-cloud）持续 OutOfSync 30 分钟：自动同步被阻塞或需人工 sync。
+
+          查看：kubectl -n argocd get application aster-cloud -o jsonpath=''{.status.conditions}''
+
+          '

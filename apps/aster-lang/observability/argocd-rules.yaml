@@ -1,0 +1,54 @@
+# ArgoCD 同步失败 / 长期未同步告警
+#
+# 指标来自 argocd application-controller（argocd/apps/argocd.yaml 的 controller.metrics）。
+# 为什么需要：hook（如 aster-cloud 迁移 Job）失败时 sync 操作失败，但 app 仍显示 Synced/Healthy，
+# 之后每次 sync 都可能失败而无人知晓（2026-10-25）。
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argocd-sync-rules
+  namespace: aster-observability
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    app.kubernetes.io/component: alerting
+    release: prometheus
+spec:
+  groups:
+    - name: argocd.sync
+      interval: 1m
+      rules:
+        - alert: ArgoCDAppSyncFailed
+          # argocd_app_sync_total 是计数器；controller 重启或某 app 第一次失败时序列才出现，
+          # 单用 increase() 会漏掉「新出现的序列」，故并上「15 分钟前不存在、现在存在」的序列。
+          # 只算真实 sync（排除 dry_run）；该指标没有 dest_namespace 标签，按 name/project 聚合。
+          expr: |
+            sum by (name, project) (
+              increase(argocd_app_sync_total{phase=~"Failed|Error", dry_run!="true"}[15m])
+            ) > 0
+            or
+            sum by (name, project) (
+              argocd_app_sync_total{phase=~"Failed|Error", dry_run!="true"}
+              unless argocd_app_sync_total{phase=~"Failed|Error", dry_run!="true"} offset 15m
+            ) > 0
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "ArgoCD 应用 {{ $labels.name }} 同步失败"
+            description: |
+              {{ $labels.name }}（project {{ $labels.project }}）在过去 15 分钟内有 sync 操作失败。
+              app 可能仍显示 Synced/Healthy——hook（如迁移 Job）失败或资源应用失败都会落在这里。
+              查看：kubectl -n argocd get application {{ $labels.name }} -o jsonpath='{.status.operationState.message}'
+
+        - alert: ArgoCDAppOutOfSync
+          expr: |
+            max by (name, dest_namespace) (argocd_app_info{sync_status="OutOfSync"}) > 0
+          for: 30m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "ArgoCD 应用 {{ $labels.name }} 已 30 分钟未同步"
+            description: |
+              {{ $labels.name }}（{{ $labels.dest_namespace }}）持续 OutOfSync 30 分钟：自动同步被阻塞或需人工 sync。
+              查看：kubectl -n argocd get application {{ $labels.name }} -o jsonpath='{.status.conditions}'
