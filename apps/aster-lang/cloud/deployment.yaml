@@ -225,6 +225,10 @@ spec:
             # 是为非 tunnel 部署（如 on-prem 直连）保守起见。
             - name: ASTER_RATELIMIT_TRUST_FORWARDED_HEADERS
               value: "true"
+            # 临时：生产容量压测窗口内放宽 REST 限流（默认 60/分钟/租户或 IP），
+            # 使压测测到后端真实容量而非限流器。压测结束后由回滚 PR 删除本项。
+            - name: ASTER_RATELIMIT_REST_MAX
+              value: "1000000"
             # 与上面同一信任边界，但作用于 trial 端点（/evaluate-source）的 per-IP
             # 限流。TrialEndpointGuard 读独立的 trust 开关，且 RateLimitFilter 对
             # guarded trial 路径直接旁路 —— 若此处不打开，trial 的 minute/hour/
