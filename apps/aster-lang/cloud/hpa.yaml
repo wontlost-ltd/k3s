@@ -5,7 +5,7 @@
 # 自动扩缩.
 #
 # Targets:
-#   - 仅 CPU 70%（相对 requests 250m ≈ 175m 真实负载）。
+#   - 仅 CPU 70%（相对 requests 200m ≈ 140m 真实负载）。
 #   - 不再使用内存指标：JVM 堆在负载过后基本不回缩，内存利用率长期停在 69%-74%，
 #     对 80% 目标意味着「扩上去就永不缩回」——2026-10-26 压测后停在 6 副本，
 #     ceil(6 × 69/80) = 6。内存保护由 Guaranteed QoS（request = limit = 512Mi）承担。
@@ -13,7 +13,7 @@
 # Bounds:
 #   - min=2: 保持 R21 HA 决策的下限
 #   - max=3: 集群为 4×1 OCPU / 6GB（OCI Always Free 额度）。按本次调整后的 requests
-#     （aster-api 250m ×2、Traefik 100m ×2、cloudflared 25m ×2）集群 CPU requests 约 3.7/4 核，
+#     （aster-api 200m ×2、Traefik 100m ×2、cloudflared 25m ×2）各节点余量仅约 0-200m，
 #     第 3 个副本只有在其他 Pod 释放余量时才能调度，否则保持 Pending（无害，等待余量）；
 #     更多副本会挤压同节点上的 etcd / Traefik。节点扩容后再上调
 #     （ephemeral-storage 另有 6 个 pod 的上限，见 docs/runbooks/lexicon-recovery.md）。
