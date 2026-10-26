@@ -9,7 +9,11 @@
 
 ## 目标配置
 
-把 3 台 master 上的 `/var/lib/rancher/k3s/server/manifests/traefik-config.yaml` 改成以下内容（**三台必须完全一致**，否则各 server 轮流覆盖）：
+修改 **master-1** 上的 `/var/lib/rancher/k3s/server/manifests/traefik-config.yaml`（2026-10-26 核实：只有 master-1 有该文件，master-2/3 没有；不要在其他 master 上新建，单一来源可避免多个 server 用不同内容互相覆盖。HelmChartConfig 对象本身存于 etcd，master-1 宕机也不会丢失）。
+
+注意：同目录下的 `traefik.yaml` 是 k3s 内置 HelmChart，**每次 k3s 启动都会被重写，不要修改**；`traefik-config.yaml` 的 values 会与其深度合并，原有的 podAnnotations、priorityClassName、tolerations 等保持不变。
+
+目标内容：
 
 ```yaml
 apiVersion: helm.cattle.io/v1
@@ -64,8 +68,8 @@ spec:
 
 ## 操作步骤
 
-1. 先在一台 master 上备份：`cp /var/lib/rancher/k3s/server/manifests/traefik-config.yaml /root/traefik-config.yaml.bak-$(date +%Y%m%d)`。
-2. 依次在 master-1/2/3 写入上面的内容（内容逐字一致）。k3s 会自动重新应用 HelmChartConfig，helm-controller 随即 `helm upgrade` Traefik（无需重启 k3s）。
+1. 在 master-1 上备份：`cp /var/lib/rancher/k3s/server/manifests/traefik-config.yaml /root/traefik-config.yaml.bak-$(date +%Y%m%d)`。
+2. 在 master-1 写入上面的内容。k3s 会自动重新应用 HelmChartConfig，helm-controller 随即 `helm upgrade` Traefik（无需重启 k3s）。
 3. 观察：
    ```bash
    kubectl -n kube-system get jobs | grep helm-install-traefik     # 最新一次 Completed
@@ -77,7 +81,7 @@ spec:
 
 ## 回滚
 
-把备份文件拷回三台 master 的同一路径即可；helm-controller 会回到单副本配置。
+把备份文件拷回 master-1 的同一路径即可；helm-controller 会回到单副本配置。
 
 ## 容量说明
 
