@@ -10,7 +10,10 @@ metadata:
     app.kubernetes.io/component: tunnel
     app.kubernetes.io/part-of: cloudflare-tunnel
 spec:
-  replicas: 1
+  # 2 副本（原 1）：本 tunnel 是全部生产域名的唯一入口。2026-10-26 生产压测中所有请求都落在
+  # 单副本的同一条边缘连接上，CPU 达 limit 的 55%、节流 9.5%，是 Traefik 之后的第二道天花板；
+  # 单副本也意味着节点故障即全站不可达。两副本各自向边缘建连，由 Cloudflare 按连接分发。
+  replicas: 2
   # ★先起后停（2026-09-08 加）：本 Deployment 是单副本，且此前未声明 strategy，
   #   走 k8s 默认 maxSurge=25% / maxUnavailable=25% —— 对 replicas:1 会分别
   #   **向下取整为 0** 和**向上取整为 1**，即滚更时旧 pod 先终止、新 pod 才创建。
@@ -39,6 +42,17 @@ spec:
       # Use dedicated service account without API access
       serviceAccountName: cloudflared
       automountServiceAccountToken: false
+
+      # 尽量把两个副本放到不同节点：单节点故障时仍有一条 tunnel 在线（软约束，节点不足时仍可同节点调度）。
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: cloudflared
 
       # Security hardening
       securityContext:
@@ -80,7 +94,8 @@ spec:
               cpu: 25m
               memory: 32Mi
             limits:
-              cpu: 100m
+              # 300m（原 100m）：压测中 150 RPS 时已出现 CFS 节流；requests 保持 25m 不挤占调度配额。
+              cpu: 300m
               memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false

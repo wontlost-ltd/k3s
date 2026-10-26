@@ -70,7 +70,10 @@ spec:
   secretTemplate:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "wontlost-data,wontlost-ckeditor-builder"
+      # agui / agui-pro / sentinel-ops 的 Ingress 同样引用 wontlost-com-tls；此前既不在允许清单、
+      # 也缺 auto-enabled，反射从未发生 → Traefik 每次配置刷新都报「secret does not exist」。
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "wontlost-data,wontlost-ckeditor-builder,wontlost-agui,wontlost-agui-pro,wontlost-sentinel-ops"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
 
 ---

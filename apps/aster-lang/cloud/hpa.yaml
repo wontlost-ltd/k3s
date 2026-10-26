@@ -5,17 +5,24 @@
 # 自动扩缩.
 #
 # Targets:
-#   - CPU 70%: Quarkus + JVM 起步约 30-40%, 流量上来后 70% 是健康 scale-up 触发点
-#   - Memory 80%: 384m maxHeap + native overhead 接近 limit 时扩容
+#   - 仅 CPU 70%（相对 requests 250m ≈ 175m 真实负载）。
+#   - 不再使用内存指标：JVM 堆在负载过后基本不回缩，内存利用率长期停在 69%-74%，
+#     对 80% 目标意味着「扩上去就永不缩回」——2026-10-26 压测后停在 6 副本，
+#     ceil(6 × 69/80) = 6。内存保护由 Guaranteed QoS（request = limit = 512Mi）承担。
 #
 # Bounds:
 #   - min=2: 保持 R21 HA 决策的下限
-#   - max=6: k3s 节点 ephemeral-storage (lexicon-hotplug 3Gi/pod) 上限约束;
-#     超过 6 个 pod 需要先做共享 PVC (见 docs/runbooks/lexicon-recovery.md)
+#   - max=3: 集群为 4×1 OCPU / 6GB（OCI Always Free 额度）。按本次调整后的 requests
+#     （aster-api 250m ×2、Traefik 100m ×2、cloudflared 25m ×2）集群 CPU requests 约 3.7/4 核，
+#     第 3 个副本只有在其他 Pod 释放余量时才能调度，否则保持 Pending（无害，等待余量）；
+#     更多副本会挤压同节点上的 etcd / Traefik。节点扩容后再上调
+#     （ephemeral-storage 另有 6 个 pod 的上限，见 docs/runbooks/lexicon-recovery.md）。
 #
 # Behavior:
 #   - scaleDown.stabilizationWindowSeconds=300: 防抖, 避免 traffic spike 后立即缩容
-#   - scaleUp policies: 60s 内最多翻倍, 应对突发负载
+#   - scaleUp: 每 60s 最多新增 1 个 Pod。原「60s 内翻倍、至少 +2」在压测中让 4 个 JVM
+#     同时冷启动（每个约 0.4-0.5 核），1 vCPU 节点上与在服 Pod、PostgreSQL、etcd 抢 CPU，
+#     吞吐反而跌到 3 RPS，并诱发 etcd 就绪失败。逐个扩容让新 Pod 预热完再接下一个。
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -31,7 +38,7 @@ spec:
     kind: Deployment
     name: aster-api
   minReplicas: 2
-  maxReplicas: 6
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:
@@ -39,12 +46,6 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300
@@ -55,10 +56,6 @@ spec:
     scaleUp:
       stabilizationWindowSeconds: 60
       policies:
-        - type: Percent
-          value: 100
-          periodSeconds: 60
         - type: Pods
-          value: 2
+          value: 1
           periodSeconds: 60
-      selectPolicy: Max

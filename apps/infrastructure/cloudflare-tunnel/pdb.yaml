@@ -1,0 +1,15 @@
+# cloudflared PodDisruptionBudget：节点排空 / 升级时至少保留 1 个 tunnel 副本在线，
+# 避免两个副本被同时驱逐导致全部生产域名不可达。
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflared
+  namespace: cloudflare
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/part-of: cloudflare-tunnel
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
