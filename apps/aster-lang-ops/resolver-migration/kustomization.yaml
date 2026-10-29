@@ -24,6 +24,5 @@ configMapGenerator:
       - api-migration.mjs
       - summary.mjs
 images:
-  # ⚠️ BOOTSTRAP 占位 digest，见 image-lock.yaml 文件头；首次构建后由人工接入 PR 替换。
   - name: docker.io/wontlost/aster-resolver-migration
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:c292a50406fe4ec2917cf4ef19399317fb7753389fc287711c183a89184f0e7b

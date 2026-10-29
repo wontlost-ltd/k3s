@@ -6,13 +6,11 @@
 # kustomization.yaml。本目录（apps/aster-lang-ops/）不属于任何 ArgoCD 应用，不匹配任何 ApplicationSet
 # 生成器（理由见同目录 kustomization.yaml 文件头），pin 合并后不会 sync，由运维按 runbook 手工 apply。
 #
-# ⚠️ BOOTSTRAP 占位：下面的 digest/sourceSha/runId 是占位值，镜像尚未构建过（open-image-pin-pr.sh
-#   只更新已存在的 entry，所以 entry 必须先存在）。首次构建后，在**人工**接入 PR 中把三项替换为
-#   CI 首次构建输出的真实值（与 kustomization.yaml 的 digest 一致），verify-image-pin 才能验签通过；
-#   占位值绝不能合入 main。见 aster-api docs/runbooks/adr0051-rollout.md §3。
+# 首次接入（2026-10-29）：digest/sourceSha/runId 取自 aster-cloud resolver-migration-image.yml 首次构建
+#   （run 40843829693），合并前已按 runbook §3 人工 cosign 验签；之后由 image-pin bot 维护。
 version: 1
 images:
   - image: docker.io/wontlost/aster-resolver-migration
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    sourceSha: BOOTSTRAP-PLACEHOLDER
-    runId: "0"
+    digest: sha256:c292a50406fe4ec2917cf4ef19399317fb7753389fc287711c183a89184f0e7b
+    sourceSha: d745e3eb18d63e97327f5d106a02b8cc14b50b48
+    runId: "40843829693"
