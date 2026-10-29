@@ -68,7 +68,17 @@ spec:
                 secretKeyRef:
                   name: aster-lsp-auth
                   key: LSP_AUTH_TOKEN
-            # Node.js tuning
+            # ★每 pod 并发会话上限（网关 evaluateUpgrade 第 1 步，默认 50 远超内存所能承受）。
+            #   每个会话 spawn 一个语言服务器子进程。实测（node:24-slim，Linux，aster-lsp 同版本
+            #   aster-lang-ts，打开内置 Auto Insurance 模板 + 10 次 hover 后）：
+            #     网关进程 RSS ≈ 58→63 MiB；每个子进程 RSS ≈ 75–80 MiB（5 个会话：77/80/80/79/80）。
+            #   按每会话 96 MiB 预算（实测上沿 80 + 20% 余量，长会话索引增长），容器上限留 15% 余量：
+            #     (768 MiB × 0.85 − 64 MiB) / 96 MiB ≈ 6.1 → 6
+            #   两副本共 12 个并发编辑器会话；单 IP 另受 middleware.yaml 的并发 3 限制。
+            #   子进程不继承 NODE_OPTIONS（网关只向子进程转发最小 env），堆上限不受下面的设置约束。
+            - name: LSP_MAX_CONNECTIONS
+              value: "6"
+            # Node.js tuning（只作用于网关进程本身）
             - name: NODE_OPTIONS
               value: "--max-old-space-size=256"
           securityContext:
@@ -80,12 +90,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+          # ★内存上限与 LSP_MAX_CONNECTIONS 一起定（计算见上方 env 注释）：原 256Mi 只够网关加
+          #   约 1.6 个会话，原上限 50 个会话时几个连接就会 OOM。request 按「网关 + 两个常驻会话」估算，
+          #   峰值靠 limit 兜住；上限 6 会话 × 2 副本时最坏占用 2 × 768Mi。
           resources:
             requests:
-              memory: 128Mi
+              memory: 256Mi
               cpu: 100m
             limits:
-              memory: 256Mi
+              memory: 768Mi
               cpu: 500m
           livenessProbe:
             httpGet:

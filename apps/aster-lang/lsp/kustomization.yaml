@@ -35,6 +35,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - middleware.yaml
   - pdb.yaml
   - external-secrets.yaml
   # ★network-policy.yaml 暂不启用 —— 与 apps/aster-lang/cloud 同因，不是遗漏。

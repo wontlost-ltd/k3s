@@ -1,0 +1,50 @@
+# Aster LSP 入口限流（按真实客户端 IP）
+#
+# ★为什么现在必须加：aster-cloud#656 把 NEXT_PUBLIC_LSP_TOKEN 内联进公开前端 bundle 后，
+#   网关的共享 token 对任何人可见；Origin 白名单只约束浏览器，脚本可随意伪造。
+#   每个 WebSocket 会话在网关里 spawn 一个 Node 子进程（实测约 80 MiB，见 deployment.yaml），
+#   少量伪造连接即可耗尽 pod 内存、拖垮所有编辑器会话。本文件必须在设置该 secret **之前**上线。
+#
+# ★按 CF-Connecting-IP 计数，而不是按对端地址：本集群是 Cloudflare Tunnel-only
+#   （cloudflared 出站连接 → Traefik ClusterIP），Traefik 看到的对端永远是 cloudflared pod，
+#   按对端地址限流等于全站共用一个桶。CF-Connecting-IP 由 Cloudflare 边缘写入、单值，
+#   tunnel-only 拓扑下不可伪造（与 apps/aster-lang/cloud/deployment.yaml 的限流可信源同一结论）。
+#
+# 中间件在 ingress.yaml 的 router.middlewares 注解里引用（<namespace>-<name>@kubernetescrd）。
+---
+# 同一客户端 IP 的并发请求上限。WebSocket 在整个会话期间都算一个在途请求，
+# 故这就是「单个 IP 最多同时开几个编辑器会话」：3 个标签页足够正常使用，
+# 也让单个来源最多占用 3 个子进程（≈ 240 MiB）。超出返回 429。
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: lsp-inflight
+  namespace: aster-lsp
+  labels:
+    app: aster-lsp
+    app.kubernetes.io/name: aster-lsp
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  inFlightReq:
+    amount: 3
+    sourceCriterion:
+      requestHeaderName: CF-Connecting-IP
+---
+# 同一客户端 IP 的新连接（握手）速率：平均每分钟 6 次，突发 10 次。
+# 编辑器断线重连按 reconnectDelay 退避，正常使用远低于此；快速反复握手（刷子进程）被 429 挡住。
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: lsp-ratelimit
+  namespace: aster-lsp
+  labels:
+    app: aster-lsp
+    app.kubernetes.io/name: aster-lsp
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  rateLimit:
+    average: 6
+    period: 1m
+    burst: 10
+    sourceCriterion:
+      requestHeaderName: CF-Connecting-IP
