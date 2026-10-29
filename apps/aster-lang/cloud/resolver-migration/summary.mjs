@@ -16,7 +16,7 @@ if (api) {
   const last = api.rounds?.at(-1) ?? {};
   lines.push(
     `aster-api policy_versions: rounds=${api.rounds?.length ?? 0} succeeded=${api.totals?.succeeded ?? '?'} ` +
-      `remainingFailed=${last.failed ?? '?'} (E8xx=${len(t.e8xx)} integrityMismatch=${len(t.integrityMismatch)} other=${len(t.other)})`,
+      `remainingFailed=${last.failed ?? '?'} (E8xx=${len(t.e8xx)} integrityMismatch=${len(t.integrityMismatch)} infrastructure=${len(t.infrastructure)} other=${len(t.other)})`,
   );
 } else lines.push('aster-api: no report');
 if (cloud) {

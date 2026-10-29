@@ -1,17 +1,16 @@
-# ADR 0051 §9 存量重编译 Job（手动触发，绝不随 sync 自动运行）
+# ADR 0051 §9 存量重编译 Job（手动 apply、手动触发；不属于任何 ArgoCD 应用）
 #
-# ★为什么是「suspend 的 CronJob」而不是 Job / hook：
-#   - 不能用 PostSync hook（migrate-job.yaml 那样）：每次 app sync 都会跑，而本任务必须在
-#     发布窗口内由人决定何时执行（aster-api 其它 pod 有 1h 编译缓存；cloud 迁移持行锁）。
-#   - 不能直接放一个 Job：ArgoCD 一 sync 就会创建并立即运行；且 Job 的 spec.template 不可变，
-#     image-pin 改 digest 后 sync 会以「field is immutable」失败。
-#   - CronJob suspend: true 永不按调度运行（schedule 也设为不存在的 2 月 31 日双保险），
-#     jobTemplate 可变，kustomization 的 images transformer 照常把 aster-cloud-migrate 改写成
-#     image-lock 里的 @sha256 digest（image-pin PR 更新 digest 即可，无需改本文件）。
-#     selfHeal 会把被手工改掉的 suspend 恢复为 true。
+# ★为什么是「suspend 的 CronJob」：
+#   - 由运维 `kubectl apply -k`（本目录）建出来，永不按调度运行（suspend: true，schedule 也设为
+#     不存在的 2 月 31 日双保险），每次执行用 `kubectl create job --from=cronjob/...` 新建一个 Job。
+#   - jobTemplate 可变：image-pin bot 更新本目录 kustomization 的 digest 后，重新 apply -k 即可
+#     换镜像；直接放 Job 的话，Job 的 spec.template 不可变，每次都得删了重建。
+#   - 不放进 cloud 应用（R47）：避免 sync / PostSync 迁移 / 迁移门禁与本 Job 互相牵连。
 #
-# 触发（只在 runbook 的发布窗口内；先确认没有正在跑的同名 Job）：
-#   kubectl -n aster-cloud get jobs -l app=aster-adr0051-resolver-migration
+# 触发（只在 runbook 的发布窗口内）：
+#   kubectl apply -k apps/aster-lang/cloud/resolver-migration      # ConfigMap + CronJob（可重复）
+#   kubectl apply -f apps/aster-lang/cloud/resolver-migration/backup-pvc.yaml
+#   kubectl -n aster-cloud get jobs -l app=aster-adr0051-resolver-migration   # 确认没有在跑的
 #   kubectl -n aster-cloud create job aster-adr0051-resolver-migration-$(date +%s) \
 #     --from=cronjob/aster-adr0051-resolver-migration
 #   kubectl -n aster-cloud logs -f job/<上面的 job 名> --all-containers
@@ -23,13 +22,11 @@
 #   3. container cloud-migration   aster-cloud 迁移脚本（= pnpm ops:resolver-migration）→ 汇总
 # 任一步失败 Pod 即失败（backoffLimit 0，不自动重试）；两边迁移都幂等，修复原因后重新触发即可。
 #
-# ★前置依赖：aster-cloud-migrate 镜像须由含 aster-cloud ef532737
-#   「chore(migrate-image): 迁移镜像包含 resolver 迁移脚本」的 main 构建（随 cloud PR-B 合入）：
-#   该版 Dockerfile.migrate 按 migrate-package.json 精确钉版装依赖，并拷入 tsconfig.json、src/
-#   与 scripts/resolver-migration.ts（workingDir /app）。更早的 digest 只含 drizzle 迁移，
-#   第 3 步会以「Cannot find module」失败——触发前核对 image-lock 的 migrate sourceSha。
-#   第 3 步命令与镜像注释、cloud package.json 的 ops:resolver-migration 逐字一致：
-#     node --conditions=import --import tsx scripts/resolver-migration.ts
+# 镜像：第 2、3 步用 docker.io/wontlost/aster-resolver-migration（aster-cloud
+#   Dockerfile.resolver-migration，`:latest` 只是模板占位，本目录 kustomization 的 images 段按
+#   image-lock 改写成 @sha256）。第 3 步命令与该镜像 CMD、cloud package.json 的
+#   ops:resolver-migration 逐字一致：node --conditions=import --import tsx scripts/resolver-migration.ts
+#   第 1 步的 PG 客户端是第三方镜像，tag@digest 钉死。
 #
 # Secret 只按名称引用（不在本仓保存任何值）：
 #   aster-api-db-credentials        reactive-url（aster_api 连接地址，不含凭据）
@@ -127,9 +124,8 @@ spec:
                   cpu: 500m
                   memory: 512Mi
             - name: api-migration
-              # 只用 node 内置模块，借用已 digest pin + cosign 验签的 aster-cloud-migrate 镜像
-              # 里的 node 运行时（`:latest` 只是模板占位，见 migrate-job.yaml）。
-              image: docker.io/wontlost/aster-cloud-migrate:latest
+              # 只用 node 内置模块，借用同一 resolver 镜像里的 node 运行时（少维护一个镜像 pin）。
+              image: docker.io/wontlost/aster-resolver-migration:latest
               imagePullPolicy: IfNotPresent
               command: ["node", "/scripts/api-migration.mjs"]
               env:
@@ -152,10 +148,11 @@ spec:
                   cpu: 10m
                   memory: 64Mi
                 limits:
+                  cpu: 200m
                   memory: 128Mi
           containers:
             - name: cloud-migration
-              image: docker.io/wontlost/aster-cloud-migrate:latest
+              image: docker.io/wontlost/aster-resolver-migration:latest
               imagePullPolicy: IfNotPresent
               workingDir: /app
               command:
@@ -187,10 +184,12 @@ spec:
                   value: /tmp
               volumeMounts: *mounts
               securityContext: *containerSecurity
+              # requests 压到 25m/128Mi（R47 I1）：节点 CPU requests 已偏高（见 pg-restore-drill），
+              # 一次性 Job 不该因 requests 挤不进节点；实际用量由 limits 兜住。
               resources:
                 requests:
-                  cpu: 100m
-                  memory: 256Mi
+                  cpu: 25m
+                  memory: 128Mi
                 limits:
                   cpu: "1"
                   memory: 1Gi

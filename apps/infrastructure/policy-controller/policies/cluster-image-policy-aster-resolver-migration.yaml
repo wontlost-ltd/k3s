@@ -1,0 +1,19 @@
+# digest-verify CIP：aster-resolver-migration（ADR 0051 §9 存量重编译的一次性 Job 镜像）
+# 信任根：sourceRepo wontlost-ltd/aster-cloud, workflowFile ci.yml,
+#   sourceRef refs/heads/main（对齐 aster-cloud ci.yml build-resolver-migration-image 的 cosign identity-regexp）。
+# Job 运行在 aster-cloud 命名空间（已 opt-in policy.sigstore.dev/include），本 CIP 对其生效。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-resolver-migration
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-resolver-migration@sha256:**"
+  authorities:
+    - keyless:
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subject: https://github.com/wontlost-ltd/aster-cloud/.github/workflows/ci.yml@refs/heads/main
+  mode: enforce

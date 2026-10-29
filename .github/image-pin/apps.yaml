@@ -58,3 +58,11 @@ apps:
   - name: ai
     lock: apps/aster-lang/ai/image-lock.yaml
     kust: apps/aster-lang/ai/kustomization.yaml
+
+  # resolver-migration（ADR 0051 §9）：存量重编译的一次性 Job 镜像，纯 kustomization-bound。
+  #   ★目录在 cloud/ 之下（深度 2），不被 appset 发现、也不被 cloud/kustomization 引用：
+  #     pin PR 合并后不会 sync，不触发 PostSync 迁移与 cloud 的迁移门禁；由运维按 runbook 手工 apply。
+  #   源仓 aster-cloud ci.yml 的 image-pin-pr-resolver-migration 经 open-image-pin-pr.sh 双写这两个文件。
+  - name: resolver-migration
+    lock: apps/aster-lang/cloud/resolver-migration/image-lock.yaml
+    kust: apps/aster-lang/cloud/resolver-migration/kustomization.yaml

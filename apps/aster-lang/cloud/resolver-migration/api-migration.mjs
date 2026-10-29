@@ -11,7 +11,8 @@
 //
 // 只用 node 内置模块（在 aster-cloud-migrate 镜像里运行，无额外依赖）。用 node:http 而不是
 // fetch：undici 默认 5 分钟 headersTimeout，大批量时同步端点可能超过。
-// 退出码：0 = 已拿到报告（失败行是设计内结果，见汇总）；1 = HTTP/传输错误；2 = 配置缺失。
+// 退出码：0 = 已拿到报告，失败行都是设计内结果（E8xx 等，见汇总）；1 = HTTP/传输错误，或有行级基础设施
+// 异常（行保持待迁移，修复后重跑）；2 = 配置缺失。
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -66,11 +67,17 @@ function runOnce() {
   });
 }
 
+// 端点对行级基础设施异常（数据库错误等）写的是 `<异常类名>: <消息>`（ResolverMigrationService#migrate），
+// 这些行没有归档、保持待迁移；与编译诊断区分开，并让 Job 以退出码 1 结束，提示修复后重跑。
+const INFRA_ERROR = /^\w+(Exception|Error): /;
+
 function classify(failures) {
-  const groups = { integrityMismatch: [], e8xx: [], other: [] };
+  const groups = { integrityMismatch: [], infrastructure: [], e8xx: [], other: [] };
   for (const f of failures) {
-    if (f.error === INTEGRITY_MISMATCH) groups.integrityMismatch.push(f);
-    else if (/\bE8\d\d\b/.test(f.error ?? '')) groups.e8xx.push(f);
+    const error = f.error ?? '';
+    if (error === INTEGRITY_MISMATCH) groups.integrityMismatch.push(f);
+    else if (INFRA_ERROR.test(error)) groups.infrastructure.push(f);
+    else if (/\bE8\d\d\b/.test(error)) groups.e8xx.push(f);
     else groups.other.push(f);
   }
   return groups;
@@ -100,3 +107,6 @@ const summary = {
 };
 fs.writeFileSync(`${runDir}/api-report.json`, `${JSON.stringify(summary, null, 2)}\n`);
 console.log(JSON.stringify(summary, null, 2));
+if (summary.triage.infrastructure.length > 0) {
+  fail(1, `${summary.triage.infrastructure.length} row(s) hit infrastructure errors and stay pending; fix and re-run`);
+}

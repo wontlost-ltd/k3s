@@ -1,0 +1,26 @@
+# ADR 0051 §9 resolver 存量重编译（手动触发的一次性 Job）
+#
+# ★不属于任何 ArgoCD 应用：ApplicationSet 只发现 apps/aster-lang/*/kustomization.yaml（深度 1），
+#   本目录在 cloud/ 之下（深度 2），cloud/kustomization.yaml 也不引用它。所以这里的任何变更
+#   （含 image-pin PR）都不会触发 sync / PostSync 迁移 / 迁移门禁。
+#   运维按 runbook 手工 `kubectl apply -k apps/aster-lang/cloud/resolver-migration`
+#   （建 ConfigMap + suspend 的 CronJob），再 `kubectl create job --from=cronjob/...` 触发。
+#   回滚点 PVC 单独在 backup-pvc.yaml，不在这里（见该文件头）。
+#
+# 镜像 pin：lane「resolver-migration」（.github/image-pin/apps.yaml），image-lock.yaml 为验签真相、
+#   下方 images 为部署真相，二者由 image-pin bot 双写；verify-no-floating-tags 也覆盖本目录。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aster-cloud
+resources:
+  - cronjob.yaml
+configMapGenerator:
+  - name: aster-adr0051-resolver-migration-scripts
+    files:
+      - dump.sh
+      - api-migration.mjs
+      - summary.mjs
+images:
+  # ⚠️ BOOTSTRAP 占位 digest，见 image-lock.yaml 文件头；首次构建后由人工接入 PR 替换。
+  - name: docker.io/wontlost/aster-resolver-migration
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

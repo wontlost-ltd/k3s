@@ -30,16 +30,6 @@ resources:
   # aster-cloud drizzle migration (PreSync hook + standalone runs)
   - migrate-external-secret.yaml
   - migrate-job.yaml
-  # ADR 0051 §9 resolver 迁移：suspend 的 CronJob（只能手动 create job --from 触发）+ 回滚点 PVC。
-  # 触发方式与前置条件见 resolver-migration-cronjob.yaml 文件头。
-  - resolver-migration-backup-pvc.yaml
-  - resolver-migration-cronjob.yaml
-configMapGenerator:
-  - name: aster-adr0051-resolver-migration-scripts
-    files:
-      - resolver-migration/dump.sh
-      - resolver-migration/api-migration.mjs
-      - resolver-migration/summary.mjs
 # 统一镜像 digest pin 设计 A′ Phase 3（keystone）：把 image-lock 的 digest 接进 kustomize
 # 原生 images transformer，让 Deployment/Job 渲染 image@sha256:<digest> 而非浮动 tag。
 # 这是**部署真相**；验签/溯源真相在 image-lock.yaml（含 sourceSha/runId）。二者由 Phase 2 CI

@@ -45,7 +45,9 @@ psql "$CLOUD_URL" -v ON_ERROR_STOP=1 -qAt -c \
   printf 'aster_cloud "PolicyVersion" pending/total: '
   psql "$CLOUD_URL" -v ON_ERROR_STOP=1 -qAt -F / -c \
     'SELECT count(*) FILTER (WHERE "resolverVersion" IS DISTINCT FROM 1), count(*) FROM "PolicyVersion"'
-} | tee "$RUN_DIR/pending-before.txt"
+} > "$RUN_DIR/pending-before.txt"
+# 不用 `| tee`：POSIX sh 没有 pipefail，管道会吞掉左侧 psql 的失败；先写文件（set -e 生效）再打印。
+cat "$RUN_DIR/pending-before.txt"
 
 api pg_dump --dbname="$API_URL" -Fc --no-owner --no-privileges \
   -t public.policy_versions -t public.policy_artifacts -f "$RUN_DIR/aster_api.dump"
