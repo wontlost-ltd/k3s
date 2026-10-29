@@ -1,5 +1,7 @@
 // ADR 0051 §9：汇总两库迁移报告（api-report.json + cloud-report.json），打印到日志并写 SUMMARY.txt。
 // 只读运行目录里的报告，不连库、不发请求。用法：node summary.mjs <runDir> <cloudExitCode>
+// 退出码即 Job 的最终结果：cloud 脚本非 0 时沿用其退出码；否则 aster-api 有未归档待处理的行
+// （needsAttention > 0）或报告缺失时为 1；都没有为 0。
 import fs from 'node:fs';
 
 const [runDir, cloudExit = '?'] = process.argv.slice(2);
@@ -30,6 +32,12 @@ if (cloud) {
 } else lines.push(`aster-cloud: no report (exit=${cloudExit})`);
 lines.push('Full reports: api-report.json, cloud-report.json (runbook: aster-api docs/runbooks/adr0051-rollout.md)');
 
+const apiAttention = api ? (api.needsAttention ?? 0) : 1;
+const cloudCode = Number.isInteger(Number(cloudExit)) ? Number(cloudExit) : 1;
+const exitCode = cloudCode !== 0 ? cloudCode : apiAttention > 0 ? 1 : 0;
+lines.push(`Result: exit ${exitCode}` + (apiAttention > 0 ? ` (aster-api needsAttention=${apiAttention})` : ''));
+
 const text = `${lines.join('\n')}\n`;
 fs.writeFileSync(`${runDir}/SUMMARY.txt`, text);
 process.stdout.write(text);
+process.exitCode = exitCode;

@@ -163,8 +163,9 @@ spec:
                   node --conditions=import --import tsx scripts/resolver-migration.ts \
                     --batch-size 50 --report "$RUN_DIR/cloud-report.json" > "$RUN_DIR/cloud-stdout.json"
                   code=$?
+                  # 最终退出码由 summary 汇总：cloud 非 0 优先，否则 aster-api 有未归档待处理行时为 1。
                   node /scripts/summary.mjs "$RUN_DIR" "$code"
-                  exit "$code"
+                  exit $?
               env:
                 - name: DATABASE_URL
                   valueFrom:

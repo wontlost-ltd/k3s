@@ -9,10 +9,11 @@
 // 因此按轮次调用：processed == 0（全部完成）或 succeeded == 0（剩下的都是设计内失败 /
 // 完整性不一致 / 基础设施故障，再跑也不会前进）即停，最多 MAX_ROUNDS 轮。
 //
-// 只用 node 内置模块（在 aster-cloud-migrate 镜像里运行，无额外依赖）。用 node:http 而不是
+// 只用 node 内置模块（在 aster-resolver-migration 镜像里运行，无额外依赖）。用 node:http 而不是
 // fetch：undici 默认 5 分钟 headersTimeout，大批量时同步端点可能超过。
-// 退出码：0 = 已拿到报告，失败行都是设计内结果（E8xx 等，见汇总）；1 = HTTP/传输错误，或有行级基础设施
-// 异常（行保持待迁移，修复后重跑）；2 = 配置缺失。
+// 退出码：0 = 已拿到报告（含需人工处理的行时只写入报告的 needsAttention，不在这里失败，
+// 以免挡住同一 Pod 里的 cloud 迁移；Job 的最终退出码由 summary.mjs 汇总决定）；
+// 1 = HTTP/传输错误；2 = 配置缺失。
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -67,9 +68,14 @@ function runOnce() {
   });
 }
 
-// 端点对行级基础设施异常（数据库错误等）写的是 `<异常类名>: <消息>`（ResolverMigrationService#migrate），
-// 这些行没有归档、保持待迁移；与编译诊断区分开，并让 Job 以退出码 1 结束，提示修复后重跑。
-const INFRA_ERROR = /^\w+(Exception|Error): /;
+// 端点响应的 failures 只有 { id, error }，没有「是否已归档」的结构化字段，只能按 aster-api
+// ResolverMigrationService 写出的错误文本区分。保持待迁移（未归档、带错误）的失败有三类：
+//   1. 行级异常（数据库错误等）：`<异常类名>: <消息>`（#migrate 的 catch）；
+//   2. 不带源码诊断的编译失败（dbc3761 起不归档）：PolicyCompiler 的 `CNL 编译失败: <消息>`，
+//      以及空源码的 `CNL 源代码不能为空`；
+//   3. 前置完整性不一致：`pre-migration integrity mismatch`（单独成组）。
+// 这些行都需要修复或人工处置，Job 最终以退出码 1 结束；其余失败（带源码诊断）已被归档，属设计内结果。
+const INFRA_ERROR = /^(\w+(Exception|Error): |CNL 编译失败: |CNL 源代码不能为空$)/;
 
 function classify(failures) {
   const groups = { integrityMismatch: [], infrastructure: [], e8xx: [], other: [] };
@@ -105,8 +111,10 @@ const summary = {
   },
   triage: classify(last.failures ?? []),
 };
+// 未归档、保持待迁移的行 = 基础设施/非源码失败 + 完整性不一致。
+summary.needsAttention = summary.triage.infrastructure.length + summary.triage.integrityMismatch.length;
 fs.writeFileSync(`${runDir}/api-report.json`, `${JSON.stringify(summary, null, 2)}\n`);
 console.log(JSON.stringify(summary, null, 2));
-if (summary.triage.infrastructure.length > 0) {
-  fail(1, `${summary.triage.infrastructure.length} row(s) hit infrastructure errors and stay pending; fix and re-run`);
+if (summary.needsAttention > 0) {
+  console.error(`[api-migration] ${summary.needsAttention} row(s) left pending (not archived): manual triage / fix and re-run; Job will exit 1`);
 }
