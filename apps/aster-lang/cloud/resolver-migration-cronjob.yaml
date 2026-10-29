@@ -23,11 +23,13 @@
 #   3. container cloud-migration   aster-cloud 迁移脚本（= pnpm ops:resolver-migration）→ 汇总
 # 任一步失败 Pod 即失败（backoffLimit 0，不自动重试）；两边迁移都幂等，修复原因后重新触发即可。
 #
-# ★前置依赖（aster-cloud PR-B）：aster-cloud-migrate 镜像目前只含 drizzle 迁移
-#   （Dockerfile.migrate 只拷 drizzle/ 与 scripts/migrate.ts），没有 resolver 迁移脚本及其依赖。
-#   PR-B 必须扩展该镜像（拷入 scripts/resolver-migration.ts、src/、tsconfig.json 与生产依赖，
-#   或改为预先打包好的单文件），且镜像 digest 经 image-pin 合入本仓后才能触发本 Job。
-#   第 3 步的命令与 cloud package.json 的 ops:resolver-migration 一致。
+# ★前置依赖：aster-cloud-migrate 镜像须由含 aster-cloud ef532737
+#   「chore(migrate-image): 迁移镜像包含 resolver 迁移脚本」的 main 构建（随 cloud PR-B 合入）：
+#   该版 Dockerfile.migrate 按 migrate-package.json 精确钉版装依赖，并拷入 tsconfig.json、src/
+#   与 scripts/resolver-migration.ts（workingDir /app）。更早的 digest 只含 drizzle 迁移，
+#   第 3 步会以「Cannot find module」失败——触发前核对 image-lock 的 migrate sourceSha。
+#   第 3 步命令与镜像注释、cloud package.json 的 ops:resolver-migration 逐字一致：
+#     node --conditions=import --import tsx scripts/resolver-migration.ts
 #
 # Secret 只按名称引用（不在本仓保存任何值）：
 #   aster-api-db-credentials        reactive-url（aster_api 连接地址，不含凭据）
