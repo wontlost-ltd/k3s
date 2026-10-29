@@ -1,9 +1,12 @@
 # ADR 0051 §9 resolver 存量重编译（手动触发的一次性 Job）
 #
-# ★不属于任何 ArgoCD 应用：ApplicationSet 只发现 apps/aster-lang/*/kustomization.yaml（深度 1），
-#   本目录在 cloud/ 之下（深度 2），cloud/kustomization.yaml 也不引用它。所以这里的任何变更
-#   （含 image-pin PR）都不会触发 sync / PostSync 迁移 / 迁移门禁。
-#   运维按 runbook 手工 `kubectl apply -k apps/aster-lang/cloud/resolver-migration`
+# ★不属于任何 ArgoCD 应用：ArgoCD 的 git-files generator 用旧式 glob（`git ls-files -- <pattern>`，`*` 可跨 `/`），
+#   所以 apps/aster-lang/ 下任何深度的 kustomization.yaml 都会被 aster-lang appset 匹配（曾放在
+#   cloud/resolver-migration/ 时会生成重名的 aster-cloud Application）。本目录放在 apps/aster-lang-ops/，
+#   不匹配任何 ApplicationSet（aster-lang、wontlost 的 git-files 与 infrastructure 的 list 生成器都不覆盖），
+#   也没有任何 Application 指向它；仍在 apps/ 下，find apps 类守卫照常覆盖。
+#   所以这里的任何变更（含 image-pin PR）都不会触发 sync / PostSync 迁移 / 迁移门禁。
+#   运维按 runbook 手工 `kubectl apply -k apps/aster-lang-ops/resolver-migration`
 #   （建 ConfigMap + suspend 的 CronJob），再 `kubectl create job --from=cronjob/...` 触发。
 #   回滚点 PVC 单独在 backup-pvc.yaml，不在这里（见该文件头）。
 #

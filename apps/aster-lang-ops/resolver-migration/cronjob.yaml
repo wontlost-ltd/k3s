@@ -8,8 +8,8 @@
 #   - 不放进 cloud 应用（R47）：避免 sync / PostSync 迁移 / 迁移门禁与本 Job 互相牵连。
 #
 # 触发（只在 runbook 的发布窗口内）：
-#   kubectl apply -k apps/aster-lang/cloud/resolver-migration      # ConfigMap + CronJob（可重复）
-#   kubectl apply -f apps/aster-lang/cloud/resolver-migration/backup-pvc.yaml
+#   kubectl apply -k apps/aster-lang-ops/resolver-migration      # ConfigMap + CronJob（可重复）
+#   kubectl apply -f apps/aster-lang-ops/resolver-migration/backup-pvc.yaml
 #   kubectl -n aster-cloud get jobs -l app=aster-adr0051-resolver-migration   # 确认没有在跑的
 #   kubectl -n aster-cloud create job aster-adr0051-resolver-migration-$(date +%s) \
 #     --from=cronjob/aster-adr0051-resolver-migration

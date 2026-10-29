@@ -1,10 +1,10 @@
 # 镜像 digest pin（image-lock）—— 机器维护，唯一可由 image-pin PR 修改的文件
 #
 # lane「resolver-migration」（.github/image-pin/apps.yaml）：ADR 0051 §9 存量重编译的一次性 Job 镜像。
-# 源仓 aster-cloud ci.yml 的 build-resolver-migration-image 只在 resolver 相关文件或引擎钉版变化时
-# 构建并签名，image-pin-pr-resolver-migration 经 open-image-pin-pr.sh 双写本文件与同目录
-# kustomization.yaml。本目录不属于任何 ArgoCD 应用（appset 只匹配 apps/aster-lang/*/kustomization.yaml），
-# pin 合并后不会 sync，由运维按 runbook 手工 apply。
+# 源仓 aster-cloud resolver-migration-image.yml 只在 resolver 相关文件或引擎钉版变化时（或手动 dispatch）
+# 构建并签名，其 image-pin-pr job 经 open-image-pin-pr.sh 双写本文件与同目录
+# kustomization.yaml。本目录（apps/aster-lang-ops/）不属于任何 ArgoCD 应用，不匹配任何 ApplicationSet
+# 生成器（理由见同目录 kustomization.yaml 文件头），pin 合并后不会 sync，由运维按 runbook 手工 apply。
 #
 # ⚠️ BOOTSTRAP 占位：下面的 digest/sourceSha/runId 是占位值，镜像尚未构建过（open-image-pin-pr.sh
 #   只更新已存在的 entry，所以 entry 必须先存在）。首次构建后，在**人工**接入 PR 中把三项替换为
