@@ -88,3 +88,14 @@ images:
     workflowFile: deploy.yml                      # 唯一合法签发 workflow
     sourceRef: refs/heads/main                    # 只信 main 构建
     deployBinding: kustomization      # 静态部署镜像：pin 落 ai/kustomization images transformer
+
+  # ── aster-resolver-migration 镜像（ADR 0051 §9）──────────────────────
+  # 存量重编译的一次性 Job 镜像（aster-cloud Dockerfile.resolver-migration），由 aster-cloud 独立
+  # workflow resolver-migration-image.yml（不在 ci.yml 内，Worker 部署不等它）在窄路径命中或手动
+  # dispatch 时构建并 cosign keyless 签名。
+  # ★verify-cip-sync 的 2N 契约因本条从 6 仓/12 CIP 升为 7 仓/14 CIP——两条 CIP 与本条同落。
+  - image: docker.io/wontlost/aster-resolver-migration
+    sourceRepo: wontlost-ltd/aster-cloud
+    workflowFile: resolver-migration-image.yml
+    sourceRef: refs/heads/main
+    deployBinding: kustomization      # pin 落 aster-lang-ops/resolver-migration/kustomization images transformer

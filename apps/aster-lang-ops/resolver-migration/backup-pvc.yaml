@@ -1,0 +1,29 @@
+# ADR 0051 resolver 迁移的回滚点存储（pg_dump + CSV，见 dump.sh）。
+#
+# ★刻意不放进任何 kustomization（R47 C1）：local-path 是 WaitForFirstConsumer，没有 Pod 消费前
+#   PVC 一直 Pending。若由 ArgoCD 管理，aster-cloud 应用会长期处于 Progressing，cloud CI 的
+#   「Wait for migration applied」（要求 Healthy）在每次部署时都会失败，直到 Job 第一次运行。
+#   因此本文件只在触发 Job 前由运维手工 apply，Job 的 Pod 调度后才绑定；用完按 runbook 删除。
+#   见 aster-api docs/runbooks/adr0051-rollout.md §4.2 / §6.4。
+#
+# 仓库此前没有 PG 逻辑备份 PVC（CNPG 走 barman → 对象存储的物理备份，见
+# docs/runbooks/pg-restore-drill.md），故按 apps/wontlost/ckeditor-builder/pvc.yaml 的写法
+# 新建一个 local-path 卷。数据量很小（两库各两张表的测试数据），1Gi 足够。
+#
+# ★local-path 是节点本地盘：卷绑在 Job 首次调度的节点上，节点损坏即丢失。Job 跑完后按
+#   runbook 把 /backup/adr0051/<时间戳>/ 拷出集群留档。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aster-adr0051-migration-backup
+  namespace: aster-cloud
+  labels:
+    app: aster-adr0051-resolver-migration
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
