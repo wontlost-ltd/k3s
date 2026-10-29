@@ -1,0 +1,26 @@
+# ADR 0051 resolver 迁移的回滚点存储（pg_dump + CSV，见 resolver-migration/dump.sh）。
+#
+# 仓库此前没有 PG 逻辑备份 PVC（CNPG 走 barman → 对象存储的物理备份，见
+# docs/runbooks/pg-restore-drill.md），故按 apps/wontlost/ckeditor-builder/pvc.yaml 的写法
+# 新建一个 local-path 卷。数据量很小（两库各两张表的测试数据），1Gi 足够。
+#
+# ★local-path 是节点本地盘：卷绑在 Job 首次调度的节点上，节点损坏即丢失。Job 跑完后按
+#   runbook 把 /backup/adr0051/<时间戳>/ 拷出集群留档（aster-api docs/runbooks/adr0051-rollout.md）。
+# ★Prune=false：以后把本文件从 git 移除时 ArgoCD 不会删掉卷（回滚窗口结束、确认不再需要后手工删除）。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aster-adr0051-migration-backup
+  namespace: aster-cloud
+  labels:
+    app: aster-adr0051-resolver-migration
+    app.kubernetes.io/part-of: aster-lang
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

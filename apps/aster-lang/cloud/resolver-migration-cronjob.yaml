@@ -1,0 +1,208 @@
+# ADR 0051 §9 存量重编译 Job（手动触发，绝不随 sync 自动运行）
+#
+# ★为什么是「suspend 的 CronJob」而不是 Job / hook：
+#   - 不能用 PostSync hook（migrate-job.yaml 那样）：每次 app sync 都会跑，而本任务必须在
+#     发布窗口内由人决定何时执行（aster-api 其它 pod 有 1h 编译缓存；cloud 迁移持行锁）。
+#   - 不能直接放一个 Job：ArgoCD 一 sync 就会创建并立即运行；且 Job 的 spec.template 不可变，
+#     image-pin 改 digest 后 sync 会以「field is immutable」失败。
+#   - CronJob suspend: true 永不按调度运行（schedule 也设为不存在的 2 月 31 日双保险），
+#     jobTemplate 可变，kustomization 的 images transformer 照常把 aster-cloud-migrate 改写成
+#     image-lock 里的 @sha256 digest（image-pin PR 更新 digest 即可，无需改本文件）。
+#     selfHeal 会把被手工改掉的 suspend 恢复为 true。
+#
+# 触发（只在 runbook 的发布窗口内；先确认没有正在跑的同名 Job）：
+#   kubectl -n aster-cloud get jobs -l app=aster-adr0051-resolver-migration
+#   kubectl -n aster-cloud create job aster-adr0051-resolver-migration-$(date +%s) \
+#     --from=cronjob/aster-adr0051-resolver-migration
+#   kubectl -n aster-cloud logs -f job/<上面的 job 名> --all-containers
+#
+# 执行顺序（同一个 Pod）：
+#   1. initContainer dump          PG 16.4 客户端：确认两库新列已落地 → pg_dump + CSV 到 PVC
+#   2. initContainer api-migration aster-api POST /api/v1/admin/resolver-migration/run?batchSize=50
+#                                  （admin HMAC 签名，按轮次重调直到 processed==0 或无进展）
+#   3. container cloud-migration   aster-cloud 迁移脚本（= pnpm ops:resolver-migration）→ 汇总
+# 任一步失败 Pod 即失败（backoffLimit 0，不自动重试）；两边迁移都幂等，修复原因后重新触发即可。
+#
+# ★前置依赖（aster-cloud PR-B）：aster-cloud-migrate 镜像目前只含 drizzle 迁移
+#   （Dockerfile.migrate 只拷 drizzle/ 与 scripts/migrate.ts），没有 resolver 迁移脚本及其依赖。
+#   PR-B 必须扩展该镜像（拷入 scripts/resolver-migration.ts、src/、tsconfig.json 与生产依赖，
+#   或改为预先打包好的单文件），且镜像 digest 经 image-pin 合入本仓后才能触发本 Job。
+#   第 3 步的命令与 cloud package.json 的 ops:resolver-migration 一致。
+#
+# Secret 只按名称引用（不在本仓保存任何值）：
+#   aster-api-db-credentials        reactive-url（aster_api 连接地址，不含凭据）
+#   aster-api-migrator-credentials  username / password（aster_migrator，表 owner；dump 只读使用）
+#   aster-cloud-db-credentials      database-url（aster_cloud，与 aster-cloud-migrate Job 同一份）
+#   aster-api-plan-gate-credentials hmac-key（aster-api aster.plan-gate.hmac-key = cloud ASTER_PLAN_GATE_HMAC_KEY）
+#
+# ★避开 secret-rotation 的季度轮换窗口（1/4/7/10 月 1–7 日 03:00 UTC）：轮换后 ExternalSecret
+#   最长 1h 才刷新，旧密码会让 dump 失败（2026-10-25 aster-cloud-migrate 的同类事故）。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: aster-adr0051-resolver-migration
+  namespace: aster-cloud
+  labels:
+    app: aster-adr0051-resolver-migration
+    app.kubernetes.io/part-of: aster-lang
+spec:
+  suspend: true
+  schedule: "0 0 31 2 *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 604800  # 7 天：留足时间读日志；报告本身在 PVC 上
+      template:
+        metadata:
+          labels:
+            app: aster-adr0051-resolver-migration
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: dump
+              # 与生产 shared-postgres 同版本（apps/infrastructure/postgres-cluster/manifests/cluster.yaml
+              # imageName 16.4）：pg_dump 主版本须 ≥ 服务端。第三方镜像按仓库惯例 tag@digest 钉死
+              # （2026-10-29 从 ghcr 解析的 manifest-list digest）。
+              image: ghcr.io/cloudnative-pg/postgresql:16.4@sha256:99be063781d171d3971089b49c992706bdab9ccbd2b57cdf126c7542773aedfe
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/scripts/dump.sh"]
+              env:
+                - name: API_DB_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-api-db-credentials
+                      key: reactive-url
+                # 表 owner（aster_migrator）：pg_dump 需读序列 last_value，运行时账号不保证有权限。
+                - name: API_DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-api-migrator-credentials
+                      key: username
+                - name: API_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-api-migrator-credentials
+                      key: password
+                - name: CLOUD_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-cloud-db-credentials
+                      key: database-url
+                - name: HOME
+                  value: /tmp
+              volumeMounts: &mounts
+                - name: scripts
+                  mountPath: /scripts
+                - name: backup
+                  mountPath: /backup
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+              securityContext: &containerSecurity
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+            - name: api-migration
+              # 只用 node 内置模块，借用已 digest pin + cosign 验签的 aster-cloud-migrate 镜像
+              # 里的 node 运行时（`:latest` 只是模板占位，见 migrate-job.yaml）。
+              image: docker.io/wontlost/aster-cloud-migrate:latest
+              imagePullPolicy: IfNotPresent
+              command: ["node", "/scripts/api-migration.mjs"]
+              env:
+                # 集群内直连 aster-api Service（不经 Cloudflare / ingress 超时）。
+                - name: ASTER_POLICY_API_INTERNAL_URL
+                  value: "http://aster-api.aster-cloud.svc.cluster.local"
+                - name: ASTER_PLAN_GATE_HMAC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-api-plan-gate-credentials
+                      key: hmac-key
+                - name: BATCH_SIZE
+                  value: "50"
+                - name: MAX_ROUNDS
+                  value: "5"
+              volumeMounts: *mounts
+              securityContext: *containerSecurity
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+          containers:
+            - name: cloud-migration
+              image: docker.io/wontlost/aster-cloud-migrate:latest
+              imagePullPolicy: IfNotPresent
+              workingDir: /app
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  RUN_DIR="$(cat /work/run-dir)"
+                  node --conditions=import --import tsx scripts/resolver-migration.ts \
+                    --batch-size 50 --report "$RUN_DIR/cloud-report.json" > "$RUN_DIR/cloud-stdout.json"
+                  code=$?
+                  node /scripts/summary.mjs "$RUN_DIR" "$code"
+                  exit "$code"
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-cloud-db-credentials
+                      key: database-url
+                - name: NODE_ENV
+                  value: "production"
+                - name: ASTER_POLICY_API_INTERNAL_URL
+                  value: "http://aster-api.aster-cloud.svc.cluster.local"
+                - name: ASTER_PLAN_GATE_HMAC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aster-api-plan-gate-credentials
+                      key: hmac-key
+                - name: HOME
+                  value: /tmp
+              volumeMounts: *mounts
+              securityContext: *containerSecurity
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+          volumes:
+            - name: scripts
+              configMap:
+                name: aster-adr0051-resolver-migration-scripts
+                defaultMode: 0555
+            - name: backup
+              persistentVolumeClaim:
+                claimName: aster-adr0051-migration-backup
+            - name: work
+              emptyDir:
+                sizeLimit: 1Mi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
