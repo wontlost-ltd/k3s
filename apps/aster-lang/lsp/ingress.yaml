@@ -17,8 +17,6 @@ metadata:
     traefik.ingress.kubernetes.io/service.sticky.cookie: "true"
     traefik.ingress.kubernetes.io/service.sticky.cookie.name: "aster-lsp-affinity"
     traefik.ingress.kubernetes.io/service.sticky.cookie.secure: "true"
-    # 按真实客户端 IP（CF-Connecting-IP）限制并发会话与握手速率，见 middleware.yaml
-    traefik.ingress.kubernetes.io/router.middlewares: aster-lsp-lsp-ratelimit@kubernetescrd,aster-lsp-lsp-inflight@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

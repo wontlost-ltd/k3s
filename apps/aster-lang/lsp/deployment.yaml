@@ -74,8 +74,9 @@ spec:
             #     网关进程 RSS ≈ 58→63 MiB；每个子进程 RSS ≈ 75–80 MiB（5 个会话：77/80/80/79/80）。
             #   按每会话 96 MiB 预算（实测上沿 80 + 20% 余量，长会话索引增长），容器上限留 15% 余量：
             #     (768 MiB × 0.85 − 64 MiB) / 96 MiB ≈ 6.1 → 6
-            #   两副本共 12 个并发编辑器会话；单 IP 另受 middleware.yaml 的并发 3 限制。
-            #   子进程不继承 NODE_OPTIONS（网关只向子进程转发最小 env），堆上限不受下面的设置约束。
+            #   两副本共 12 个并发编辑器会话。单 IP 的并发会话与握手速率由网关进程内限流负责
+            #   （aster-cloud fix/lsp-gateway-limits；tunnel 直连本 Service、不经 Traefik，入口中间件不生效）。
+            #   子进程不继承 NODE_OPTIONS，网关以 --max-old-space-size=128 启动子进程。
             - name: LSP_MAX_CONNECTIONS
               value: "6"
             # Node.js tuning（只作用于网关进程本身）
