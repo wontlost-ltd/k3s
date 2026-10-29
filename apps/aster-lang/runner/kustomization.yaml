@@ -33,4 +33,4 @@ resources:
 #   容忍未被引用的 images 条）。launcher 首个 CI PR 写真 digest 到此 + image-lock。
 images:
   - name: docker.io/wontlost/aster-runner-launcher
-    digest: sha256:c030d614d20b67e8a5e43c3d4aa50881c974b5f0db6dadc430163e402b90d1cb
+    digest: sha256:b7de2ffe4062432b8d71ca4575a52095214f8257d658760aa142b5ef15834b9d
