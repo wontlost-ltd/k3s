@@ -32,6 +32,6 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-lsp
-    digest: sha256:108de4aa1770e38644eaa492a59dd4f5848e8569e6e53126f2236bab39cb1288
-    sourceSha: 5b2afde7bfe0a1782231ef4d19af745101c457fe
-    runId: "41914488485"
+    digest: sha256:4a09a2632ba38ac70d4c11e28829a3193a5a3276a03da498b18571f348ec8753
+    sourceSha: 5482d9bd9169afab84dd7b5964e005a3dee3a129
+    runId: "41936037649"
