@@ -83,4 +83,4 @@ resources:
 images:
   - name: docker.io/wontlost/aster-lsp
     newName: docker.io/wontlost/aster-lsp
-    digest: sha256:718f91dcd2793e4eef36a9b48f1d23440621c9ed1fbc215b15e68b4d9e5e4897
+    digest: sha256:0d2c4288389b60bd72314b877bcc4a4d96e8fb74dfd8654cacf712bb34dd3641
