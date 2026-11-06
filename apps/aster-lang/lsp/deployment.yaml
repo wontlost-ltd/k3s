@@ -68,6 +68,13 @@ spec:
                 secretKeyRef:
                   name: aster-lsp-auth
                   key: LSP_AUTH_TOKEN
+            # 会话 ticket 验签密钥（aster-cloud#657 / #728）。配置后网关接受 cloud 签发的
+            #   60 秒一次性 ticket；LSP_TICKET_REQUIRED 未开启前旧 token 仍可用（过渡期）。
+            - name: LSP_TICKET_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aster-lsp-auth
+                  key: LSP_TICKET_SECRET
             # ★每 pod 并发会话上限（网关 evaluateUpgrade 第 1 步，默认 50 远超内存所能承受）。
             #   每个会话 spawn 一个语言服务器子进程。实测（node:24-slim，Linux，aster-lsp 同版本
             #   aster-lang-ts，打开内置 Auto Insurance 模板 + 10 次 hover 后）：
