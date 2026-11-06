@@ -75,6 +75,9 @@ spec:
                 secretKeyRef:
                   name: aster-lsp-auth
                   key: LSP_TICKET_SECRET
+                  # ★optional：Vault 尚未下发 ticket_secret 时 pod 仍可启动（网关退回旧 token）；
+                  #   否则缺 key 会让新 pod 卡在 CreateContainerConfigError、滚动更新停住。
+                  optional: true
             # ★每 pod 并发会话上限（网关 evaluateUpgrade 第 1 步，默认 50 远超内存所能承受）。
             #   每个会话 spawn 一个语言服务器子进程。实测（node:24-slim，Linux，aster-lsp 同版本
             #   aster-lang-ts，打开内置 Auto Insurance 模板 + 10 次 hover 后）：
