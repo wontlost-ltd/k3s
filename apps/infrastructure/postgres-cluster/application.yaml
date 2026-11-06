@@ -20,12 +20,9 @@ spec:
     server: https://kubernetes.default.svc
     namespace: data-services
   ignoreDifferences:
-    - group: external-secrets.io
-      kind: ExternalSecret
-      jqPathExpressions:
-        - .spec.data[].remoteRef.conversionStrategy
-        - .spec.data[].remoteRef.decodingStrategy
-        - .spec.data[].remoteRef.metadataPolicy
+    # ★不再忽略 ExternalSecret 的 remoteRef 默认字段：与 RespectIgnoreDifferences 叠加时
+    #   新增的 .spec.data 项会被静默丢弃（见 #1086 / #1106）。改为在 manifests/external-secrets.yaml
+    #   显式写出 ESO 默认值（conversionStrategy: Default / decodingStrategy: None / metadataPolicy: None）。
     - group: postgresql.cnpg.io
       kind: Cluster
       name: shared-postgres
