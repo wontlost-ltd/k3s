@@ -199,6 +199,17 @@ spec:
                 secretKeyRef:
                   name: aster-api-llm-credentials
                   key: model
+            # Guard 回执签名密钥（非 optional：缺失则 aster-api 启动 fail-fast，属预期）
+            - name: ASTER_GUARD_RECEIPT_SIGNING_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-guard-receipt-keys
+                  key: signing-keys
+            - name: ASTER_GUARD_RECEIPT_ACTIVE_KID
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-guard-receipt-keys
+                  key: active-kid
             # BYOK 自定义 Provider URL allowlist 已迁到**动态管理**（ByokAllowlistService，
             # Redis SET + admin UI，零 CI）：right.codes 现由平台管理员在 aster-lang.cloud/admin
             # 的「BYOK 端点白名单」卡片以 dynamic 项维护，可在界面增删。故此处不再配静态 env
