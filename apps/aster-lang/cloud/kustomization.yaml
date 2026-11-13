@@ -38,6 +38,6 @@ resources:
 # image-lock 种子）＝等价渲染，上线零部署变化。真实值由后续 image-pin PR 更新。
 images:
   - name: docker.io/wontlost/aster-api
-    digest: sha256:6bb93c5aeef6acfd18713702bd7368835c0d12cc032cd6b8d4c4c94d9037a40c
+    digest: sha256:0f54d971819fac53287f9661a862fa27a10cc431d1211a48a831077495242571
   - name: docker.io/wontlost/aster-cloud-migrate
     digest: sha256:001a5c0727ccaea3c8c5105052789eea5fb2bc19d9b29255a1447fe5e99872d1
