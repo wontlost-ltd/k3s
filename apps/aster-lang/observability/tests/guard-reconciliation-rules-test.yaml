@@ -108,7 +108,7 @@ tests:
         exp_alerts: []
 
   - interval: 1m
-    name: 五个 critical 类别都触发绕过告警
+    name: 其余四个 critical 类别都触发绕过告警，consumed_without_result 不触发（第一例已覆盖 side_effect_without_decision）
     input_series:
       - series: 'guard_orphan_actions{tenant="t3",kind="side_effect_unconsumed",executor="other",pod="aster-api-a"}'
         values: '1+0x5'
@@ -179,6 +179,10 @@ tests:
       - series: 'guard_reconciliation_last_success_seconds{pod="aster-api-a"}'
         values: '_x40 0+0x30'
     alert_rule_test:
+      # 序列出现后 10 分钟内只是 pending
+      - eval_time: 48m
+        alertname: AsterGuardReconciliationStale
+        exp_alerts: []
       - eval_time: 56m
         alertname: AsterGuardReconciliationStale
         exp_alerts:
