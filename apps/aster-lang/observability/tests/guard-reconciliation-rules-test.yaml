@@ -106,3 +106,85 @@ tests:
       - eval_time: 41m
         alertname: AsterGuardReconciliationStale
         exp_alerts: []
+
+  - interval: 1m
+    name: 五个 critical 类别都触发绕过告警
+    input_series:
+      - series: 'guard_orphan_actions{tenant="t3",kind="side_effect_unconsumed",executor="other",pod="aster-api-a"}'
+        values: '1+0x5'
+      - series: 'guard_orphan_actions{tenant="t3",kind="side_effect_mismatch",executor="other",pod="aster-api-a"}'
+        values: '1+0x5'
+      - series: 'guard_orphan_actions{tenant="t3",kind="consume_on_non_allow",executor="aster-guard-mcp",pod="aster-api-a"}'
+        values: '1+0x5'
+      - series: 'guard_orphan_actions{tenant="t3",kind="result_without_consume",executor="aster-guard-sdk",pod="aster-api-a"}'
+        values: '1+0x5'
+      - series: 'guard_orphan_actions{tenant="t3",kind="consumed_without_result",executor="aster-guard-sdk",pod="aster-api-a"}'
+        values: '1+0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AsterGuardBypassSuspected
+        exp_alerts:
+          - exp_labels: {tenant: t3, kind: side_effect_unconsumed, severity: critical, team: backend}
+            exp_annotations:
+              summary: "疑似 Guard 绕过：租户 t3 出现 side_effect_unconsumed 孤儿动作"
+              description: "副作用或收据账本与 Guard 决策对不上（ADR 0054 §10.3）。用该租户的 ADMIN key 查 GET /api/v1/guard/reconciliation/orphans?kind=side_effect_unconsumed，或在 cloud 治理页查看对账摘要；核实后经 POST /api/v1/guard/reconciliation/orphans/{id}/ack 确认。"
+          - exp_labels: {tenant: t3, kind: side_effect_mismatch, severity: critical, team: backend}
+            exp_annotations:
+              summary: "疑似 Guard 绕过：租户 t3 出现 side_effect_mismatch 孤儿动作"
+              description: "副作用或收据账本与 Guard 决策对不上（ADR 0054 §10.3）。用该租户的 ADMIN key 查 GET /api/v1/guard/reconciliation/orphans?kind=side_effect_mismatch，或在 cloud 治理页查看对账摘要；核实后经 POST /api/v1/guard/reconciliation/orphans/{id}/ack 确认。"
+          - exp_labels: {tenant: t3, kind: consume_on_non_allow, severity: critical, team: backend}
+            exp_annotations:
+              summary: "疑似 Guard 绕过：租户 t3 出现 consume_on_non_allow 孤儿动作"
+              description: "副作用或收据账本与 Guard 决策对不上（ADR 0054 §10.3）。用该租户的 ADMIN key 查 GET /api/v1/guard/reconciliation/orphans?kind=consume_on_non_allow，或在 cloud 治理页查看对账摘要；核实后经 POST /api/v1/guard/reconciliation/orphans/{id}/ack 确认。"
+          - exp_labels: {tenant: t3, kind: result_without_consume, severity: critical, team: backend}
+            exp_annotations:
+              summary: "疑似 Guard 绕过：租户 t3 出现 result_without_consume 孤儿动作"
+              description: "副作用或收据账本与 Guard 决策对不上（ADR 0054 §10.3）。用该租户的 ADMIN key 查 GET /api/v1/guard/reconciliation/orphans?kind=result_without_consume，或在 cloud 治理页查看对账摘要；核实后经 POST /api/v1/guard/reconciliation/orphans/{id}/ack 确认。"
+
+  - interval: 1m
+    name: 孤儿被确认后序列消失，绕过告警随之解除
+    input_series:
+      # 0–4 分钟 OPEN 1 条，之后被确认，指标只发非零序列 → 序列消失
+      - series: 'guard_orphan_actions{tenant="t4",kind="side_effect_without_decision",executor="other",pod="aster-api-a"}'
+        values: '1+0x4 _x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AsterGuardBypassSuspected
+        exp_alerts: []
+
+  - interval: 1m
+    name: 执行侧丢失 4 个不告警
+    input_series:
+      - series: 'guard_orphan_actions{tenant="t5",kind="consumed_without_result",executor="aster-guard-mcp",pod="aster-api-a"}'
+        values: '4+0x60'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: AsterGuardExecutionLost
+        exp_alerts: []
+
+  - interval: 1m
+    name: 新副本启动时 last_success 为 0，首轮对账在 10 分钟内跑完则不告警
+    input_series:
+      # 第 40 分钟起才有序列（新副本启动）：先报 0（尚未跑完一轮），4 分钟后首轮跑完，此后每分钟推进到当前时刻
+      - series: 'guard_reconciliation_last_success_seconds{pod="aster-api-a"}'
+        values: '_x40 0 0 0 0 2640+60x20'
+    alert_rule_test:
+      - eval_time: 56m
+        alertname: AsterGuardReconciliationStale
+        exp_alerts: []
+
+  - interval: 1m
+    name: 新副本启动后 10 分钟仍未跑完一轮则告警
+    input_series:
+      - series: 'guard_reconciliation_last_success_seconds{pod="aster-api-a"}'
+        values: '_x40 0+0x30'
+    alert_rule_test:
+      - eval_time: 56m
+        alertname: AsterGuardReconciliationStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Guard 对账已超过 30 分钟没有完整跑完"
+              description: "所有 aster-api 副本的 guard_reconciliation_last_success_seconds 都已过期：对账调度停止或持续失败，绕过检测失效。查看 aster-api 日志中的「Guard 对账」与 GET /api/v1/guard/reconciliation 的 lastRun。"

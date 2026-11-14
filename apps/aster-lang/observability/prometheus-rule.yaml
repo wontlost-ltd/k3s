@@ -206,6 +206,8 @@ spec:
           annotations:
             summary: "租户 {{ $labels.tenant }} 有 ≥ 5 个已消耗收据过了宽限仍无执行结果"
             description: "执行方 consume 之后没有回写结果（执行侧丢失，ADR 0040 §12 D7）。补写结果后对账自动解除；明细见 GET /api/v1/guard/reconciliation/orphans?kind=consumed_without_result 与 cloud 治理页。"
+        # last_success 在进程启动时为 0（尚未跑完一轮）：新副本启动后即进入 pending，首轮对账（cron 每 5 分钟）跑完后
+        # 回到正常；10 分钟内仍未跑完一轮才告警。指标不存在（aster-api 未上线此功能）时无序列，不告警。
         - alert: AsterGuardReconciliationStale
           expr: |
             time() - max(guard_reconciliation_last_success_seconds) > 1800
