@@ -180,3 +180,39 @@ spec:
             summary: "PlanGate 调用 aster-cloud 失败 > 0.1 req/s"
             description: |
               当前 fail-open 模式下业务不被阻塞，但 plan 升级生效会延迟到 5 min TTL 兜底
+
+    # Guard 对账（aster-api#465，ADR 0054 §10）。guard_orphan_actions 是各副本从库重读的 OPEN 孤儿数，各副本同值，
+    # 一律按 max 聚合去重；info 类（allow_unconsumed、orphan_receipt）不告警，只在 cloud 治理页展示。
+    - name: aster.guard.reconciliation
+      interval: 1m
+      rules:
+        - alert: AsterGuardBypassSuspected
+          expr: |
+            max by (tenant, kind) (guard_orphan_actions{kind=~"side_effect_without_decision|side_effect_unconsumed|side_effect_mismatch|consume_on_non_allow|result_without_consume"}) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "疑似 Guard 绕过：租户 {{ $labels.tenant }} 出现 {{ $labels.kind }} 孤儿动作"
+            description: "副作用或收据账本与 Guard 决策对不上（ADR 0054 §10.3）。用该租户的 ADMIN key 查 GET /api/v1/guard/reconciliation/orphans?kind={{ $labels.kind }}，或在 cloud 治理页查看对账摘要；核实后经 POST /api/v1/guard/reconciliation/orphans/{id}/ack 确认。"
+        - alert: AsterGuardExecutionLost
+          expr: |
+            max by (tenant) (guard_orphan_actions{kind="consumed_without_result"}) >= 5
+          for: 30m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "租户 {{ $labels.tenant }} 有 ≥ 5 个已消耗收据过了宽限仍无执行结果"
+            description: "执行方 consume 之后没有回写结果（执行侧丢失，ADR 0040 §12 D7）。补写结果后对账自动解除；明细见 GET /api/v1/guard/reconciliation/orphans?kind=consumed_without_result 与 cloud 治理页。"
+        - alert: AsterGuardReconciliationStale
+          expr: |
+            time() - max(guard_reconciliation_last_success_seconds) > 1800
+          for: 10m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "Guard 对账已超过 30 分钟没有完整跑完"
+            description: "所有 aster-api 副本的 guard_reconciliation_last_success_seconds 都已过期：对账调度停止或持续失败，绕过检测失效。查看 aster-api 日志中的「Guard 对账」与 GET /api/v1/guard/reconciliation 的 lastRun。"
