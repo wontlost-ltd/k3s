@@ -9,6 +9,6 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-guard-demo-tool
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    sourceSha: UNVERIFIED-SEED
-    runId: "0"
+    digest: sha256:48792d8dbf5fa7f1c8132c0d7e474f884f321ec374aa066b99e413fb07e2148b
+    sourceSha: 53c52ecd638dc538eaf4f3860f75003b02bab9fb
+    runId: "43704249569"
