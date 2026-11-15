@@ -143,6 +143,21 @@ check "RoleBinding 只绑定 aster-guard/guard-bypass-probe；aster-agents 内�
   | select(.kind != "ServiceAccount" or .name != "guard-bypass-probe" or .namespace != "aster-guard")
   | "\($m.namespace)/\($m.name)：意外的 subject \(tojson)"'
 
+check "RoleBinding 集合与 roleRef 恰为三条探针绑定（不多绑、不绑更宽的 Role / ClusterRole）" jq_none "$WORK/all.json" '
+  [.[] | select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding") | "\(.kind) \(.metadata.namespace // "-")/\(.metadata.name) -> \(.roleRef.kind)/\(.roleRef.name)"] | sort as $got
+  | ["RoleBinding aster-agents/guard-bypass-probe -> Role/guard-bypass-probe",
+     "RoleBinding aster-guard/guard-bypass-probe-read -> Role/guard-bypass-probe-read",
+     "RoleBinding aster-tools/guard-bypass-probe-read -> Role/guard-bypass-probe-read"] as $want
+  | if $got != $want then "绑定不符：\($got)" else empty end'
+
+# 工具入站策略放行整个 aster-guard 命名空间：放进 aster-guard 的任何工作负载都能直连工具，所以只允许代理与票据探针。
+check "aster-guard 只有代理 Deployment 与票据探针 CronJob 两个工作负载" jq_none "$WORK/guard.json" '
+  [.[] | select(.kind | IN("Deployment","StatefulSet","DaemonSet","ReplicaSet","Job","CronJob","Pod")) | "\(.kind)/\(.metadata.name)"] | sort as $w
+  | if $w != ["CronJob/guard-auth-probe","Deployment/aster-guard-mcp"] then "aster-guard 工作负载不符：\($w)" else empty end'
+check "aster-tools 只有 demo-tool 一个工作负载" jq_none "$WORK/tools.json" '
+  [.[] | select(.kind | IN("Deployment","StatefulSet","DaemonSet","ReplicaSet","Job","CronJob","Pod")) | "\(.kind)/\(.metadata.name)"] as $w
+  | if $w != ["Deployment/demo-tool"] then "aster-tools 工作负载不符：\($w)" else empty end'
+
 # pods/create 等于间接读取 aster-agents 的全部 Secret：该命名空间可产生 Secret 的对象恰为 ExternalSecret guard-demo-agent（Opaque）。
 check "aster-agents 唯一的 Secret 来源是 ExternalSecret guard-demo-agent" jq_none "$WORK/agents.json" '
   [.[] | select(.kind == "Secret" or .kind == "ExternalSecret" or .kind == "SealedSecret" or .kind == "PushSecret")] as $s
