@@ -16,6 +16,10 @@ if ! [[ "${exp:-}" =~ ^[0-9]+$ && "${iat:-}" =~ ^[0-9]+$ ]]; then
   exit 3
 fi
 lifetime=$((exp - iat)) remaining=$((exp - now))
+if (( lifetime <= 0 )); then
+  echo "::error::探针凭证的 exp 不晚于 iat——凭证不合规，拒绝使用"
+  exit 3
+fi
 if (( lifetime > PROBE_TOKEN_MAX_LIFETIME )); then
   echo "::error::探针凭证有效期 $((lifetime / 86400)) 天，超过 90 天上限——凭证不合规，拒绝使用（重新运行 kubeconfig-for-probe.sh 轮换）"
   exit 3

@@ -50,6 +50,7 @@ r="$(expiry $((NOW - 31 * DAY)) $((NOW - DAY)))"; [[ "$r" == 3\|*已过期* ]] &
 r="$(expiry $((NOW - 20 * DAY)) $((NOW + 10 * DAY)))"; [[ "$r" == 0\|*::warning::*10\ 天后过期* ]] && pass "token_expiry_warning（剩 10 天告警）" || fail token_expiry_warning "$r"
 r="$(expiry $((NOW - 20 * DAY)) $((NOW + 60 * DAY)))"; [[ "$r" == 0\|* && "$r" != *::warning::* ]] && pass "token_expiry_60_days_ok" || fail token_expiry_60_days_ok "$r"
 r="$(expiry $((NOW - DAY)) $((NOW + 364 * DAY)))"; [[ "$r" == 3\|*超过\ 90\ 天上限* ]] && pass "token_lifetime_over_90d_is_3" || fail token_lifetime_over_90d_is_3 "$r"
+r="$(expiry $((NOW + DAY)) $((NOW + DAY)))"; [[ "$r" == 3\|* ]] && pass "token_nonpositive_lifetime_is_3" || fail token_nonpositive_lifetime_is_3 "$r"
 r="$(printf 'not-a-jwt' | bash "$HERE/token-expiry.sh" "$NOW" 2>&1; echo "|$?")"; [[ "$r" == *"|3" ]] && pass "token_unparseable_is_3" || fail token_unparseable_is_3 "$r"
 
 echo "== watchdog"
@@ -104,8 +105,11 @@ cat >"$WORK/kbin/kubectl-conv" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "get pods -n aster-guard -l app=aster-guard-mcp -o json"|"get pods -n aster-tools -l app=demo-tool -o json")
-    jq -n --arg id "docker.io/wontlost/x@$FAKE_DIGEST" '{items: [{metadata: {}, status: {phase: "Running", containerStatuses: [{imageID: $id}]}}]}' ;;
-  "get deployment -n "*" -o jsonpath={.status.availableReplicas}") printf '%s' "$FAKE_AVAIL" ;;
+    jq -n --arg id "docker.io/wontlost/x@$FAKE_DIGEST" --argjson n "${FAKE_PODS:-1}" \
+      '{items: [range($n) | {metadata: {}, status: {phase: "Running", containerStatuses: [{imageID: $id}]}}]}' ;;
+  "get deployment -n "*" -o json")
+    jq -n --argjson a "$FAKE_AVAIL" --argjson og "${FAKE_OBSERVED:-2}" \
+      '{metadata: {generation: 2}, spec: {replicas: 1}, status: {observedGeneration: $og, updatedReplicas: 1, availableReplicas: $a}}' ;;
   "get networkpolicy -n aster-tools demo-tool-ingress -o json") cat "$FAKE_NP" ;;
   *) echo "unexpected $*" >&2; exit 99 ;;
 esac
@@ -121,6 +125,8 @@ conv() { local code=0; KUBECTL="$WORK/kbin/kubectl-conv" FAKE_DIGEST="$1" FAKE_A
 [[ "$(conv sha256:1111111111111111111111111111111111111111111111111111111111111111 1 "$WORK/np.json")" == 3 ]] && pass converge_digest_mismatch_times_out || fail converge_digest_mismatch_times_out
 [[ "$(conv "$want_digest" 0 "$WORK/np.json")" == 3 ]] && pass converge_unavailable_times_out || fail converge_unavailable_times_out
 [[ "$(conv "$want_digest" 1 "$WORK/np-bad.json")" == 3 ]] && pass converge_policy_drift_times_out || fail converge_policy_drift_times_out
+[[ "$(FAKE_PODS=2 conv "$want_digest" 1 "$WORK/np.json")" == 3 ]] && pass converge_two_pods_times_out || fail converge_two_pods_times_out
+[[ "$(FAKE_OBSERVED=1 conv "$want_digest" 1 "$WORK/np.json")" == 3 ]] && pass converge_unobserved_generation_times_out || fail converge_unobserved_generation_times_out
 
 if [[ "$FAILED" != 0 ]]; then echo "workflow.test.sh：有用例失败" >&2; exit 1; fi
 echo "workflow.test.sh：全部通过"

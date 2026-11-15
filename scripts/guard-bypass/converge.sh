@@ -3,7 +3,7 @@
 # 条件：demo-tool / aster-guard-mcp 的运行中 Pod 的 imageID digest 等于渲染镜像的 digest；两个 Deployment
 # availableReplicas == 1；线上 demo-tool-ingress 的 spec 等于渲染结果（jq 规范化后比较）。
 # 用法：converge.sh <repo-root>；CONVERGE_TIMEOUT（缺省 900 s）、CONVERGE_POLL（缺省 15 s）。退出码：0 收敛；3 超时。
-# 只用权限表内的调用：pods get/list、deployments get、networkpolicies get。
+# 只用权限表内的调用：pods list、deployments get、networkpolicies get。
 set -euo pipefail
 root="${1:?用法：converge.sh <repo-root>}"
 KUBECTL="${KUBECTL:-kubectl}"
@@ -18,15 +18,23 @@ want_tool="$(digest_of "$tmp/tools.json" demo-tool)"
 jq -S '.[] | select(.kind == "NetworkPolicy" and .metadata.name == "demo-tool-ingress") | .spec' "$tmp/tools.json" >"$tmp/np-want.json"
 [[ -n "$want_proxy" && -n "$want_tool" && -s "$tmp/np-want.json" ]] || { echo "::error::渲染结果缺镜像 digest 或工具策略"; exit 3; }
 
-# state <ns> <app> <deployment> <期望 digest>：输出 ok 或原因。
+# state <ns> <app> <deployment> <期望 digest>：输出 ok 或原因。要求：
+#   Deployment spec.replicas == 1、控制器已观察到最新代数、updated / available 副本都为 1；
+#   带该 app 标签、未在删除中的 Pod 恰好一个且 Running，其**所有**容器的 imageID 都以 @<期望 digest> 结尾。
 state() {
-  local ns="$1" app="$2" dep="$3" want="$4" ids avail
-  ids="$("$KUBECTL" get pods -n "$ns" -l "app=$app" -o json 2>/dev/null |
-    jq -r '[.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null) | .status.containerStatuses[0].imageID // ""] | join(" ")')" || ids=""
-  avail="$("$KUBECTL" get deployment -n "$ns" "$dep" -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)"
-  if [[ "$avail" != 1 ]]; then echo "${dep} availableReplicas=${avail:-0}"; return; fi
-  if [[ "$ids" != *"@${want}" || "$ids" == *" "* ]]; then echo "${dep} imageID=${ids:-无} ≠ ${want}"; return; fi
-  echo ok
+  local ns="$1" app="$2" dep="$3" want="$4" d p
+  d="$("$KUBECTL" get deployment -n "$ns" "$dep" -o json 2>/dev/null |
+    jq -r '"\(.spec.replicas) \((.status.observedGeneration // 0) >= .metadata.generation) \(.status.updatedReplicas // 0) \(.status.availableReplicas // 0)"' 2>/dev/null)" || d=""
+  [[ "$d" == "1 true 1 1" ]] || { echo "${dep} 未就绪（replicas / 已观察代数 / updated / available = ${d:-查询失败}）"; return; }
+  p="$("$KUBECTL" get pods -n "$ns" -l "app=$app" -o json 2>/dev/null | jq -r --arg want "$want" '
+    [.items[] | select(.metadata.deletionTimestamp == null)] as $pods
+    | if ($pods | length) != 1 then "Pod 数 \($pods | length) ≠ 1"
+      elif $pods[0].status.phase != "Running" then "Pod 状态 \($pods[0].status.phase)"
+      elif ([$pods[0].status.containerStatuses[]?.imageID] | length) == 0
+        or ([$pods[0].status.containerStatuses[]?.imageID | endswith("@" + $want)] | all | not)
+        then "imageID \([$pods[0].status.containerStatuses[]?.imageID] | join(",")) ≠ \($want)"
+      else "ok" end' 2>/dev/null)" || p=""
+  [[ "$p" == ok ]] && echo ok || echo "${dep}：${p:-查询失败}"
 }
 
 deadline=$(( $(date +%s) + timeout ))

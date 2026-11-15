@@ -93,9 +93,10 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 3' INT TERM
 
-# 启动清扫：删除所有已过期的红队命名空间（看门狗随宿主机消失时的兜底）。
+# 启动清扫：删除所有已过期的红队命名空间（看门狗随宿主机消失时的兜底）。查询失败即中止（trap 已就位）。
 now="$(date +%s)"
-K get ns -l guard-bypass/redteam-expires -o json |
+K get ns -l guard-bypass/redteam-expires -o json >"$WORK/expired.json" || { echo "无法列出红队命名空间，中止" >&2; exit 1; }
+jq -c . "$WORK/expired.json" |
   jq -r --argjson now "$now" '.items[] | select((.metadata.labels["guard-bypass/redteam-expires"] | tonumber? // 0) < $now) | .metadata.name' |
   while read -r ns; do echo "清扫过期红队命名空间 ${ns}"; K delete ns "$ns" --wait=false >/dev/null; done
 
