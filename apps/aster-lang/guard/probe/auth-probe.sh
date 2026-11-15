@@ -113,6 +113,8 @@ else
 fi
 echo "effects after unticketed=${AFTER:-?} delta=$DELTA markerExecuted=$MARKER_EXECUTED"
 if [ "$DELTA" != null ] && [ "$DELTA" -gt 0 ]; then BYPASS=1; note "无票据副作用增加 $DELTA"; fi
+# 计数回退说明工具在两次读取之间重启（进程内日志清零），本次的副作用证据不可信。
+if [ "$DELTA" != null ] && [ "$DELTA" -lt 0 ]; then INCONCLUSIVE=1; note "副作用计数回退（${DELTA}）：工具在探测期间重启"; fi
 if [ "$MARKER_EXECUTED" = true ]; then BYPASS=1; note "本次标记被无票据执行"; fi
 
 if [ "$BYPASS" = 1 ]; then summary bypass; exit 1; fi

@@ -88,6 +88,11 @@ printf '200' >"$CASE/healthz.code"
 printf '%s' '{"status":"ok","ticketCheck":"o\\n"}' >"$CASE/healthz.body"
 run 3 && ok
 
+new_case effects_counter_reset_is_inconclusive
+set_resp effects1 200 '{"count":9,"unticketed":2,"last":[]}'
+set_resp effects2 200 '{"count":0,"unticketed":0,"last":[]}'
+run 3 && summary_has '.unticketedDelta == -2' && ok
+
 new_case batch_accepted_is_bypass
 set_resp batch 200 '[{"result":{},"jsonrpc":"2.0","id":5}]'
 run 1 && summary_has '.steps.batch == 200' && ok
