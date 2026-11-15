@@ -1,0 +1,191 @@
+# guard-bypass-probe —— 部署层隔离的自动取证（aster-api ADR 0054 §12 D7 / D9；wontlost-ltd/aster-api#466 第 1 条）
+#
+# 在 GitHub 托管 runner 上，以 Environment guard-probe 中的探针 kubeconfig（SA aster-guard/guard-bypass-probe 的
+# 绑定 token，权限见 apps/aster-lang/{agents,guard,tools} 的 Role）直连公网 k3s API：
+#   1. 等线上状态与本提交的渲染结果收敛（镜像 digest、可用副本、工具入站策略）；
+#   2. 网络层：在 aster-agents 起一次性 Pod 直连工具（同节点 / 跨节点 × Service / Pod IP），必须全部被挡，
+#      且正向对照与金丝雀（持有效 Agent token 经代理调用）成功——证明「挡住」不是「坏了」；
+#   3. 票据层：读取收敛之后 CronJob aster-guard/guard-auth-probe 的结果；
+#   4. 列出过期的红队副本命名空间（只告警）。
+# 退出码 1（绕过）与 3（无法判定）都判红。watchdog job 让「没有证据」也变红。
+#
+# ★凭证路径（计划 Task 8「当前工作流配置下 PR 类事件没有凭证路径」）：本工作流不监听任何 PR 类事件；
+#   Environment guard-probe 只放行 main；全仓只有本文件引用该 Environment 与 GUARD_PROBE_KUBECONFIG，
+#   且本文件不含 pull_request_target——scripts/guard-bypass/workflow.test.sh 断言以上全部。
+# ★配置与轮换见 docs/runbooks/guard-bypass-probe.md。
+name: guard-bypass-probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/aster-lang/agents/**'
+      - 'apps/aster-lang/guard/**'
+      - 'apps/aster-lang/tools/**'
+      - 'scripts/guard-bypass/**'
+      - '.github/workflows/guard-bypass-probe.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guard-bypass-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: probe
+    # 第二道闸（第一道是 Environment 的部署分支策略）。
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: guard-probe
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # 工具链：固定版本并校验 sha256，装到 runner 临时目录（不依赖 runner 镜像自带的版本）。
+      - name: Install kubectl / kustomize / yq / jq (pinned + sha256)
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/bin"; mkdir -p "$bin"; cd "${RUNNER_TEMP}"
+          curl -fsSL -o kubectl https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl
+          echo "a2e984a18a0c063279d692533031c1eff93a262afcc0afdc517375432d060989  kubectl" | sha256sum -c -
+          curl -fsSL -o kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.7.1/kustomize_v5.7.1_linux_amd64.tar.gz
+          echo "ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8  kustomize.tar.gz" | sha256sum -c -
+          curl -fsSL -o yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          echo "a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7  yq" | sha256sum -c -
+          curl -fsSL -o jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64
+          echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  jq" | sha256sum -c -
+          tar -xzf kustomize.tar.gz -C "$bin" kustomize
+          install -m 0755 kubectl yq jq "$bin/"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      # base64 形式（沿用 aster-api 旧 KUBECONFIG_B64 的做法，避免多行 secret 被改坏）；文件只在 RUNNER_TEMP，
+      # 最后一步 always() 删除，托管 VM 随 job 销毁。不 echo、不 cat。
+      - name: Write probe kubeconfig
+        env:
+          GUARD_PROBE_KUBECONFIG: ${{ secrets.GUARD_PROBE_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [ -n "${GUARD_PROBE_KUBECONFIG}" ] || { echo "::error::Environment guard-probe 未配置 GUARD_PROBE_KUBECONFIG"; exit 3; }
+          printf '%s' "${GUARD_PROBE_KUBECONFIG}" | base64 -d > "${RUNNER_TEMP}/kubeconfig"
+          echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "$GITHUB_ENV"
+
+      # 防止误放管理员 kubeconfig：身份必须恰为探针 SA。
+      - name: Assert probe identity (auth whoami)
+        run: |
+          set -euo pipefail
+          who="$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}')"
+          echo "kubeconfig 身份：${who}"
+          [ "${who}" = "system:serviceaccount:aster-guard:guard-bypass-probe" ] || { echo "::error::kubeconfig 不是探针身份（${who}）"; exit 3; }
+
+      - name: Token expiry
+        run: |
+          set -euo pipefail
+          kubectl config view --raw -o jsonpath='{.users[0].user.token}' | bash scripts/guard-bypass/token-expiry.sh "$(date +%s)"
+
+      - name: Wait for convergence
+        id: converge
+        run: |
+          set -euo pipefail
+          since="$(bash scripts/guard-bypass/converge.sh "$PWD" | tail -n1)"
+          echo "收敛时刻：${since}"
+          echo "since=${since}" >> "$GITHUB_OUTPUT"
+
+      # 网络层。探针镜像从渲染的 CronJob 读取（全仓只在那里固定一次）。
+      # ★不得传 --no-tool-shape-check（那只供红队副本的 R-A 用）；workflow.test.sh 断言。
+      - name: Network-layer probe (direct connect from aster-agents)
+        run: |
+          set -euo pipefail
+          image="$(kustomize build apps/aster-lang/guard | yq 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[0].image')"
+          set +e
+          bash scripts/guard-bypass/direct-connect-probe.sh network \
+            --agents-ns aster-agents --tool-ns aster-tools --tool-selector app=demo-tool --tool-svc demo-tool:8080 \
+            --admit-ns aster-guard --probe-image "${image}" \
+            --positive-url http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/healthz \
+            --canary-proxy http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/mcp --canary-secret guard-demo-agent \
+            --run-id "${{ github.run_id }}-${{ github.run_attempt }}" | tee "${RUNNER_TEMP}/network.log"
+          rc=${PIPESTATUS[0]}
+          tail -n1 "${RUNNER_TEMP}/network.log" > "${RUNNER_TEMP}/network-summary.json"
+          exit "$rc"
+
+      - name: Ticket-layer probe (CronJob guard-auth-probe after convergence)
+        run: |
+          set -euo pipefail
+          set +e
+          bash scripts/guard-bypass/direct-connect-probe.sh auth-status \
+            --guard-ns aster-guard --cronjob guard-auth-probe --since "${{ steps.converge.outputs.since }}" | tee "${RUNNER_TEMP}/auth.log"
+          rc=${PIPESTATUS[0]}
+          tail -n1 "${RUNNER_TEMP}/auth.log" > "${RUNNER_TEMP}/auth-summary.json"
+          exit "$rc"
+
+      # 只告警：失败不影响判定（continue-on-error）。
+      - name: Expired red-team namespaces (warning only)
+        if: always() && steps.converge.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          now="$(date +%s)"
+          kubectl get ns -l guard-bypass/redteam-expires -o json |
+            jq -r --argjson now "$now" '.items[] | select((.metadata.labels["guard-bypass/redteam-expires"] | tonumber? // 0) < $now) | .metadata.name' |
+            while read -r ns; do echo "::warning::遗留的红队副本命名空间 ${ns} 已过期，请人工删除（见 docs/runbooks/guard-bypass-probe.md）"; done
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### guard-bypass-probe"
+            for f in network auth; do
+              echo "#### ${f}"
+              echo '```json'
+              jq . "${RUNNER_TEMP}/${f}-summary.json" 2>/dev/null || echo "（无摘要）"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "${RUNNER_TEMP}/evidence"
+          cp "${RUNNER_TEMP}"/*-summary.json "${RUNNER_TEMP}/evidence/" 2>/dev/null || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guard-bypass-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: ignore
+
+      - name: Remove kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"
+
+  # 「没有证据」也要变红：Environment 被误配、secret 过期、工作流被禁用时 probe 不运行或被跳过。
+  watchdog:
+    name: watchdog
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/guard-bypass
+      - name: Latest completed probe run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          api="repos/${{ github.repository }}/actions"
+          runs="$(gh api "${api}/workflows/guard-bypass-probe.yml/runs?branch=main&status=completed&per_page=20" 2>/dev/null |
+            jq -c --argjson self "${{ github.run_id }}" '[.workflow_runs[] | select(.id != $self)]')" || runs=""
+          latest="$(jq -r 'sort_by(.updated_at) | last | .id // empty' <<<"${runs:-[]}" 2>/dev/null)"
+          jobs='{"jobs":[]}'
+          if [ -n "${latest}" ]; then jobs="$(gh api "${api}/runs/${latest}/jobs" 2>/dev/null || echo '')"; fi
+          jq -n --argjson runs "${runs:-null}" --argjson jobs "${jobs:-null}" '{workflow_runs: $runs, latest_jobs: $jobs}' \
+            > "${RUNNER_TEMP}/watchdog.json" 2>/dev/null || echo '' > "${RUNNER_TEMP}/watchdog.json"
+          bash scripts/guard-bypass/watchdog.sh "$(date +%s)" "${RUNNER_TEMP}/watchdog.json"
