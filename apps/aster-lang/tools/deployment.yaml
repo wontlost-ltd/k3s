@@ -1,0 +1,89 @@
+# 演示 HTTP 工具（aster-guard examples/http-demo-tool，ADR 0054 §12 D6）。
+# ★replicas: 1 上限 + Recreate：attemptId 认领账本在进程内（ADR 0054 §11 D11），多副本或滚动更新时新旧进程并存
+#   都会让同一票据被放行多次。探针静态核对线上 Deployment 的这两项。
+# ★TICKET_CHECK 不写（缺省 on）。off 只允许出现在 redteam-window.sh 生成的临时副本里；manifests.test.sh 断言渲染结果中没有它。
+# 当前 replicas: 0：等 Vault（U-K2）、信任根（PR 7a）与首个 pin 落地后另开 PR 翻 1（U-K4）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-tool
+  labels:
+    app: demo-tool
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: demo-tool
+  template:
+    metadata:
+      labels:
+        app: demo-tool
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: demo-tool
+          image: docker.io/wontlost/aster-guard-demo-tool
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: ASTER_API_BASE_URL
+              value: http://aster-api.aster-cloud.svc.cluster.local
+            # 期望的策略地址（ADR 0054 §11 D12）：回读决策的策略须与之相等。
+            - name: ASTER_GUARD_POLICY
+              value: guard.demo/decide
+            # 工具**自己的**同租户 MEMBER key（ADR 0054 §3.3：与代理的 key 不同）。
+            - name: ASTER_GUARD_TOOL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: demo-tool-guard
+                  key: tool-api-key
+            - name: ASTER_GUARD_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: demo-tool-guard
+                  key: tenant-id
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

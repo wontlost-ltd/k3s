@@ -1,0 +1,19 @@
+# 部署层探针 SA（aster-guard/guard-bypass-probe）在 aster-tools 的只读权限——恰为计划 Task 7 权限表的 aster-tools 三行，
+# 每一行对应 direct-connect-probe.sh / guard-bypass-probe.yml 里的一个具体 kubectl 调用。manifests.test.sh 断言与该表完全相等。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: guard-bypass-probe-read
+rules:
+  # 工具 Pod 的标签、podIP、nodeName、imageID
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # 策略并集检查、与渲染结果比对
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list"]
+  # 副本数、策略、env、可用副本
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]

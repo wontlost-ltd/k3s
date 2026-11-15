@@ -1,0 +1,62 @@
+# 票据层探针（aster-api ADR 0054 §12 D7）：在被工具入站策略放行的 aster-guard 中，直连工具、不带 / 伪造 / 畸形票据，
+# 证明网络层放行时工具仍拒绝且没有副作用。脚本见 probe/auth-probe.sh（configMapGenerator 生成 guard-auth-probe-script）。
+# ★默认 SA、不挂 token、不挂任何 Secret：它与代理同处一个网络位置，但不持有任何票据或 Guard key。
+# ★探针镜像只在此处固定一次（tag + 多架构索引 digest）；guard-bypass-probe.yml 与 redteam-window.sh 从渲染结果读取。
+# 历史与时限（计划 Review Focus 4）：成功只留 1 个、失败留 3 个，单次 120 s，backoffLimit 0（每个 Job 恰一个 Pod）。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: guard-auth-probe
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: guard-auth-probe
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: auth-probe
+              image: docker.io/curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
+              imagePullPolicy: IfNotPresent
+              command: ["sh", "/probe/auth-probe.sh"]
+              env:
+                - name: TOOL_URL
+                  value: http://demo-tool.aster-tools.svc.cluster.local:8080
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: probe
+                  mountPath: /probe
+                  readOnly: true
+          volumes:
+            - name: probe
+              configMap:
+                name: guard-auth-probe-script

@@ -1,0 +1,14 @@
+# 镜像 digest pin（image-lock）—— 机器维护，唯一可由 image-pin PR 修改的文件（三关校验见 apps/aster-lang/ai/image-lock.yaml 头部）。
+#
+# ── 下面这条 entry 是 bootstrap 种子（与 runner-launcher / aster-ai-workspace 首次引入同一约定）──
+# aster-guard-demo-tool 是全新镜像，引入时尚无经 CI 签名的 digest：digest 全零 + sourceSha=UNVERIFIED-SEED + runId="0"。
+# ★必须有这条占位：源仓 scripts/ci/open-image-pin-pr.sh 要求本镜像在 image-lock 与 kustomization.images
+#   中各恰好出现 1 次才会写入。★占位是安全的：全零 digest 解析不到任何镜像，也没有签名，必被
+#   wontlost-aster-guard-demo-tool CIP 拒绝——最坏是「不可部署」（Deployment 此时也是 replicas: 0）。
+# ★首个真 pin：aster-cloud/aster-guard 的 image.yml 在 main 构建 + 签名后由 image-pin-pr job 成对写入。
+version: 1
+images:
+  - image: docker.io/wontlost/aster-guard-demo-tool
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    sourceSha: UNVERIFIED-SEED
+    runId: "0"

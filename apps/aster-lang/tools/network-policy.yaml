@@ -1,0 +1,27 @@
+# 演示工具入站策略（aster-api ADR 0054 §12 D2）——aster-lang 下**首个启用**的 NetworkPolicy。
+#
+# ★只用 namespace-only peer、只写 Ingress：本集群的 kube-router 对组合 peer（namespaceSelector + podSelector、
+#   ipBlock.except）会退化成 deny-all-including-traefik（R31 事故，见 apps/infrastructure/cloudflare-tunnel/
+#   network-policy.yaml 头部；apps/aster-lang/{ai,cloud,lsp} 的策略因此注释停用）。本策略刻意避开所有已知缺陷形态：
+#   一个 namespaceSelector peer（aster-guard），端口 8080/TCP，没有 egress（工具仍需访问 aster-api 与 DNS）。
+# ★「aster-guard 命名空间里只有代理与票据探针」是本策略成立的前提：任何放进 aster-guard 的工作负载都能直连工具。
+# ★是否真的挡住由部署层探针证明（scripts/guard-bypass/direct-connect-probe.sh：同节点 / 跨节点 × Service / Pod IP），
+#   形状由 scripts/guard-bypass/manifests.test.sh 与探针的 policy_union_violations 双重断言。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: demo-tool-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: demo-tool
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aster-guard
+      ports:
+        - protocol: TCP
+          port: 8080

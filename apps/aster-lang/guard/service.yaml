@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aster-guard-mcp
+  labels:
+    app: aster-guard-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app: aster-guard-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

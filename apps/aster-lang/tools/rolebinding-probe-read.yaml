@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: guard-bypass-probe-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: guard-bypass-probe-read
+subjects:
+  # 探针 SA 在 aster-guard；它的凭证只经 kubeconfig 使用（Environment guard-probe），不挂进任何 Pod。
+  - kind: ServiceAccount
+    name: guard-bypass-probe
+    namespace: aster-guard

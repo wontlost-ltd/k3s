@@ -1,0 +1,24 @@
+# 部署层探针 SA 在 aster-guard 的只读权限——恰为计划 Task 7 权限表的 aster-guard 四行。
+# ★不含 pods/create：探针身份若能在本命名空间起 Pod，就能挂载代理的 Guard key 与 agents 登记，
+#   并处于被工具策略放行的网络位置——这正是票据层探针改用 CronJob 的原因。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: guard-bypass-probe-read
+rules:
+  # 代理 Pod imageID；按 job-name 标签找 Job 的 Pod
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # 读票据探针摘要
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # auth-status 以轮询（不 watch）找收敛后启动的 Job 及其完成状态
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list"]
+  # 代理可用副本
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]

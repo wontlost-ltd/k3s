@@ -31,6 +31,13 @@ spec:
     # aster-ai：AI 工作台（ADR 0049 Part D，apps/aster-lang/ai → 派生 ns aster-ai）
     - namespace: aster-ai
       server: https://kubernetes.default.svc
+    # aster-api ADR 0054 §12 D3（#466 阶段 C）：模型 / 代理 / 受保护工具三个命名空间
+    - namespace: aster-agents
+      server: https://kubernetes.default.svc
+    - namespace: aster-guard
+      server: https://kubernetes.default.svc
+    - namespace: aster-tools
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
@@ -47,6 +54,11 @@ spec:
       kind: ServiceAccount
     - group: ''
       kind: PersistentVolumeClaim
+    # 只为 aster-agents：封顶部署层探针 SA 的 pods/create（计划 §3）
+    - group: ''
+      kind: ResourceQuota
+    - group: ''
+      kind: LimitRange
     - group: apps
       kind: Deployment
     - group: apps

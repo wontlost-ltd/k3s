@@ -1,0 +1,14 @@
+# 模型 / Agent 命名空间 aster-agents（aster-api ADR 0054 §12 D3；wontlost-ltd/aster-api#466 阶段 C）
+#
+# 今天只有部署层探针的一次性 Pod（由探针 SA 经 kubeconfig 创建）与金丝雀 Agent token。
+# ★不得放任何带 API 权限的 ServiceAccount 绑定：探针身份有 pods/create，可借用本命名空间的任何 SA。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aster-agents
+resources:
+  - namespace.yaml
+  - resource-quota.yaml
+  - limit-range.yaml
+  - role-probe.yaml
+  - rolebinding-probe.yaml
+  - external-secrets.yaml

@@ -1,0 +1,29 @@
+# 代理命名空间 aster-guard（aster-api ADR 0054 §12 D3 / D4 / D7；wontlost-ltd/aster-api#466 阶段 C）
+#
+# 由 ApplicationSet aster-lang-apps 自动发现，派生 Application aster-guard、目标命名空间 aster-guard。
+#
+# 上线顺序（计划 §4；Deployment 当前 replicas: 0）：
+#   1. k3s PR 7a（allowed-images 信任根 + 四条 CIP）由用户人工合并（U-K3）
+#   2. aster-cloud/aster-guard 的 image.yml 在 main 构建签名后开 pin PR，把下方与 apps/aster-lang/tools 的全零占位换成真值
+#   3. 用户在 aster-cloud 建演示租户、策略 guard.demo/decide 与两个 MEMBER key（U-K1），写 Vault
+#      secret/apps/aster-guard-demo（U-K2：proxy-api-key / tool-api-key / tenant-id / agent-token / agents-json）
+#   4. 本目录与 agents、tools 合并（replicas: 0）；随后另开 PR 把 aster-guard-mcp 与 demo-tool 翻为 1（U-K4）
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aster-guard
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - external-secrets.yaml
+  - serviceaccount.yaml
+  - role-probe-read.yaml
+  - rolebinding-probe-read.yaml
+  - cronjob-auth-probe.yaml
+configMapGenerator:
+  - name: guard-auth-probe-script
+    files:
+      - probe/auth-probe.sh
+images:
+  - name: docker.io/wontlost/aster-guard-mcp
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
