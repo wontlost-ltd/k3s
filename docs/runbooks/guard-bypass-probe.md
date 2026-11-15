@@ -97,7 +97,9 @@ gh secret delete GUARD_PROBE_KUBECONFIG --env guard-probe -R wontlost-ltd/k3s   
 - **H1**：工具节点上该策略的来源 ipset 不含远端 Pod IP；
 - **H2**：来源 IP 在跨节点途中被改写（SNAT / 伪装成节点或 flannel 地址），不再是 Pod IP，自然不在 ipset 里。
 
-### 在节点上区分 H1 / H2（只读，用户执行）
+### 在节点上区分 H1 / H2（只读，用户执行；贴输出前确认不含 token / 凭证）
+
+H1 与 H2 不互斥，两组观测可能同时成立。tcpdump 看到的源地址是决定性证据：源地址不是 Pod IP，即为 H2；源地址是 Pod IP 但不在 ipset 里，即为 H1。
 
 工具节点（`kubectl get pod -n aster-tools -l app=demo-tool -o wide` 的 NODE，今天是 master-3），`ssh root@master-3`：
 
@@ -128,7 +130,9 @@ nft list ruleset 2>/dev/null | grep -nE 'masquerade|snat' | head -40
 #    H2 的成因：存在命中「-s 10.42.0.0/16 -d 10.42.0.0/16」的 MASQUERADE（FLANNEL-POSTRTG 的 RETURN 没有先命中），
 #    或 legacy 与 nft 两套规则并存（RHEL / Oracle Linux 9 上常见），导致 Pod 到 Pod 的跨节点流量被伪装
 ip route get <demo-tool Pod IP> from <代理 Pod IP> iif cni0   # 应经 flannel.1
-cat /etc/rancher/k3s/config.yaml; cat /var/lib/rancher/k3s/agent/etc/flannel/net-conf.json
+# 只看网络相关键：config.yaml 含 server token 等凭证，不要整份贴出
+grep -E '^(flannel|cluster-cidr|service-cidr|kube-proxy-arg|kube-router|disable-network-policy|egress-selector|node-ip|node-external-ip)' /etc/rancher/k3s/config.yaml
+cat /var/lib/rancher/k3s/agent/etc/flannel/net-conf.json   # 只含网段与后端类型
 ```
 
 ### 修复方向与取舍（安全目标：只有 aster-guard 命名空间能到达工具）

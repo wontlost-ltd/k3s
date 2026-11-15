@@ -395,7 +395,8 @@ auth_status() {
   line="$("$KUBECTL" logs -n "$guard_ns" "$pod" 2>/dev/null | tail -n1)" || true
   local verdict
   verdict="$(jq -r '.verdict // ""' <<<"$line" 2>/dev/null || true)"
-  # 票据探针 Pod 与工具所在节点：放行位置连不上工具（tools/list 不通）且二者跨节点时，指向 #466 的跨节点放行缺陷。
+  # 票据探针 Pod 与工具所在节点：摘要确实记录了 tools/list 非 200（字段存在且为数字），且二者跨节点时，
+  # 指向 #466 的跨节点放行缺陷；摘要缺失或格式异常时不作此归因。
   local job_node tool_node="" hint=""
   job_node="$(jq -r '.items[0].spec.nodeName // ""' "$tmp/pods.json")"
   if [[ -n "$tool_ns" && -n "$tool_sel" ]]; then
@@ -403,7 +404,7 @@ auth_status() {
       jq -r '[.items[] | select(.status.phase == "Running")] | if length == 1 then .[0].spec.nodeName else "" end' 2>/dev/null)" || tool_node=""
   fi
   if [[ "$verdict" != pass && "$verdict" != bypass && -n "$job_node" && -n "$tool_node" && "$job_node" != "$tool_node" ]] &&
-     [[ "$(jq -r '.steps.list // ""' <<<"$line" 2>/dev/null)" != 200 ]]; then
+     [[ "$(jq -r '.steps.list | numbers' <<<"$line" 2>/dev/null)" =~ ^[0-9]+$ && "$(jq -r '.steps.list' <<<"$line")" != 200 ]]; then
     hint="被放行的跨节点路径 ${guard_ns}（${job_node}）→ 工具（${tool_node}）不通：疑为 kube-router 跨节点放行缺陷（#466 生产发现，见 docs/runbooks/guard-bypass-probe.md「被放行的跨节点路径」）"
   fi
   local extra

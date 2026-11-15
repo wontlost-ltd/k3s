@@ -265,6 +265,11 @@ new_case auth_status_same_node_unreachable_has_no_cross_node_hint
 echo '{"verdict":"inconclusive","steps":{"healthz":0,"list":0},"reasons":["tools/list 非 200（000）"]}' >"$CASE/job-log.txt"
 run 3 "${AUTH[@]}" && expect "同节点不给跨节点提示" summary_has '.jobNode == "worker-1" and (.reasons == null)' && ok
 
+new_case auth_status_cross_node_non_json_has_no_hint
+echo "curl: (7) Failed to connect" >"$CASE/job-log.txt"
+sed 's/"worker-1"/"master-1"/' "$FAKE_BASE/job-pods.json" >"$CASE/job-pods.json"
+run 3 "${AUTH[@]}" && expect "摘要不是 JSON 时不归因" summary_has '.reasons == null' && ok
+
 new_case auth_status_non_json_is_inconclusive
 echo "curl: (6) Could not resolve host" >"$CASE/job-log.txt"
 run 3 "${AUTH[@]}" && ok
