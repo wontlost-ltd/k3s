@@ -2,7 +2,7 @@
 # ★replicas: 1 上限 + Recreate：attemptId 认领账本在进程内（ADR 0054 §11 D11），多副本或滚动更新时新旧进程并存
 #   都会让同一票据被放行多次。探针静态核对线上 Deployment 的这两项。
 # ★TICKET_CHECK 不写（缺省 on）。off 只允许出现在 redteam-window.sh 生成的临时副本里；manifests.test.sh 断言渲染结果中没有它。
-# 当前 replicas: 0：等 Vault（U-K2）、信任根（PR 7a）与首个 pin 落地后另开 PR 翻 1（U-K4）。
+# replicas: 1（U-K4）：前置为 Vault（U-K2）、信任根（PR 7a）与首个 pin 已落地。
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,7 +10,7 @@ metadata:
   labels:
     app: demo-tool
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   revisionHistoryLimit: 3

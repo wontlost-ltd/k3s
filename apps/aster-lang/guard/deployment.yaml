@@ -1,7 +1,7 @@
 # aster-guard-mcp（ADR 0054 §3.1、§12 D4）：无状态 Streamable HTTP 监听模式，上游为 aster-tools 的演示工具。
 # --isolation network,auth：工具入站策略只放行本命名空间（network），转发时附 consume 票据、工具侧核对（auth）。
 # 每个 Agent 以 --agents-file 登记的 principal 裁决；代理的 Guard key 与工具的 key 不同（ADR 0054 §3.3）。
-# 当前 replicas: 0：等 Vault（U-K2）、信任根（PR 7a）与首个 pin 落地后另开 PR 翻 1（U-K4）。
+# replicas: 1（U-K4）：前置为 Vault（U-K2）、信任根（PR 7a）与首个 pin 已落地。
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +9,7 @@ metadata:
   labels:
     app: aster-guard-mcp
 spec:
-  replicas: 0
+  replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
