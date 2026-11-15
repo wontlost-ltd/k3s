@@ -85,6 +85,11 @@ jobs:
           SOURCE_RUN_ID: ${{ steps.inspect.outputs.run_id }}
           RERUN_KEY: ${{ steps.inspect.outputs.rerun_key }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+        # 正文用 printf 拼：双引号里的反引号会被 bash 当命令替换执行。
+        # 评论走 REST issues 端点（PR 即 issue）：issues: write 足够；gh pr comment 走 GraphQL addComment，
+        # 需要 pull-requests: write，不为一条评论扩大 token 权限。
         run: |
           set -euo pipefail
-          gh pr comment "$PR_NUMBER" -R "${{ github.repository }}" --body "image-pin PR 落后于 main，已重跑源仓失败 job。源仓：`${SOURCE_REPO}`；PR 记录的 sourceSha：`${SOURCE_SHA}`；原 runId：`${SOURCE_RUN_ID}`。image-pin 脚本会以最新 k3s main 重建分支；本 workflow 不执行合并。${RERUN_KEY}"
+          body="$(printf 'image-pin PR 落后于 main，已重跑源仓失败 job。源仓：`%s`；PR 记录的 sourceSha：`%s`；原 runId：`%s`。image-pin 脚本会以最新 k3s main 重建分支；本 workflow 不执行合并。%s' \
+            "$SOURCE_REPO" "$SOURCE_SHA" "$SOURCE_RUN_ID" "$RERUN_KEY")"
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" -f body="$body" --silent
