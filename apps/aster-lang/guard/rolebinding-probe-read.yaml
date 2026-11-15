@@ -11,3 +11,8 @@ subjects:
   - kind: ServiceAccount
     name: guard-bypass-probe
     namespace: aster-guard
+  # 同一探针的 GitHub OIDC 身份（aster-api ADR 0057 D8）：权限与 SA 完全相同；准入策略 guard-probe-pod-scope
+  # 对两个身份同等生效。apiserver 未加 --authentication-config 时该用户名无法认证，本条不扩大任何权限。
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: github-actions:wontlost-ltd/k3s:guard-probe

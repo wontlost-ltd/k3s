@@ -72,3 +72,27 @@ jwt_claims() {
 # 探针凭证的有效期上限：90 天 + 1 小时（TokenRequest 的签发结果可能比请求值长，见计划 §3）。
 # shellcheck disable=SC2034  # 供 source 方（token-expiry.sh、kubeconfig-for-probe.sh）使用
 PROBE_TOKEN_MAX_LIFETIME=$((90 * 86400 + 3600))
+
+# 探针身份常量（aster-api ADR 0057 §4.1 / D7–D8）。唯一来源：认证配置、审计策略、RBAC、准入策略与工作流脚本
+# 都必须与这里逐字一致，由 hosts/k3s-server/authn-config.test.sh 断言。
+# shellcheck disable=SC2034  # 供 source 方使用
+PROBE_SA_USER=system:serviceaccount:aster-guard:guard-bypass-probe
+# shellcheck disable=SC2034
+PROBE_OIDC_USER=github-actions:wontlost-ltd/k3s:guard-probe
+# shellcheck disable=SC2034
+PROBE_OIDC_AUDIENCE=k3s-guard-probe
+# shellcheck disable=SC2034
+PROBE_OIDC_ISSUER=https://token.actions.githubusercontent.com
+# shellcheck disable=SC2034
+PROBE_OIDC_REPOSITORY=wontlost-ltd/k3s
+# 仓库与 org 的不可变数字 ID：删库后同名重建不能冒用身份。
+# shellcheck disable=SC2034
+PROBE_OIDC_REPOSITORY_ID=1116032527
+# shellcheck disable=SC2034
+PROBE_OIDC_OWNER_ID=81835091
+# shellcheck disable=SC2034
+PROBE_OIDC_WORKFLOW_REF=wontlost-ltd/k3s/.github/workflows/guard-bypass-probe.yml@refs/heads/main
+# shellcheck disable=SC2034
+PROBE_OIDC_ENVIRONMENT=guard-probe
+# shellcheck disable=SC2034
+PROBE_OIDC_SUB=repo:wontlost-ltd/k3s:environment:guard-probe

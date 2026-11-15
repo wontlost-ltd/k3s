@@ -1,0 +1,104 @@
+# kube-apiserver 审计策略（aster-api ADR 0057 §3 / D1–D5）。安装到三台 control-plane 的
+# /etc/rancher/k3s/aster/audit-policy.yaml，由 config.yaml.d/50-aster-audit.yaml 引用；改动须重启 k3s（策略文件不热加载）。
+#
+# 首条命中即生效，顺序就是语义：
+#   1. 健康检查等非资源噪声 → None
+#   2. 敏感资源（Secret / ConfigMap / TokenRequest / TokenReview）→ 恒为 Metadata：排在所有记请求体的规则之前，
+#      任何身份（含探针）都不会把凭证带进日志
+#   3–4. 探针两个身份（SA 与 GitHub OIDC 用户）→ 写入 RequestResponse、其余 Metadata：排在噪声排除之前，
+#      watch / 越权失败也留证
+#   5–9. 高频噪声 → None
+#   10–11. aster-agents 的 Pod 写入、RBAC 与准入配置写入 → RequestResponse（探针爆炸半径相关、低频）
+#   12. 其余 → Metadata
+# 行为由 hosts/k3s-server/audit-policy.test.sh 的求值器逐类断言；身份常量与 scripts/guard-bypass/lib.sh 一致（authn-config.test.sh）。
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+omitManagedFields: true
+rules:
+  # 1
+  - level: None
+    nonResourceURLs:
+      - /healthz*
+      - /livez*
+      - /readyz*
+      - /version
+      - /version/*
+      - /metrics
+      - /openid/v1/jwks
+      - /.well-known/openid-configuration
+  # 2
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets", "configmaps", "serviceaccounts/token"]
+      - group: authentication.k8s.io
+        resources: ["tokenreviews"]
+  # 3
+  - level: RequestResponse
+    users:
+      - system:serviceaccount:aster-guard:guard-bypass-probe
+      - github-actions:wontlost-ltd/k3s:guard-probe
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+  # 4
+  - level: Metadata
+    users:
+      - system:serviceaccount:aster-guard:guard-bypass-probe
+      - github-actions:wontlost-ltd/k3s:guard-probe
+  # 5 lease 心跳与 leader election 续约（create / delete 仍落到兜底 Metadata）
+  - level: None
+    verbs: ["get", "list", "watch", "update", "patch"]
+    resources:
+      - group: coordination.k8s.io
+        resources: ["leases"]
+  # 6 事件写入
+  - level: None
+    verbs: ["create", "update", "patch"]
+    resources:
+      - group: ""
+        resources: ["events"]
+      - group: events.k8s.io
+        resources: ["events"]
+  # 7 系统组件的读（users 与 userGroups 在同一条规则里是「且」，所以分两条）
+  - level: None
+    verbs: ["get", "list", "watch"]
+    users:
+      - system:kube-controller-manager
+      - system:kube-scheduler
+      - system:kube-proxy
+      - system:k3s-controller
+      - k3s-cloud-controller-manager
+      - kube-apiserver
+  - level: None
+    verbs: ["get", "list", "watch"]
+    userGroups:
+      - system:nodes
+      - system:monitoring
+  # 8 其余身份的 watch（长连接，每次重连一条）
+  - level: None
+    verbs: ["watch"]
+  # 9 discovery
+  - level: None
+    nonResourceURLs:
+      - /api
+      - /api/*
+      - /apis
+      - /apis/*
+      - /openapi/*
+  # 10 aster-agents 的 Pod 写入（pods/status、pods/binding 等不在此列）
+  - level: RequestResponse
+    namespaces: ["aster-agents"]
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["pods", "pods/ephemeralcontainers", "pods/eviction"]
+  # 11 RBAC 与准入配置写入
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: rbac.authorization.k8s.io
+        resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+      - group: admissionregistration.k8s.io
+  # 12
+  - level: Metadata

@@ -44,7 +44,8 @@ check() {
 jq_none() {
   local file="$1" out
   shift
-  out="$(jq -r "$@" "$file")"
+  # jq 自身出错（表达式错误、类型错误）必须判失败：否则错误输出为空会被当成「无违规」。
+  out="$(jq -r "$@" "$file")" || { echo "jq 求值失败"; return 1; }
   [[ -z "$out" ]] || { echo "$out"; return 1; }
 }
 
@@ -147,12 +148,12 @@ check "探针 Role 不含 secrets、exec / attach / portforward / ephemeralconta
   | select((.resources | any(. == "secrets" or . == "pods/exec" or . == "pods/attach" or . == "pods/portforward" or . == "pods/ephemeralcontainers" or . == "*"))
       or (.verbs | any(. == "*")) or (.apiGroups | any(. == "*")))
   | "\($n)：越权规则 \(tojson)"'
-check "RoleBinding 只绑定 aster-guard/guard-bypass-probe；aster-agents 内无指向本命名空间 SA 的绑定" jq_none "$WORK/all.json" '
+# 探针的两个身份（aster-api ADR 0057 D8）：SA 与其 GitHub OIDC 用户；权限相同，准入策略对两者同等生效。
+PROBE_SUBJECTS='[{"kind":"ServiceAccount","name":"guard-bypass-probe","namespace":"aster-guard"},{"apiGroup":"rbac.authorization.k8s.io","kind":"User","name":"github-actions:wontlost-ltd/k3s:guard-probe"}]'
+check "RoleBinding 的 subjects 恰为探针两个身份（SA + OIDC User）；aster-agents 内无指向本命名空间 SA 的绑定" jq_none "$WORK/all.json" --argjson want "$PROBE_SUBJECTS" '
   .[] | select(.kind == "RoleBinding") | .metadata as $m
-  | (if (.subjects // []) | length != 1 then "\($m.namespace)/\($m.name)：subjects 须恰为 1 项" else empty end),
-    (.subjects // [])[]
-  | select(.kind != "ServiceAccount" or .name != "guard-bypass-probe" or .namespace != "aster-guard")
-  | "\($m.namespace)/\($m.name)：意外的 subject \(tojson)"'
+  | select(((.subjects // []) | sort_by(.kind)) != $want)
+  | "\($m.namespace)/\($m.name)：subjects 须恰为探针 SA 与 OIDC User，实为 \(.subjects | tojson)"'
 
 check "RoleBinding 集合与 roleRef 恰为三条探针绑定（不多绑、不绑更宽的 Role / ClusterRole）" jq_none "$WORK/all.json" '
   [.[] | select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding") | "\(.kind) \(.metadata.namespace // "-")/\(.metadata.name) -> \(.roleRef.kind)/\(.roleRef.name)"] | sort as $got
@@ -192,20 +193,20 @@ check "两条 ValidatingAdmissionPolicy 与绑定：Deny、Fail、只作用于 a
             or .spec.matchResources.namespaceSelector.matchLabels != {"kubernetes.io/metadata.name": "aster-agents"}
             or .metadata.name != .spec.policyName)
           | "\(.metadata.name)：须 validationActions [Deny] 且 namespaceSelector 恰为 aster-agents"))'
-check "Secret 白名单只匹配 secrets CREATE；Pod 范围只匹配探针 SA 的 pods CREATE / DELETE" jq_none "$WORK/admission.json" '
+check "Secret 白名单只匹配 secrets CREATE；Pod 范围只匹配探针两个身份的 pods CREATE / DELETE" jq_none "$WORK/admission.json" '
   (.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "guard-agents-secret-allowlist") | .spec
     | (if .matchConstraints.resourceRules != [{"apiGroups":[""],"apiVersions":["v1"],"operations":["CREATE"],"resources":["secrets"]}] then "secret 策略 resourceRules 不符" else empty end),
       (if (.validations[0].expression | contains("guard-demo-agent") and contains("Opaque")) | not then "secret 策略须限定 guard-demo-agent 与 Opaque" else empty end)),
   (.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "guard-probe-pod-scope") | .spec
     | (if .matchConstraints.resourceRules != [{"apiGroups":[""],"apiVersions":["v1"],"operations":["CREATE","DELETE"],"resources":["pods"]}] then "pod 策略 resourceRules 不符" else empty end),
-      (if .matchConditions != [{"name":"probe-identity-only","expression":"request.userInfo.username == '"'"'system:serviceaccount:aster-guard:guard-bypass-probe'"'"'"}] then "pod 策略 matchConditions 须只匹配探针 SA" else empty end),
+      (if .matchConditions != [{"name":"probe-identity-only","expression":"request.userInfo.username in ['"'"'system:serviceaccount:aster-guard:guard-bypass-probe'"'"', '"'"'github-actions:wontlost-ltd/k3s:guard-probe'"'"']"}] then "pod 策略 matchConditions 须恰匹配探针两个身份" else empty end),
       (if (.validations | map(.expression) | join(" ") | (contains("emptyDir") and contains("configMap") and contains("secretKeyRef") and contains("envFrom") and contains("automountServiceAccountToken"))) | not
         then "pod 策略缺少卷 / env / automount 规则" else empty end))'
-check "探针集群级权限只有 namespaces list，且只绑定探针 SA" jq_none "$WORK/admission.json" '
+check "探针集群级权限只有 namespaces list，且只绑定探针两个身份" jq_none "$WORK/admission.json" --argjson want "$PROBE_SUBJECTS" '
   ([.[] | select(.kind == "ClusterRole")] | map({n: .metadata.name, r: .rules})) as $r
   | (if $r != [{"n":"guard-bypass-probe-ns-read","r":[{"apiGroups":[""],"resources":["namespaces"],"verbs":["list"]}]}] then "ClusterRole 不符：\($r)" else empty end),
     (.[] | select(.kind == "ClusterRoleBinding")
-      | select(.roleRef.name != "guard-bypass-probe-ns-read" or .subjects != [{"kind":"ServiceAccount","name":"guard-bypass-probe","namespace":"aster-guard"}])
+      | select(.roleRef.name != "guard-bypass-probe-ns-read" or (.subjects | sort_by(.kind)) != $want)
       | "\(.metadata.name)：绑定不符")'
 
 if [[ "$FAILED" != 0 ]]; then

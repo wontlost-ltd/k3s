@@ -19,14 +19,21 @@ echo "== 工作流形状"
 check "触发恰为 push(main) / schedule / workflow_dispatch" yqe '.on | keys | sort | join(",")' 'push,schedule,workflow_dispatch'
 check "push 只在 main" yqe '.on.push.branches | join(",")' 'main'
 check "不含任何 PR 类事件或 pull_request_target（全文，注释除外）" bash -c "! grep -v '^[[:space:]]*#' '$WF' | grep -Eq '(^|[^a-z_])(pull_request(_target)?|workflow_run|issue_comment)([^a-z_]|\$)'"
-check "工作流级权限只有 contents: read，全文无 id-token" bash -c "[[ \"\$(yq -o=json -I=0 '.permissions' '$WF')\" == '{\"contents\":\"read\"}' ]] && ! grep -q 'id-token' '$WF'"
+check "工作流级权限只有 contents: read" bash -c "[[ \"\$(yq -o=json -I=0 '.permissions' '$WF')\" == '{\"contents\":\"read\"}' ]]"
+# ADR 0057 §4.2：id-token: write 只给 probe job（它才需要 OIDC token）；其它 job 不得能签 token。
+check "only_probe_job_has_id_token_write：probe 权限恰为 contents read + id-token write，其它 job 无 id-token" bash -c "
+  [[ \"\$(yq -o=json -I=0 '.jobs.probe.permissions' '$WF')\" == '{\"contents\":\"read\",\"id-token\":\"write\"}' &&
+     \"\$(yq '[.jobs | to_entries[] | select(.key != \"probe\") | select(.value | tostring | test(\"id-token\"))] | length' '$WF')\" == 0 &&
+     \"\$(grep -v '^[[:space:]]*#' '$WF' | grep -c 'id-token')\" == 1 ]]"
 check "probe job：if main、environment guard-probe" bash -c "[[ \"\$(yq '.jobs.probe.if' '$WF')\" == \"github.ref == 'refs/heads/main'\" && \"\$(yq '.jobs.probe.environment' '$WF')\" == guard-probe ]]"
 check "全仓只有本文件引用 Environment guard-probe 与 GUARD_PROBE_KUBECONFIG" bash -c "
   cd '$ROOT/.github/workflows'
   [[ \"\$(grep -l 'GUARD_PROBE_KUBECONFIG' -- *.yml *.yaml 2>/dev/null)\" == guard-bypass-probe.yml ]] &&
   [[ \"\$(grep -lE 'guard-probe([^-]|\$)' -- *.yml *.yaml 2>/dev/null | sort -u)\" == guard-bypass-probe.yml ]]"
 check "所有 checkout 都 persist-credentials: false" bash -c "[[ \"\$(yq '[.jobs[].steps[] | select(.uses | test(\"^actions/checkout@\")) | .with.\"persist-credentials\"] | all_c(. == false)' '$WF')\" == true ]]"
-check "auth whoami 校验探针身份" bash -c "yq '.jobs.probe.steps[].run' '$WF' | grep -q 'auth whoami' && grep -q 'system:serviceaccount:aster-guard:guard-bypass-probe' '$WF'"
+check "身份断言：assert-identity.sh 按模式执行 auth whoami（SA / OIDC 常量来自 lib.sh）" bash -c "
+  [[ \"\$(yq '.jobs.probe.steps[] | select(.name == \"Assert probe identity (auth whoami)\") | .run' '$WF')\" == *'assert-identity.sh \"\${GUARD_PROBE_AUTH}\" --oidc-dir \"\${RUNNER_TEMP}/oidc\"'* ]] &&
+  grep -q 'auth whoami' '$HERE/assert-identity.sh' && grep -q 'PROBE_SA_USER' '$HERE/assert-identity.sh' && grep -q 'PROBE_OIDC_USER' '$HERE/assert-identity.sh'"
 check "secret 只在写入步骤出现，且从不 echo / cat kubeconfig" bash -c "
   [[ \"\$(yq '[.jobs.probe.steps[] | select(tostring | test(\"secrets.GUARD_PROBE_KUBECONFIG\")) | .name] | join(\",\")' '$WF')\" == 'Write probe kubeconfig' ]] &&
   ! grep -v '^[[:space:]]*#' '$WF' | grep -Eq '(echo|cat|tee)[^|]*[$][{]?GUARD_PROBE_KUBECONFIG|cat [^|]*kubeconfig|set -x'"
@@ -38,7 +45,38 @@ check "生产探针要求被放行的跨节点路径（--require-admitted-cross-
   run=\"\$(yq '.jobs.probe.steps[] | select(.name | test(\"^Network-layer\")) | .run' '$WF')\"
   grep -q -- '--require-admitted-cross-node' <<<\"\$run\" && grep -q -- '--proxy-ns aster-guard --proxy-selector app=aster-guard-mcp' <<<\"\$run\" &&
   yq '.jobs.probe.steps[] | select(.name | test(\"^Ticket-layer\")) | .run' '$WF' | grep -q -- '--tool-ns aster-tools --tool-selector app=demo-tool'"
-check "kubeconfig 用后删除（always）" bash -c "[[ \"\$(yq '.jobs.probe.steps[] | select(.name == \"Remove kubeconfig\") | .if' '$WF')\" == 'always()' ]]"
+check "kubeconfig 与 OIDC token 目录用后删除（always）" bash -c "[[ \"\$(yq '.jobs.probe.steps[] | select(.name == \"Remove kubeconfig\") | .if' '$WF')\" == 'always()' ]] &&
+  yq '.jobs.probe.steps[] | select(.name == \"Remove kubeconfig\") | .run' '$WF' | grep -q 'RUNNER_TEMP}/oidc'"
+
+echo "== 凭证模式开关（ADR 0057 §4.2 / D9）"
+# 抽出 Select credential mode 的 run 实际执行：缺省 static、合法值原样、非法值退出 3。
+sel="$(yq '.jobs.probe.steps[] | select(.name == "Select credential mode") | .run' "$WF")"
+mode_of() { local env_file="$WORK/genv" code=0; : >"$env_file"; MODE="$1" GITHUB_ENV="$env_file" bash -c "$sel" >/dev/null 2>&1 || code=$?; echo "$code|$(cat "$env_file")"; }
+[[ "$(mode_of '')" == "0|GUARD_PROBE_AUTH=static" ]] && pass "default_mode_is_static（vars.GUARD_PROBE_AUTH 未设置）" || fail default_mode_is_static "$(mode_of '')"
+[[ "$(mode_of dual)" == "0|GUARD_PROBE_AUTH=dual" && "$(mode_of oidc)" == "0|GUARD_PROBE_AUTH=oidc" && "$(mode_of static)" == "0|GUARD_PROBE_AUTH=static" ]] &&
+  pass "合法模式原样写入 GITHUB_ENV" || fail "合法模式"
+[[ "$(mode_of admin)" == "3|" && "$(mode_of 'static;id')" == "3|" ]] && pass "unknown_mode_is_inconclusive（非法值退出 3，不写 GITHUB_ENV）" || fail unknown_mode_is_inconclusive "$(mode_of admin)"
+check "模式值经 env 传入（不在 run 里内联插值 vars）" bash -c "
+  [[ \"\$(yq '.jobs.probe.steps[] | select(.name == \"Select credential mode\") | .env.MODE' '$WF')\" == '\${{ vars.GUARD_PROBE_AUTH }}' ]] &&
+  ! yq '.jobs.probe.steps[].run' '$WF' | grep -q 'vars\.'"
+want_steps='["actions/checkout@v6","Select credential mode","Install kubectl / kustomize / yq / jq (pinned + sha256)","Write probe kubeconfig","Configure OIDC credential","Assert probe identity (auth whoami)","Token expiry","Wait for convergence"]'
+check "步骤顺序：选模式 → 装工具 → 静态 / OIDC 凭证 → 身份断言 → 有效期 → 收敛" bash -c "
+  [[ \"\$(yq -o=json -I=0 '[.jobs.probe.steps[] | (.name // .uses)]' '$WF' | jq -c '.[0:8]')\" == '$want_steps' ]]"
+check "oidc_steps_gated：静态凭证两步在 oidc 模式跳过；OIDC 步骤在 static 模式跳过" bash -c "
+  for n in 'Write probe kubeconfig' 'Token expiry'; do
+    [[ \"\$(yq \".jobs.probe.steps[] | select(.name == \\\"\$n\\\") | .if\" '$WF')\" == \"env.GUARD_PROBE_AUTH != 'oidc'\" ]] || exit 1
+  done
+  [[ \"\$(yq '.jobs.probe.steps[] | select(.name == \"Configure OIDC credential\") | .if' '$WF')\" == \"env.GUARD_PROBE_AUTH != 'static'\" ]]"
+check "OIDC 步骤：init 用仓库内 CA 与 K3S_SERVER；只有 oidc 模式改 KUBECONFIG 与 PATH" bash -c "
+  run=\"\$(yq '.jobs.probe.steps[] | select(.name == \"Configure OIDC credential\") | .run' '$WF')\"
+  grep -q 'oidc-kubeconfig.sh init --dir \"\${RUNNER_TEMP}/oidc\" --server \"\${K3S_SERVER}\" --ca scripts/guard-bypass/k3s-server-ca.crt' <<<\"\$run\" &&
+  grep -q 'if \\[ \"\${GUARD_PROBE_AUTH}\" = oidc \\]' <<<\"\$run\" &&
+  grep -q 'KUBECONFIG=\${RUNNER_TEMP}/oidc/kubeconfig' <<<\"\$run\" && grep -q 'RUNNER_TEMP}/oidc/bin\" >> \"\$GITHUB_PATH\"' <<<\"\$run\" &&
+  ! grep -q 'secrets\.' <<<\"\$run\""
+check "K3S_SERVER 为 master-1 的 API 地址（与 kubeconfig-for-probe 手册一致）" bash -c "
+  [[ \"\$(yq '.jobs.probe.env.K3S_SERVER' '$WF')\" == https://158.179.18.241:6443 ]]"
+check "selftests_include_hosts：verify-gate-selftests 也跑 hosts/*/*.test.sh" bash -c "
+  grep -q 'hosts/\*/\*.test.sh' '$ROOT/.github/workflows/verify-gate-selftests.yml'"
 check "watchdog：仅 schedule，权限只有 actions: read" bash -c "[[ \"\$(yq '.jobs.watchdog.if' '$WF')\" == \"github.event_name == 'schedule'\" && \"\$(yq -o=json -I=0 '.jobs.watchdog.permissions' '$WF')\" == '{\"actions\":\"read\"}' ]]"
 
 echo "== token-expiry"

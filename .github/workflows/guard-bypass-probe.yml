@@ -1,7 +1,6 @@
 # guard-bypass-probe —— 部署层隔离的自动取证（aster-api ADR 0054 §12 D7 / D9；wontlost-ltd/aster-api#466 第 1 条）
 #
-# 在 GitHub 托管 runner 上，以 Environment guard-probe 中的探针 kubeconfig（SA aster-guard/guard-bypass-probe 的
-# 绑定 token，权限见 apps/aster-lang/{agents,guard,tools} 的 Role）直连公网 k3s API：
+# 在 GitHub 托管 runner 上，以探针身份（权限见 apps/aster-lang/{agents,guard,tools} 的 Role）直连公网 k3s API：
 #   1. 等线上状态与本提交的渲染结果收敛（镜像 digest、可用副本、工具入站策略）；
 #   2. 网络层：在 aster-agents 起一次性 Pod 直连工具（同节点 / 跨节点 × Service / Pod IP），必须全部被挡，
 #      且正向对照与金丝雀（持有效 Agent token 经代理调用）成功——证明「挡住」不是「坏了」；
@@ -12,7 +11,12 @@
 # ★凭证路径（计划 Task 8「当前工作流配置下 PR 类事件没有凭证路径」）：本工作流不监听任何 PR 类事件；
 #   Environment guard-probe 只放行 main；全仓只有本文件引用该 Environment 与 GUARD_PROBE_KUBECONFIG，
 #   且本文件不含 pull_request_target——scripts/guard-bypass/workflow.test.sh 断言以上全部。
-# ★配置与轮换见 docs/runbooks/guard-bypass-probe.md。
+# ★凭证模式（aster-api ADR 0057 §4.2）：Environment 变量 GUARD_PROBE_AUTH 取 static（缺省）| dual | oidc。
+#   static：Environment secret GUARD_PROBE_KUBECONFIG（SA aster-guard/guard-bypass-probe 的绑定 token），与引入开关前完全相同；
+#   dual：探针仍用静态凭证，同时取 GitHub OIDC token 并断言 OIDC 身份与 RBAC——迁移期证明 OIDC 端到端可用；
+#   oidc：只用 OIDC（apiserver 须已按 hosts/k3s-server 加 --authentication-config）。
+#   id-token: write 只给 probe job；OIDC kubeconfig 不含 exec 插件（server + 仓库内集群 CA + tokenFile）。
+# ★配置、轮换与迁移见 docs/runbooks/guard-bypass-probe.md。
 name: guard-bypass-probe
 
 on:
@@ -43,10 +47,31 @@ jobs:
     runs-on: ubuntu-latest
     environment: guard-probe
     timeout-minutes: 45
+    # id-token: write 只在本 job（ADR 0057 §4.2）；集群只信任 audience k3s-guard-probe 且 job_workflow_ref 为 main 上本文件的 token。
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # master-1 的公网 API 地址（OIDC kubeconfig 用；静态 kubeconfig 自带同一地址）
+      K3S_SERVER: https://158.179.18.241:6443
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      # 值经 env 传入、按枚举校验后再写入 GITHUB_ENV；未设置即 static。非法值判 3（不得静默回落）。
+      - name: Select credential mode
+        env:
+          MODE: ${{ vars.GUARD_PROBE_AUTH }}
+        run: |
+          set -euo pipefail
+          mode="${MODE:-static}"
+          case "$mode" in
+            static|dual|oidc) ;;
+            *) echo "::error::GUARD_PROBE_AUTH 须为 static|dual|oidc，实为「${mode}」"; exit 3 ;;
+          esac
+          echo "凭证模式：${mode}"
+          echo "GUARD_PROBE_AUTH=${mode}" >> "$GITHUB_ENV"
 
       # 工具链：固定版本并校验 sha256，装到 runner 临时目录（不依赖 runner 镜像自带的版本）。
       - name: Install kubectl / kustomize / yq / jq (pinned + sha256)
@@ -68,6 +93,7 @@ jobs:
       # base64 形式（沿用 aster-api 旧 KUBECONFIG_B64 的做法，避免多行 secret 被改坏）；文件只在 RUNNER_TEMP，
       # 最后一步 always() 删除，托管 VM 随 job 销毁。不 echo、不 cat。
       - name: Write probe kubeconfig
+        if: env.GUARD_PROBE_AUTH != 'oidc'
         env:
           GUARD_PROBE_KUBECONFIG: ${{ secrets.GUARD_PROBE_KUBECONFIG }}
         run: |
@@ -77,15 +103,23 @@ jobs:
           printf '%s' "${GUARD_PROBE_KUBECONFIG}" | base64 -d > "${RUNNER_TEMP}/kubeconfig"
           echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "$GITHUB_ENV"
 
-      # 防止误放管理员 kubeconfig：身份必须恰为探针 SA。
-      - name: Assert probe identity (auth whoami)
+      # OIDC token 只在 RUNNER_TEMP；包装脚本每次调用 kubectl 前按需刷新。oidc 模式下包装脚本排在真 kubectl 之前。
+      - name: Configure OIDC credential
+        if: env.GUARD_PROBE_AUTH != 'static'
         run: |
           set -euo pipefail
-          who="$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}')"
-          echo "kubeconfig 身份：${who}"
-          [ "${who}" = "system:serviceaccount:aster-guard:guard-bypass-probe" ] || { echo "::error::kubeconfig 不是探针身份（${who}）"; exit 3; }
+          bash scripts/guard-bypass/oidc-kubeconfig.sh init --dir "${RUNNER_TEMP}/oidc" --server "${K3S_SERVER}" --ca scripts/guard-bypass/k3s-server-ca.crt >/dev/null
+          if [ "${GUARD_PROBE_AUTH}" = oidc ]; then
+            echo "KUBECONFIG=${RUNNER_TEMP}/oidc/kubeconfig" >> "$GITHUB_ENV"
+            echo "${RUNNER_TEMP}/oidc/bin" >> "$GITHUB_PATH"
+          fi
+
+      # 防止误放管理员 kubeconfig / OIDC 映射出意外身份：static 断言 SA，oidc 断言 OIDC 用户及其 RBAC，dual 两者都断言。
+      - name: Assert probe identity (auth whoami)
+        run: bash scripts/guard-bypass/assert-identity.sh "${GUARD_PROBE_AUTH}" --oidc-dir "${RUNNER_TEMP}/oidc"
 
       - name: Token expiry
+        if: env.GUARD_PROBE_AUTH != 'oidc'
         run: |
           set -euo pipefail
           kubectl config view --raw -o jsonpath='{.users[0].user.token}' | bash scripts/guard-bypass/token-expiry.sh "$(date +%s)"
@@ -165,7 +199,7 @@ jobs:
 
       - name: Remove kubeconfig
         if: always()
-        run: rm -f "${RUNNER_TEMP}/kubeconfig"
+        run: rm -rf "${RUNNER_TEMP}/kubeconfig" "${RUNNER_TEMP}/oidc"
 
   # 「没有证据」也要变红：Environment 被误配、secret 过期、工作流被禁用时 probe 不运行或被跳过。
   watchdog:
