@@ -100,6 +100,8 @@ jobs:
 
       # 网络层。探针镜像从渲染的 CronJob 读取（全仓只在那里固定一次）。
       # ★不得传 --no-tool-shape-check（那只供红队副本的 R-A 用）；workflow.test.sh 断言。
+      # ★--require-admitted-cross-node：金丝雀必须走「代理 → 工具」的**被放行的跨节点**路径（代理对工具 Pod 有
+      #   preferred 反亲和）；代理与工具同节点时判 3。防 #466 生产发现回归：kube-router 曾挡掉被放行的跨节点流量。
       - name: Network-layer probe (direct connect from aster-agents)
         run: |
           set -euo pipefail
@@ -110,6 +112,7 @@ jobs:
             --admit-ns aster-guard --probe-image "${image}" \
             --positive-url http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/healthz \
             --canary-proxy http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/mcp --canary-secret guard-demo-agent \
+            --proxy-ns aster-guard --proxy-selector app=aster-guard-mcp --require-admitted-cross-node \
             --run-id "${{ github.run_id }}-${{ github.run_attempt }}" | tee "${RUNNER_TEMP}/network.log"
           rc=${PIPESTATUS[0]}
           tail -n1 "${RUNNER_TEMP}/network.log" > "${RUNNER_TEMP}/network-summary.json"
@@ -120,7 +123,8 @@ jobs:
           set -euo pipefail
           set +e
           bash scripts/guard-bypass/direct-connect-probe.sh auth-status \
-            --guard-ns aster-guard --cronjob guard-auth-probe --since "${{ steps.converge.outputs.since }}" | tee "${RUNNER_TEMP}/auth.log"
+            --guard-ns aster-guard --cronjob guard-auth-probe --since "${{ steps.converge.outputs.since }}" \
+            --tool-ns aster-tools --tool-selector app=demo-tool | tee "${RUNNER_TEMP}/auth.log"
           rc=${PIPESTATUS[0]}
           tail -n1 "${RUNNER_TEMP}/auth.log" > "${RUNNER_TEMP}/auth-summary.json"
           exit "$rc"

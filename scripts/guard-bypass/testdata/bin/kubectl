@@ -11,6 +11,7 @@ f() {
 case "$*" in
   "get networkpolicy -n aster-tools -o json") f networkpolicies.json ;;
   "get pods -n aster-tools -l app=demo-tool -o json") f tool-pods.json ;;
+  "get pods -n aster-guard -l app=aster-guard-mcp -o json") f proxy-pods.json ;;
   "get rolebindings -n aster-agents -o json") f rolebindings.json ;;
   "get deployment -n aster-tools demo-tool -o json") f deployment.json ;;
   "get pods -n aster-agents -l app.kubernetes.io/name=guard-bypass-probe -o json") f probe-old.json ;;
