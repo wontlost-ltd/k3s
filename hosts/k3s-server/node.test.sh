@@ -22,7 +22,10 @@ cat >"$BIN/systemctl" <<'SH'
 #!/usr/bin/env bash
 echo "systemctl $*" >>"$FAKE_LOG"
 case "$*" in
-  "is-active --quiet firewalld") [[ "${FAKE_FW_ACTIVE:-1}" == 1 ]] ;;
+  "is-active firewalld")
+    st="${FAKE_FW_STATE-}"; [[ -z "${FAKE_FW_STATE+x}" ]] && { [[ "${FAKE_FW_ACTIVE:-1}" == 1 ]] && st=active || st=inactive; }
+    [[ "$st" == __error__ ]] && { echo "Failed to connect to bus" >&2; exit 1; }
+    echo "$st"; [[ "$st" == active ]] ;;
   "is-active --quiet k3s") [[ "${FAKE_K3S_ACTIVE:-1}" == 1 ]] ;;
   "show -p InvocationID --value k3s") echo inv-1 ;;
   "restart k3s")
@@ -140,6 +143,8 @@ fresh; c1="$(FAKE_FW_ERR="--zone=trusted --query-masquerade" run check)"; o1="$(
 c2="$(FAKE_FW_ERR="--permanent --zone=trusted --query-masquerade" run check)"; c3="$(FAKE_ZONES_ERR=1 run check)"
 [[ "$c1 $c2 $c3" == "1 1 1" ]] && grep -q '查询失败' <<<"$o1" &&
   pass "check_fails_when_firewalld_query_errors（非 0/1 退出码 ≠ 无 masquerade）" || fail check_fails_when_firewalld_query_errors "$c1 $c2 $c3"
+fresh; c1="$(FAKE_FW_STATE=failed run check)"; c2="$(FAKE_FW_STATE=__error__ run check)"; c3="$(FAKE_FW_STATE=activating run check)"
+[[ "$c1 $c2 $c3" == "1 1 1" ]] && pass "check_fails_when_firewalld_state_unknown（failed / 查询出错 / 过渡态不当作未运行）" || fail check_fails_when_firewalld_state_unknown "$c1 $c2 $c3"
 fresh; c="$(FAKE_FW_ACTIVE=0 FAKE_MASQ_RUNTIME=trusted run check)"
 [[ "$c" == 0 ]] && ! grep -q 'firewall-cmd' "$WORK/log" && pass check_skips_firewall_when_inactive || fail check_skips_firewall_when_inactive "$c"
 fresh; run apply audit --no-restart >/dev/null; echo "# 手改" >>"$ROOT_DIR/etc/rancher/k3s/aster/audit-policy.yaml"; c="$(run check)"

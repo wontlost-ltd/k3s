@@ -94,7 +94,14 @@ masq_state() {
 # firewalld：trusted 区不得开 masquerade（#466：跨节点 Pod 流量被伪装后 kube-router 的命名空间 ipset 匹配不上，
 # 被放行的跨节点路径被丢弃）。运行时与永久配置都查——只改运行时，下次重载 firewalld 就会复发。
 check_firewall() {
-  if ! "$SYSTEMCTL" is-active --quiet firewalld; then ok "firewalld 未运行（无 masquerade 风险）"; return; fi
+  # 只有明确的 inactive 才跳过；failed（规则可能仍留在内核里）、查询出错、过渡态都按无法确认判 fail。
+  local st
+  st="$("$SYSTEMCTL" is-active firewalld 2>/dev/null || true)"
+  case "$st" in
+    active) ;;
+    inactive) ok "firewalld 未运行（inactive，无 masquerade 风险）"; return ;;
+    *) bad "firewalld 状态无法确认（systemctl is-active firewalld → ${st:-查询失败}）：先确认 firewalld 正常再核对 masquerade"; return ;;
+  esac
   case "$(masq_state --zone=trusted)" in
     no) ok "firewalld trusted 区运行时无 masquerade" ;;
     yes) bad "firewalld trusted 区运行时开着 masquerade（#466）：firewall-cmd --zone=trusted --remove-masquerade" ;;
