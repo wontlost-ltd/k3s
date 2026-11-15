@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-tool
+  labels:
+    app: demo-tool
+spec:
+  type: ClusterIP
+  selector:
+    app: demo-tool
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

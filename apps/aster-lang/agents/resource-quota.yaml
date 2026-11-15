@@ -1,0 +1,12 @@
+# 模型命名空间配额（计划 Review Focus 4 / §3）：探针 SA 的 pods/create 被滥用或探针残留时，最多 4 个 Pod、1 CPU、1 Gi。
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: aster-agents-quota
+spec:
+  hard:
+    pods: "4"
+    requests.cpu: 500m
+    requests.memory: 512Mi
+    limits.cpu: "1"
+    limits.memory: 1Gi

@@ -1,0 +1,12 @@
+# 模型 / Agent 命名空间：今天只有部署层探针的一次性 Pod 与演示 Agent token。不得放任何带 API 权限的 ServiceAccount 绑定。（aster-api ADR 0054 §12 D3，wontlost-ltd/aster-api#466 阶段 C）
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aster-agents
+  labels:
+    app.kubernetes.io/part-of: aster-lang
+    # PSA restricted：禁 hostNetwork / hostPath / 特权，强制 non-root 与 seccomp（R67 Global Constraints「Pod 安全」）。
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    # sigstore policy-controller 的 opt-in 主闸：本命名空间内受控镜像按 CIP 验签。
+    policy.sigstore.dev/include: "true"

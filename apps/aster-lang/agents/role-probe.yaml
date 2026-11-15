@@ -1,0 +1,22 @@
+# 部署层探针 SA 在 aster-agents 的权限——恰为计划 Task 7 权限表的 aster-agents 三行。
+# ★pods/create 等于间接读取本命名空间内全部 Secret（Pod 可用 secretKeyRef / Secret 卷挂载）：所以本命名空间只允许
+#   一个 Secret（guard-demo-agent，金丝雀 Agent token），由 manifests.test.sh 与准入策略 guard-agents-secret-allowlist
+#   双重保证；探针身份的 Pod 形状另由准入策略 guard-probe-pod-scope 约束（Task 7c）。
+# ★没有 pods/exec、pods/attach、pods/portforward、pods/ephemeralcontainers、secrets。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: guard-bypass-probe
+rules:
+  # 建探针 Pod、轮询状态（get / list；kubectl wait 需要 watch）、读 nodeName、清扫与 trap 删除
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # 读探针结果
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # 「无 RoleBinding 指向本命名空间 SA」静态检查
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["list"]

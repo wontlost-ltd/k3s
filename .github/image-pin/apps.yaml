@@ -67,3 +67,12 @@ apps:
   - name: resolver-migration
     lock: apps/aster-lang-ops/resolver-migration/image-lock.yaml
     kust: apps/aster-lang-ops/resolver-migration/kustomization.yaml
+
+  # aster-api ADR 0054 §12 D5（#466 阶段 C）：两个镜像都来自 aster-cloud/aster-guard 的 image.yml
+  - name: guard
+    lock: apps/aster-lang/guard/image-lock.yaml
+    kust: apps/aster-lang/guard/kustomization.yaml
+
+  - name: tools
+    lock: apps/aster-lang/tools/image-lock.yaml
+    kust: apps/aster-lang/tools/kustomization.yaml
