@@ -100,13 +100,24 @@ r="$(kc 720h "$(jwt "$NOW" $((NOW + 30 * DAY)))" "$GOOD_WHO")"
 if [[ "$r" == 0\|* ]] && base64 -d <"$WORK/kout" | grep -q 'set-credentials guard-bypass-probe'; then pass "合规凭证输出 base64 kubeconfig"; else fail "合规凭证输出 base64 kubeconfig" "$r"; fi
 
 echo "== converge"
-# 假 kubectl：Pod imageID 取 $FAKE_DIGEST，Deployment 可用副本取 $FAKE_AVAIL，策略 spec 取渲染结果（或被篡改的版本）。
+# 夹具树：复制 apps/aster-lang/{guard,tools}，把镜像 digest 改写成已知值——用例不依赖仓库里当前 pin 的 digest。
+# （converge.sh 在生产照常读真实的渲染结果；只有测试换根目录。）
+FIX="$WORK/fixture-root"
+mkdir -p "$FIX/apps/aster-lang"
+cp -R "$ROOT/apps/aster-lang/guard" "$ROOT/apps/aster-lang/tools" "$FIX/apps/aster-lang/"
+PROXY_DIGEST="sha256:$(printf 'a%.0s' {1..64})"
+TOOL_DIGEST="sha256:$(printf 'b%.0s' {1..64})"
+yq -i "(.images[] | select(.name == \"docker.io/wontlost/aster-guard-mcp\")).digest = \"$PROXY_DIGEST\"" "$FIX/apps/aster-lang/guard/kustomization.yaml"
+yq -i "(.images[] | select(.name == \"docker.io/wontlost/aster-guard-demo-tool\")).digest = \"$TOOL_DIGEST\"" "$FIX/apps/aster-lang/tools/kustomization.yaml"
+# 假 kubectl：两个应用的 Pod imageID 分别取 $FAKE_PROXY_DIGEST / $FAKE_TOOL_DIGEST，Deployment 可用副本取 $FAKE_AVAIL，
+# 策略 spec 取渲染结果（或被篡改的版本）。
 cat >"$WORK/kbin/kubectl-conv" <<'SH'
 #!/usr/bin/env bash
+pod() { jq -n --arg id "docker.io/wontlost/x@$1" --argjson n "${FAKE_PODS:-1}" \
+  '{items: [range($n) | {metadata: {}, status: {phase: "Running", containerStatuses: [{imageID: $id}]}}]}'; }
 case "$*" in
-  "get pods -n aster-guard -l app=aster-guard-mcp -o json"|"get pods -n aster-tools -l app=demo-tool -o json")
-    jq -n --arg id "docker.io/wontlost/x@$FAKE_DIGEST" --argjson n "${FAKE_PODS:-1}" \
-      '{items: [range($n) | {metadata: {}, status: {phase: "Running", containerStatuses: [{imageID: $id}]}}]}' ;;
+  "get pods -n aster-guard -l app=aster-guard-mcp -o json") pod "$FAKE_PROXY_DIGEST" ;;
+  "get pods -n aster-tools -l app=demo-tool -o json") pod "$FAKE_TOOL_DIGEST" ;;
   "get deployment -n "*" -o json")
     jq -n --argjson a "$FAKE_AVAIL" --argjson og "${FAKE_OBSERVED:-2}" \
       '{metadata: {generation: 2}, spec: {replicas: 1}, status: {observedGeneration: $og, updatedReplicas: 1, availableReplicas: $a}}' ;;
@@ -115,18 +126,21 @@ case "$*" in
 esac
 SH
 chmod +x "$WORK/kbin/kubectl-conv"
-kustomize build "$ROOT/apps/aster-lang/tools" | yq 'select(.kind == "NetworkPolicy")' -o=json >"$WORK/np.json"
+kustomize build "$FIX/apps/aster-lang/tools" | yq 'select(.kind == "NetworkPolicy")' -o=json >"$WORK/np.json"
 jq '.spec.ingress[0].ports[0].port = 9090' "$WORK/np.json" >"$WORK/np-bad.json"
-want_digest="$(kustomize build "$ROOT/apps/aster-lang/tools" | yq 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' | sed 's/.*@//')"
-conv() { local code=0; KUBECTL="$WORK/kbin/kubectl-conv" FAKE_DIGEST="$1" FAKE_AVAIL="$2" FAKE_NP="$3" CONVERGE_TIMEOUT=1 CONVERGE_POLL=0.2 \
-  bash "$HERE/converge.sh" "$ROOT" >"$WORK/conv.out" 2>/dev/null || code=$?; echo "$code"; }
-[[ "$(conv "$want_digest" 1 "$WORK/np.json")" == 0 ]] && grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$' "$WORK/conv.out" &&
+# conv <proxy digest> <tool digest> <available> <policy file>
+conv() { local code=0; KUBECTL="$WORK/kbin/kubectl-conv" FAKE_PROXY_DIGEST="$1" FAKE_TOOL_DIGEST="$2" FAKE_AVAIL="$3" FAKE_NP="$4" \
+  CONVERGE_TIMEOUT=1 CONVERGE_POLL=0.2 bash "$HERE/converge.sh" "$FIX" >"$WORK/conv.out" 2>/dev/null || code=$?; echo "$code"; }
+OTHER="sha256:$(printf 'c%.0s' {1..64})"
+[[ "$(conv "$PROXY_DIGEST" "$TOOL_DIGEST" 1 "$WORK/np.json")" == 0 ]] && grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$' "$WORK/conv.out" &&
   pass "converge_prints_since_when_matching" || fail converge_prints_since_when_matching "$(cat "$WORK/conv.out")"
-[[ "$(conv sha256:1111111111111111111111111111111111111111111111111111111111111111 1 "$WORK/np.json")" == 3 ]] && pass converge_digest_mismatch_times_out || fail converge_digest_mismatch_times_out
-[[ "$(conv "$want_digest" 0 "$WORK/np.json")" == 3 ]] && pass converge_unavailable_times_out || fail converge_unavailable_times_out
-[[ "$(conv "$want_digest" 1 "$WORK/np-bad.json")" == 3 ]] && pass converge_policy_drift_times_out || fail converge_policy_drift_times_out
-[[ "$(FAKE_PODS=2 conv "$want_digest" 1 "$WORK/np.json")" == 3 ]] && pass converge_two_pods_times_out || fail converge_two_pods_times_out
-[[ "$(FAKE_OBSERVED=1 conv "$want_digest" 1 "$WORK/np.json")" == 3 ]] && pass converge_unobserved_generation_times_out || fail converge_unobserved_generation_times_out
+[[ "$(conv "$OTHER" "$TOOL_DIGEST" 1 "$WORK/np.json")" == 3 ]] && pass converge_proxy_digest_mismatch_times_out || fail converge_proxy_digest_mismatch_times_out
+[[ "$(conv "$PROXY_DIGEST" "$OTHER" 1 "$WORK/np.json")" == 3 ]] && pass converge_tool_digest_mismatch_times_out || fail converge_tool_digest_mismatch_times_out
+[[ "$(conv "$TOOL_DIGEST" "$PROXY_DIGEST" 1 "$WORK/np.json")" == 3 ]] && pass converge_swapped_digests_time_out || fail converge_swapped_digests_time_out
+[[ "$(conv "$PROXY_DIGEST" "$TOOL_DIGEST" 0 "$WORK/np.json")" == 3 ]] && pass converge_unavailable_times_out || fail converge_unavailable_times_out
+[[ "$(conv "$PROXY_DIGEST" "$TOOL_DIGEST" 1 "$WORK/np-bad.json")" == 3 ]] && pass converge_policy_drift_times_out || fail converge_policy_drift_times_out
+[[ "$(FAKE_PODS=2 conv "$PROXY_DIGEST" "$TOOL_DIGEST" 1 "$WORK/np.json")" == 3 ]] && pass converge_two_pods_times_out || fail converge_two_pods_times_out
+[[ "$(FAKE_OBSERVED=1 conv "$PROXY_DIGEST" "$TOOL_DIGEST" 1 "$WORK/np.json")" == 3 ]] && pass converge_unobserved_generation_times_out || fail converge_unobserved_generation_times_out
 
 if [[ "$FAILED" != 0 ]]; then echo "workflow.test.sh：有用例失败" >&2; exit 1; fi
 echo "workflow.test.sh：全部通过"
