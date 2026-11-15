@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 守 S2-0 的 4 个 ClusterImagePolicy 与信任根 allowed-images.yaml 的契约一致性。
+# 守 S2-0 起全部 ClusterImagePolicy 与信任根 allowed-images.yaml 的契约一致性。
 #
 # 契约（见 docs/p0a-s2-0-cosign-admission-design.md §7）：
 #   - 信任根每 repository 恰 1 digest-verify CIP + 1 tag-fail CIP（N 仓 → 2N CIP）。
 #   - digest-verify：glob index.docker.io/<repo>@sha256:**；keyless issuer/subject
 #     == allowed-images 派生值；images/authorities/keyless.identities 各恰 1 项。
 #   - tag-fail：glob index.docker.io/<repo>:**；唯一 authority static.action==fail。
-#   - 4 份全 mode: enforce。
+#   - 全部 CIP mode: enforce。
 #   - ★字段收紧（防缩域字段漂移盲区）：
 #     - digest-verify CIP 的 .spec 只允许 images/authorities/mode 三键（不许加
 #       match 等缩小作用域的额外字段）；authorities[0] 只允许 keyless 键；
