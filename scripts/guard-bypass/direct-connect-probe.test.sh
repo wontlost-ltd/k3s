@@ -43,14 +43,14 @@ fail() { echo "  ✗ ${NAME}：$*"; FAILED=1; }
 ok() { echo "  ✓ $NAME"; }
 expect() { local desc="$1"; shift; if "$@"; then :; else fail "$desc"; return 1; fi; }
 calls() { cat "$FAKE_OUT/calls.log"; }
-no_create() { ! grep -q '^create ' "$FAKE_OUT/calls.log"; }
 summary_has() { jq -e "$1" <<<"$SUMMARY" >/dev/null; }
 
-# ── 静态形状违规 → 1，且不建任何 Pod ──
+# ── 静态形状违规 → 1；仍照常起 Pod 测一遍（摘要同时带动态结果），static 字段列出违规 ──
 static_violation() {
   new_case "$1"
   cat >"$CASE/${2}"
-  run 1 "${NET[@]}" && expect "未创建 Pod" no_create && expect "reasons 含 $3" summary_has ".verdict == \"bypass\" and (.reasons | any(startswith(\"$3\")))" && ok
+  run 1 "${NET[@]}" && expect "仍起两个 Pod" bash -c "[[ \$(grep -c '^create ' '$FAKE_OUT/calls.log') == 2 ]]" &&
+    expect "static 含 $3" summary_has ".verdict == \"bypass\" and (.static | any(startswith(\"$3\"))) and (.results | length) == 4" && ok
 }
 
 static_violation missing_policy_fails networkpolicies.json no_policy <<'EOF'
@@ -148,6 +148,13 @@ SH
   expect "被挡的目标恰好试 3 次" bash -c "[[ \$(grep -c '10.42.3.17' '$PODCURL_LOG') == 3 ]]" &&
   expect "日志以 DONE 结尾" bash -c "tail -n1 <<<'$log' | grep -q '^DONE$'" && ok
 fi
+
+new_case no_tool_shape_check_skips_deployment
+cat >"$CASE/deployment.json" <<'EOF'
+{"metadata":{"name":"demo-tool"},"spec":{"replicas":1,"strategy":{"type":"Recreate"},
+ "template":{"spec":{"containers":[{"name":"demo-tool","env":[{"name":"TICKET_CHECK","value":"off"}]}]}}}}
+EOF
+run 0 "${NET[@]}" --no-tool-shape-check && expect "不读工具 Deployment" bash -c "! grep -q '^get deployment' '$FAKE_OUT/calls.log'" && ok
 
 new_case all_blocked_is_pass
 run 0 "${NET[@]}" && expect "pass" summary_has '.verdict == "pass" and .canary == {"echo":"ok","delete":"ok"}' && ok

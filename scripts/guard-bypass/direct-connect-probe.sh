@@ -152,7 +152,7 @@ cleanup_run() {
 
 network() {
   AGENTS_NS="" TOOL_NS="" TOOL_SELECTOR="" TOOL_SVC="" ADMIT_NS="" PROBE_IMAGE="" POSITIVE_URL="" CANARY_PROXY="" CANARY_SECRET=""
-  RUN_ID="" DRY_RUN=0
+  RUN_ID="" DRY_RUN=0 TOOL_SHAPE=1
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --agents-ns) AGENTS_NS="${2:-}"; shift 2 ;;
@@ -166,6 +166,8 @@ network() {
       --canary-secret) CANARY_SECRET="${2:-}"; shift 2 ;;
       --run-id) RUN_ID="${2:-}"; shift 2 ;;
       --dry-run) DRY_RUN=1; shift ;;
+      # 只给 redteam-window.sh 的反向记录 R-A 用：那里故意设了 TICKET_CHECK=off，网络探针只证明网络层。
+      --no-tool-shape-check) TOOL_SHAPE=0; shift ;;
       *) echo "未知参数：$1" >&2; usage ;;
     esac
   done
@@ -204,16 +206,15 @@ network() {
     | select(.kind == "ServiceAccount" and (.namespace // $ns) == $ns)
     | "agents_sa_binding \($rb): 模型命名空间内的 RoleBinding 指向本命名空间的 ServiceAccount \(.name)"' "$tmp/rb.json")
 
-  "$KUBECTL" get deployment -n "$TOOL_NS" "$svc_name" -o json >"$tmp/deploy.json" || finish inconclusive 3 '{"reasons":["无法读取工具 Deployment"]}'
-  while IFS= read -r v; do [[ -n "$v" ]] && reasons+=("$v"); done < <(jq -r '
-    (if .spec.replicas != 1 then "tool_replicas: 工具 Deployment replicas 须为 1（进程内票据账本），实为 \(.spec.replicas)" else empty end),
-    (if (.spec.strategy.type // "RollingUpdate") != "Recreate" then "tool_strategy: 工具 Deployment 须 strategy Recreate" else empty end),
-    ([.spec.template.spec.containers[], (.spec.template.spec.initContainers // [])[]] | .[] | (.env // [])[]
-      | select(.name == "TICKET_CHECK" and .value == "off") | "ticket_check_off: 工具容器设置了 TICKET_CHECK=off")' "$tmp/deploy.json")
-
-  if [[ ${#reasons[@]} -gt 0 ]]; then
-    finish bypass 1 "$(printf '%s\n' "${reasons[@]}" | jq -R . | jq -cs '{reasons: .}')"
+  if [[ "$TOOL_SHAPE" == 1 ]]; then
+    "$KUBECTL" get deployment -n "$TOOL_NS" "$svc_name" -o json >"$tmp/deploy.json" || finish inconclusive 3 '{"reasons":["无法读取工具 Deployment"]}'
+    while IFS= read -r v; do [[ -n "$v" ]] && reasons+=("$v"); done < <(jq -r '
+      (if .spec.replicas != 1 then "tool_replicas: 工具 Deployment replicas 须为 1（进程内票据账本），实为 \(.spec.replicas)" else empty end),
+      (if (.spec.strategy.type // "RollingUpdate") != "Recreate" then "tool_strategy: 工具 Deployment 须 strategy Recreate" else empty end),
+      ([.spec.template.spec.containers[], (.spec.template.spec.initContainers // [])[]] | .[] | (.env // [])[]
+        | select(.name == "TICKET_CHECK" and .value == "off") | "ticket_check_off: 工具容器设置了 TICKET_CHECK=off")' "$tmp/deploy.json")
   fi
+  # 静态违规不提前结束：照常起 Pod 测一遍，摘要里同时留下「实际是否可达」的证据（反向记录 R-N 正需要它）。
 
   # ── 2. 清扫残留探针 Pod（> 600 s）──
   local targets="http://${svc_name}.${TOOL_NS}.svc.cluster.local:${port}/mcp http://${tool_ip}:${port}/mcp"
@@ -303,8 +304,9 @@ network() {
     --argjson bypass "$(printf '%s\n' "${bypass[@]+"${bypass[@]}"}" | jq -R 'select(. != "")' | jq -cs .)" \
     --argjson inc "$(printf '%s\n' "${inconclusive[@]+"${inconclusive[@]}"}" | jq -R 'select(. != "")' | jq -cs .)" \
     --arg toolNode "$tool_node" --arg positive "$positive" --arg ce "$canary_echo" --arg cd "$canary_delete" \
-    '{toolNode: $toolNode, results: $results, positive: $positive, canary: {echo: $ce, delete: $cd}, reasons: ($bypass + $inc)}')"
-  if [[ ${#bypass[@]} -gt 0 ]]; then finish bypass 1 "$extra"; fi
+    --argjson static "$(printf '%s\n' "${reasons[@]+"${reasons[@]}"}" | jq -R 'select(. != "")' | jq -cs .)" \
+    '{toolNode: $toolNode, results: $results, positive: $positive, canary: {echo: $ce, delete: $cd}, static: $static, reasons: ($static + $bypass + $inc)}')"
+  if [[ ${#bypass[@]} -gt 0 || ${#reasons[@]} -gt 0 ]]; then finish bypass 1 "$extra"; fi
   if [[ ${#inconclusive[@]} -gt 0 ]]; then finish inconclusive 3 "$extra"; fi
   finish pass 0 "$extra"
 }
