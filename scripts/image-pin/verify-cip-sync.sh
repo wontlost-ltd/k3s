@@ -6,7 +6,7 @@
 #   - digest-verify：glob index.docker.io/<repo>@sha256:**；keyless issuer/subject
 #     == allowed-images 派生值；images/authorities/keyless.identities 各恰 1 项。
 #   - tag-fail：glob index.docker.io/<repo>:**；唯一 authority static.action==fail。
-#   - 4 份全 mode: enforce。
+#   - 全部 CIP mode: enforce。
 #   - ★字段收紧（防缩域字段漂移盲区）：
 #     - digest-verify CIP 的 .spec 只允许 images/authorities/mode 三键（不许加
 #       match 等缩小作用域的额外字段）；authorities[0] 只允许 keyless 键；

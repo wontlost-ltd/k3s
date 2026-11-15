@@ -104,6 +104,9 @@ images:
   # 两个镜像都由公开仓 aster-cloud/aster-guard 的 image.yml 在 main 上构建并 cosign keyless 签名
   # （该工作流只有 push main / workflow_dispatch 触发，build job 限 main，PR 无从产出被接受的签名）。
   # ★verify-cip-sync 的 2N 契约因这两条从 7 仓/14 CIP 升为 9 仓/18 CIP——四条 CIP 与本条同落。
+  # ★不接 image-pin-behind-rerun（同 aster-ai-workspace / aster-resolver-migration）：源仓在 aster-cloud org，
+  #   重跑需 image-pin App 在该 org 有 actions:write。pin PR 落后时由下一次 main 推送或手动
+  #   workflow_dispatch image.yml 重开（脚本强推同一固定分支）。
   - image: docker.io/wontlost/aster-guard-mcp
     sourceRepo: aster-cloud/aster-guard           # 唯一合法源仓（跨 org，公开仓）
     workflowFile: image.yml                       # 唯一合法签发 workflow
