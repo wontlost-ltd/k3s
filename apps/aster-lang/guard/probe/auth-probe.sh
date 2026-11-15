@@ -44,8 +44,14 @@ summary() {
   echo "{\"verdict\":\"$1\",\"ticketCheck\":\"${TICKET_CHECK:-unknown}\",\"unticketedDelta\":${DELTA:-null},\"marker\":\"${M:-}\",\"markerExecuted\":${MARKER_EXECUTED:-false},\"steps\":{\"healthz\":${S_HEALTH:-0},\"list\":${S_LIST:-0},\"missing\":${S_MISSING:-0},\"forged\":${S_FORGED:-0},\"malformed\":${S_MALFORMED:-0},\"batch\":${S_BATCH:-0}},\"reasons\":[${REASONS}]}"
 }
 
-# ① healthz
-http GET /healthz
+# ① healthz。★kube-router 对新 Pod 的 ipset 同步有约 1 s 延迟（本地 k3d v1.35.0+k3s1 实测），刚启动的探针 Pod
+#   对被放行的工具也会先被 REJECT；最多等 WARMUP_SECONDS（缺省 30）直到 healthz 返回 200，仍不通再判无法判定。
+waited=0
+while :; do
+  http GET /healthz
+  [ "$CODE" = 200 ] || [ "$waited" -ge "${WARMUP_SECONDS:-30}" ] && break
+  sleep 2; waited=$((waited + 2))
+done
 S_HEALTH=$CODE
 TICKET_CHECK=$(clean "$(field_str ticketCheck)")
 echo "healthz $CODE ticketCheck=${TICKET_CHECK:-?}"

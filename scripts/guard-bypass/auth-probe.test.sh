@@ -9,6 +9,7 @@ PROBE="$HERE/../../apps/aster-lang/guard/probe/auth-probe.sh"
 export FAKE_BASE="$HERE/testdata/curl/base"
 export PATH="$HERE/testdata/auth-bin:$PATH"
 export TOOL_URL=http://demo-tool.aster-tools.svc.cluster.local:8080
+export WARMUP_SECONDS=0
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 FAILED=0
@@ -100,6 +101,13 @@ run 1 && summary_has '.steps.batch == 200' && ok
 new_case healthz_down_is_inconclusive
 echo 28 >"$CASE/healthz.exit"
 run 3 && summary_has '.steps.healthz == 0 and .steps.missing == 401' && ok
+
+new_case healthz_warmup_retries_until_reachable
+# 头两次 healthz 被 REJECT（kube-router 同步延迟），第三次 200：照常完成全部步骤并判通过。
+printf '%s\n' 7 7 >"$CASE/healthz.exits"
+if WARMUP_SECONDS=10 run 0; then
+  if [[ "$(steps_sent ' healthz$')" == 3 ]]; then ok; else fail "healthz 应重试至可达（发出 $(steps_sent ' healthz$') 次）"; fi
+fi
 
 new_case effects_unreadable_is_inconclusive
 set_resp effects2 500 'oops'

@@ -55,13 +55,23 @@ finish() {
 # 探针 Pod 内执行的脚本（busybox sh + curl）。每个目标一行 RESULT，正向对照一行 POSITIVE，金丝雀两行 CANARY。
 # 正向对照用 curl -k：它只证明该 Pod 的 DNS 与出站可用（红队副本里指向 https://kubernetes.default.svc/livez，
 # 而探针 Pod 不挂 SA token 也就没有集群 CA），TLS 身份与此无关；任何 HTTP 状态都算可达。
+# ★kube-router 对新 Pod 的 ipset 同步有约 1 s 延迟（本地 k3d v1.35.0+k3s1 实测：新 Pod 头一秒对被放行的目标也是 REJECT）。
+#   所以先等 SETTLE_SECONDS，再对每个目标至多试 ATTEMPTS 次、任一次可达即记可达——否则「放行了 aster-agents
+#   的错误策略」会因同步延迟被误判为「挡住了」。被挡的目标三次都被挡（REJECT 很快，DROP 每次 5 s，总时长在 90 s 内）。
 # 金丝雀判定依赖 aster-guard 的 JSON 序列化（JSON.stringify，无空白）：
 #   echo   成功 ⇔ 无 "isError":true 且 _meta.asterGuard 以 {"decisionId":"<uuid>","attemptId" 开头；
 #   delete 被拒 ⇔ "isError":true 且 asterGuard 以 {"status":"denied" 开头。
 # shellcheck disable=SC2016  # 单引号内的 $ 由 Pod 内的 sh 展开
 POD_SCRIPT='
+sleep "${SETTLE_SECONDS:-5}"
 for t in $TARGETS; do
-  code=$(curl -sS -o /dev/null -m 5 -w "%{http_code}" -X POST "$t" 2>/dev/null); rc=$?
+  i=0
+  while :; do
+    i=$((i + 1))
+    code=$(curl -sS -o /dev/null -m 5 -w "%{http_code}" -X POST "$t" 2>/dev/null); rc=$?
+    [ "$rc" = 0 ] || [ "$i" -ge "${ATTEMPTS:-3}" ] && break
+    sleep "${RETRY_SECONDS:-2}"
+  done
   echo "RESULT $t $rc ${code:-000}"
 done
 if [ -n "${POSITIVE_URL:-}" ]; then

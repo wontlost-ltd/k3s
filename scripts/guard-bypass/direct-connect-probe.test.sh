@@ -121,6 +121,34 @@ if run 0 "${NET[@]}"; then
   ok
 fi
 
+# 探针 Pod 内脚本本身：先被挡、后可达的目标必须记为可达（kube-router 同步延迟不得造成假「挡住」）；
+# 一直被挡的目标试满 ATTEMPTS 次。用假 curl（按目标逐次消费退出码）在本机 sh 里运行 Pod 规格中的脚本。
+new_case pod_script_retries_and_reports_any_reachable
+if run 0 "${NET[@]}"; then
+  mkdir -p "$WORK/podbin"
+  cat >"$WORK/podbin/curl" <<'SH'
+#!/bin/sh
+for a; do url=$a; done
+echo "$url" >>"$PODCURL_LOG"
+key=$(echo "$url" | tr -c 'a-z0-9' '_')
+seq="$PODCURL_DIR/$key"
+if [ -s "$seq" ]; then rc=$(head -n1 "$seq"); sed '1d' "$seq" >"$seq.t"; mv "$seq.t" "$seq"; else rc=7; fi
+[ "$rc" = 0 ] && printf 401
+exit "$rc"
+SH
+  chmod +x "$WORK/podbin/curl"
+  export PODCURL_DIR="$WORK/podcurl" PODCURL_LOG="$WORK/podcurl.log"
+  mkdir -p "$PODCURL_DIR"; : >"$PODCURL_LOG"
+  printf '7\n0\n' >"$PODCURL_DIR/$(echo 'http://demo-tool.aster-tools.svc.cluster.local:8080/mcp' | tr -c 'a-z0-9' '_')"
+  script="$(jq -r '.spec.containers[0].command[2]' "$FAKE_OUT/created-0.json")"
+  targets="$(jq -r '.spec.containers[0].env[] | select(.name == "TARGETS") | .value' "$FAKE_OUT/created-0.json")"
+  log="$(PATH="$WORK/podbin:$PATH" SETTLE_SECONDS=0 RETRY_SECONDS=0 TARGETS="$targets" RUN_ID=t1 sh -c "$script")"
+  expect "先被挡后可达 → RESULT 退出码 0" grep -q '^RESULT http://demo-tool.aster-tools.svc.cluster.local:8080/mcp 0 401$' <<<"$log" &&
+  expect "一直被挡 → 试满 3 次后记 7" grep -q '^RESULT http://10.42.3.17:8080/mcp 7 000$' <<<"$log" &&
+  expect "被挡的目标恰好试 3 次" bash -c "[[ \$(grep -c '10.42.3.17' '$PODCURL_LOG') == 3 ]]" &&
+  expect "日志以 DONE 结尾" bash -c "tail -n1 <<<'$log' | grep -q '^DONE$'" && ok
+fi
+
 new_case all_blocked_is_pass
 run 0 "${NET[@]}" && expect "pass" summary_has '.verdict == "pass" and .canary == {"echo":"ok","delete":"ok"}' && ok
 
