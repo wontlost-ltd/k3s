@@ -1,0 +1,15 @@
+# guard-admission：部署层隔离证明的集群级对象（aster-api ADR 0054 §12 D9；wontlost-ltd/aster-api#466 阶段 C Task 7c）。
+#
+# ★为什么不放 apps/infrastructure/kube-system/manifests（计划原写法）：集群里**没有**指向该目录的 Application
+#   （kube-system-config 从未落地，`kubectl get application -n argocd kube-system-config` → NotFound；该目录
+#   kustomization.yaml 的注释也记录了这一点），放进去不会生效。改为 platform-apps ApplicationSet 的一个元素，
+#   prune: true——回滚只需 git revert。
+#
+# ★这是发放探针凭证（U-K6）的硬门：合并并同步后，用户以管理员 kubeconfig 跑 scripts/guard-bypass/vap-check.sh，
+#   全部用例符合期望、且 aster-agents 的 Secret 清单恰为 secret/guard-demo-agent，才可签发探针 kubeconfig。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - guard-agents-secret-policy.yaml
+  - guard-probe-pod-scope.yaml
+  - guard-bypass-probe-ns-read.yaml
