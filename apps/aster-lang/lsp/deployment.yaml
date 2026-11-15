@@ -69,10 +69,9 @@ spec:
                 secretKeyRef:
                   name: aster-lsp-auth
                   key: LSP_TICKET_SECRET
-            # ★仅接受 ticket（lsp-server.mjs 的 evaluateUpgrade：无 ticket 一律 401 "Missing ticket"，
-            #   不再看 LSP_AUTH_TOKEN）。前置：aster-cloud 已部署「前端只发 ticket」的版本（aster-cloud#745）。
-            - name: LSP_TICKET_REQUIRED
-              value: "true"
+            # ★只接受 ticket 由网关代码保证（aster-cloud#657 ③ 收尾）：镜像 NODE_ENV=production
+            #   （Dockerfile.lsp）下 evaluateUpgrade 不带 ticket 一律 401 "Missing ticket"，不再有
+            #   LSP_TICKET_REQUIRED 开关，也不再读取 LSP_AUTH_TOKEN / x-lsp-token / ?token=。
             # ★每 pod 并发会话上限（网关 evaluateUpgrade 第 1 步，默认 50 远超内存所能承受）。
             #   每个会话 spawn 一个语言服务器子进程。实测（node:24-slim，Linux，aster-lsp 同版本
             #   aster-lang-ts，打开内置 Auto Insurance 模板 + 10 次 hover 后）：
