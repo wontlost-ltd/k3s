@@ -9,6 +9,6 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-guard-mcp
-    digest: sha256:29991b65ad3805c3636bac0f9ae4bb2287d5304d6e724ca35c653d9311066fb0
-    sourceSha: 537d9d710b11cfb0f17462404dee56e342fc0cd5
-    runId: "43701800522"
+    digest: sha256:79e24fe2d7cb07ea0f19dcf59bf65c883ea825d9236ec86807b8fe2f106f7498
+    sourceSha: 53c52ecd638dc538eaf4f3860f75003b02bab9fb
+    runId: "43704249569"
