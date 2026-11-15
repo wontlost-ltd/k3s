@@ -105,6 +105,11 @@ check "demo-tool：replicas ≤ 1 且 Recreate；代理 --isolation network,auth
     | (if (index(["--isolation"]) as $i | .[$i + 1]) != "network,auth" then "aster-guard-mcp 须 --isolation network,auth" else empty end),
       (if (index(["--listen"]) == null) then "aster-guard-mcp 须为 --listen 监听模式" else empty end))'
 
+check "代理与票据探针对 demo-tool 有 preferred 反亲和（覆盖被放行的跨节点路径，#466 生产发现）" jq_none "$WORK/all.json" "$POD_TEMPLATES"'
+  | .[] | select(.o == "aster-guard/aster-guard-mcp" or .o == "aster-guard/guard-auth-probe") | .o as $o
+  | select((.s.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution // [])
+      | any(.podAffinityTerm | .labelSelector.matchLabels == {"app":"demo-tool"} and .namespaces == ["aster-tools"] and .topologyKey == "kubernetes.io/hostname") | not)
+  | "\($o)：缺少对 aster-tools/demo-tool 的 preferred 反亲和"'
 check "guard-auth-probe：Forbid、历史 1/3、单次 120 s、backoffLimit 0、不挂 Secret" jq_none "$WORK/all.json" '
   [.[] | select(.kind == "CronJob")] as $cj
   | (if ($cj | length) != 1 then "CronJob 数须为 1" else empty end),

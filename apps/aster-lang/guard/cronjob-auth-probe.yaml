@@ -25,6 +25,19 @@ spec:
           restartPolicy: Never
           automountServiceAccountToken: false
           enableServiceLinks: false
+          # 对演示工具 Pod 的 preferred 反亲和：让票据探针尽量与工具不在同一节点，使它走的是**被放行的跨节点路径**——
+          # #466 生产发现：kube-router 曾挡掉 aster-guard（master-1）→ demo-tool（master-3）的被放行流量，而同节点路径正常；
+          # 同节点放置会掩盖这个缺陷。工作流以 --require-admitted-cross-node 要求覆盖到它。
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app: demo-tool
+                    namespaces: [aster-tools]
+                    topologyKey: kubernetes.io/hostname
           securityContext:
             runAsNonRoot: true
             runAsUser: 100

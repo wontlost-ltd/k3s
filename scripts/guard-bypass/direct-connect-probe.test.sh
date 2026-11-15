@@ -15,8 +15,9 @@ FAILED=0
 IMAGE="docker.io/curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40"
 NET=(network --agents-ns aster-agents --tool-ns aster-tools --tool-selector app=demo-tool --tool-svc demo-tool:8080
   --admit-ns aster-guard --probe-image "$IMAGE" --positive-url http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/healthz
-  --canary-proxy http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/mcp --canary-secret guard-demo-agent --run-id t1)
-AUTH=(auth-status --guard-ns aster-guard --cronjob guard-auth-probe --since 2027-01-15T08:00:00Z --wait 2)
+  --canary-proxy http://aster-guard-mcp.aster-guard.svc.cluster.local:8080/mcp --canary-secret guard-demo-agent
+  --proxy-ns aster-guard --proxy-selector app=aster-guard-mcp --require-admitted-cross-node --run-id t1)
+AUTH=(auth-status --guard-ns aster-guard --cronjob guard-auth-probe --since 2027-01-15T08:00:00Z --wait 2 --tool-ns aster-tools --tool-selector app=demo-tool)
 
 # new_case <名称>：建用例目录（覆盖夹具写到 $CASE/），清空输出目录。
 new_case() {
@@ -159,6 +160,27 @@ run 0 "${NET[@]}" --no-tool-shape-check && expect "不读工具 Deployment" bash
 new_case all_blocked_is_pass
 run 0 "${NET[@]}" && expect "pass" summary_has '.verdict == "pass" and .canary == {"echo":"ok","delete":"ok"}' && ok
 
+# ── 被放行的跨节点路径（#466 生产发现：aster-guard@master-1 → demo-tool@master-3 被 kube-router 挡掉）──
+new_case admitted_cross_node_is_reported
+run 0 "${NET[@]}" && expect "admitted 记录跨节点" summary_has '.admitted == {"proxyNode":"master-1","proxyReady":true,"crossNode":"true"}' && ok
+
+new_case admitted_cross_node_canary_failure_points_at_kube_router
+sed 's/^CANARY echo ok/CANARY echo fail/' "$FAKE_BASE/log-cross.txt" >"$CASE/log-cross.txt"
+run 3 "${NET[@]}" && expect "原因指向跨节点放行缺陷" summary_has '.reasons | any(contains("被放行的跨节点路径 aster-guard（master-1）→ 工具（worker-1）不通"))' && ok
+
+new_case proxy_not_ready_is_inconclusive
+sed 's/"status":"True"/"status":"False"/' "$FAKE_BASE/proxy-pods.json" >"$CASE/proxy-pods.json"
+run 3 "${NET[@]}" && expect "原因：代理未就绪 + 跨节点提示" summary_has '.reasons | any(startswith("代理未就绪") and contains("kube-router"))' && ok
+
+new_case colocated_proxy_without_cross_node_coverage_is_inconclusive
+sed 's/"master-1"/"worker-1"/' "$FAKE_BASE/proxy-pods.json" >"$CASE/proxy-pods.json"
+run 3 "${NET[@]}" && expect "原因：跨节点未覆盖" summary_has '.admitted.crossNode == "false" and (.reasons | any(contains("被放行的跨节点路径未覆盖")))' && ok
+
+new_case colocated_proxy_passes_without_require_flag
+sed 's/"master-1"/"worker-1"/' "$FAKE_BASE/proxy-pods.json" >"$CASE/proxy-pods.json"
+args=(); for a in "${NET[@]}"; do [[ "$a" == --require-admitted-cross-node ]] || args+=("$a"); done
+run 0 "${args[@]}" && ok
+
 new_case cross_pod_on_tool_node_is_inconclusive
 sed 's/"master-1"/"worker-1"/' "$FAKE_BASE/probe-run.json" >"$CASE/probe-run.json"
 run 3 "${NET[@]}" && expect "原因：跨节点未覆盖" summary_has '.reasons | any(contains("跨节点路径未覆盖"))' && ok
@@ -233,6 +255,20 @@ for v in pass:0 bypass:1 inconclusive:3; do
   sed "s/\"verdict\":\"pass\"/\"verdict\":\"${v%%:*}\"/" "$FAKE_BASE/job-log.txt" >"$CASE/job-log.txt"
   run "${v##*:}" "${AUTH[@]}" && expect "取 since 之后最早的 Job" summary_has '.job == "guard-auth-probe-29000002"' && ok
 done
+
+new_case auth_status_cross_node_unreachable_points_at_kube_router
+echo '{"verdict":"inconclusive","steps":{"healthz":0,"list":0},"reasons":["tools/list 非 200（000）"]}' >"$CASE/job-log.txt"
+sed 's/"worker-1"/"master-1"/' "$FAKE_BASE/job-pods.json" >"$CASE/job-pods.json"
+run 3 "${AUTH[@]}" && expect "跨节点时原因指向 kube-router" summary_has '.jobNode == "master-1" and .toolNode == "worker-1" and (.reasons | any(contains("aster-guard（master-1）→ 工具（worker-1）不通")))' && ok
+
+new_case auth_status_same_node_unreachable_has_no_cross_node_hint
+echo '{"verdict":"inconclusive","steps":{"healthz":0,"list":0},"reasons":["tools/list 非 200（000）"]}' >"$CASE/job-log.txt"
+run 3 "${AUTH[@]}" && expect "同节点不给跨节点提示" summary_has '.jobNode == "worker-1" and (.reasons == null)' && ok
+
+new_case auth_status_cross_node_non_json_has_no_hint
+echo "curl: (7) Failed to connect" >"$CASE/job-log.txt"
+sed 's/"worker-1"/"master-1"/' "$FAKE_BASE/job-pods.json" >"$CASE/job-pods.json"
+run 3 "${AUTH[@]}" && expect "摘要不是 JSON 时不归因" summary_has '.reasons == null' && ok
 
 new_case auth_status_non_json_is_inconclusive
 echo "curl: (6) Could not resolve host" >"$CASE/job-log.txt"
