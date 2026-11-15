@@ -21,3 +21,7 @@ subjects:
   - kind: ServiceAccount
     name: guard-bypass-probe
     namespace: aster-guard
+  # 同一探针的 GitHub OIDC 身份（aster-api ADR 0057 D8）
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: github-actions:wontlost-ltd/k3s:guard-probe

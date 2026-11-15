@@ -1,6 +1,7 @@
 # 部署层探针身份在 aster-agents 的 Pod 形状约束（aster-api ADR 0054 §12 D9；计划 Task 7c、§3）。
 #
-# 只对 system:serviceaccount:aster-guard:guard-bypass-probe 生效（matchConditions），其它身份不受影响。
+# 只对探针的两个身份生效（matchConditions）：SA system:serviceaccount:aster-guard:guard-bypass-probe 与其 GitHub OIDC 身份
+# github-actions:wontlost-ltd/k3s:guard-probe（aster-api ADR 0057 D8，RBAC 与 SA 相同）；其它身份不受影响。
 #   DELETE：只能删带 app.kubernetes.io/name=guard-bypass-probe 标签的 Pod——RBAC 是命名空间级的，
 #           没有这条，探针凭证（会出现在 GitHub 托管机器上）就能删光 aster-agents 里的 Agent Pod。
 #   CREATE：必须带探针标签与 guard-bypass/run-id；SA 为空或 default；automountServiceAccountToken 显式 false；
@@ -24,7 +25,7 @@ spec:
         resources: ["pods"]
   matchConditions:
     - name: probe-identity-only
-      expression: "request.userInfo.username == 'system:serviceaccount:aster-guard:guard-bypass-probe'"
+      expression: "request.userInfo.username in ['system:serviceaccount:aster-guard:guard-bypass-probe', 'github-actions:wontlost-ltd/k3s:guard-probe']"
   variables:
     - name: isCreate
       expression: "request.operation == 'CREATE'"

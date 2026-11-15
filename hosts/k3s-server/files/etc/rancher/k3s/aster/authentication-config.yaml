@@ -1,0 +1,60 @@
+# kube-apiserver 结构化认证配置（aster-api ADR 0057 §4.1 / D7）：只信任 wontlost-ltd/k3s 的
+# .github/workflows/guard-bypass-probe.yml 在 main、Environment guard-probe、GitHub 托管 runner 上签出的 ID token。
+#
+# ★失败即关闭：缺任何 claim 时 CEL 求值出错 = 认证失败；规则全部满足才通过。
+# ★用户名在规则通过后恒为 github-actions:wontlost-ltd/k3s:guard-probe，RBAC / 准入策略 guard-probe-pod-scope /
+#   审计策略按它逐字匹配（scripts/guard-bypass/lib.sh 为唯一来源，hosts/k3s-server/authn-config.test.sh 断言）。
+#   不映射 groups：身份不会因组成员资格多拿任何权限。
+# ★extra 带运行号与提交，审计日志里每条请求都能回溯到具体运行（user.extra）。
+# ★不设 anonymous：k3s 自己传 --anonymous-auth，两者同时出现 apiserver 拒绝启动。
+apiVersion: apiserver.config.k8s.io/v1
+kind: AuthenticationConfiguration
+jwt:
+  - issuer:
+      url: https://token.actions.githubusercontent.com
+      audiences:
+        - k3s-guard-probe
+    claimValidationRules:
+      - expression: "claims.repository == 'wontlost-ltd/k3s'"
+        message: "repository 须为 wontlost-ltd/k3s"
+      - expression: "claims.repository_id == '1116032527'"
+        message: "repository_id 须为 wontlost-ltd/k3s 的不可变 ID（防删库同名重建）"
+      - expression: "claims.repository_owner_id == '81835091'"
+        message: "repository_owner_id 须为 wontlost-ltd 的不可变 ID"
+      - expression: "claims.job_workflow_ref == 'wontlost-ltd/k3s/.github/workflows/guard-bypass-probe.yml@refs/heads/main'"
+        message: "只接受 main 上的 guard-bypass-probe.yml"
+      - expression: "claims.ref == 'refs/heads/main'"
+        message: "ref 须为 refs/heads/main"
+      - expression: "claims.environment == 'guard-probe'"
+        message: "须在 Environment guard-probe 中运行"
+      - expression: "claims.sub == 'repo:wontlost-ltd/k3s:environment:guard-probe'"
+        message: "sub 须为缺省模板下的 guard-probe Environment 主体"
+      - expression: "claims.runner_environment == 'github-hosted'"
+        message: "只接受 GitHub 托管 runner"
+      - expression: "claims.event_name in ['push', 'schedule', 'workflow_dispatch']"
+        message: "只接受 push / schedule / workflow_dispatch 触发"
+      - expression: "claims.exp - claims.iat <= 86400"
+        message: "token 有效期不得超过 24 小时"
+    claimMappings:
+      username:
+        expression: "'github-actions:' + claims.repository + ':' + claims.environment"
+      extra:
+        - key: aster-lang.dev/gha-run-id
+          valueExpression: claims.run_id
+        - key: aster-lang.dev/gha-run-attempt
+          valueExpression: claims.run_attempt
+        - key: aster-lang.dev/gha-sha
+          valueExpression: claims.sha
+        - key: aster-lang.dev/gha-actor
+          valueExpression: claims.actor
+        - key: aster-lang.dev/gha-event
+          valueExpression: claims.event_name
+        - key: aster-lang.dev/gha-jti
+          valueExpression: claims.jti
+    userValidationRules:
+      - expression: "!user.username.startsWith('system:')"
+        message: "用户名不得使用保留前缀 system:"
+      - expression: "user.username == 'github-actions:wontlost-ltd/k3s:guard-probe'"
+        message: "用户名须恰为探针 OIDC 身份"
+      - expression: "user.groups.all(g, !g.startsWith('system:') || g == 'system:authenticated')"
+        message: "不得映射出 system: 组"
