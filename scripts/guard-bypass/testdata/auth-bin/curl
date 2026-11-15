@@ -20,7 +20,7 @@ case "$url" in
     step=effects$(( ${n:-0} + 1 )) ;;
   */mcp)
     case "$data" in
-      \[*) step=batch ;;
+      \[*) step='batch' ;;
       *'"tools/list"'*) step=list ;;
       *'"decisionId":"x"'*) step=malformed ;;
       *'"envelope"'*) step=forged ;;

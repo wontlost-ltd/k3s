@@ -78,6 +78,18 @@ static_violation all_ports_fails networkpolicies.json bad_ports <<'EOF'
 {"items":[{"metadata":{"name":"p"},"spec":{"podSelector":{"matchLabels":{"app":"demo-tool"}},"policyTypes":["Ingress"],
  "ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"aster-guard"}}}]}]}}]}
 EOF
+static_violation implicit_egress_fails networkpolicies.json policy_types <<'EOF'
+{"items":[{"metadata":{"name":"p"},"spec":{"podSelector":{"matchLabels":{"app":"demo-tool"}},
+ "ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"aster-guard"}}}],"ports":[{"protocol":"TCP","port":8080}]}],
+ "egress":[{"to":[{"ipBlock":{"cidr":"0.0.0.0/0"}}]}]}}]}
+EOF
+static_violation egress_type_without_rules_fails networkpolicies.json policy_types <<'EOF'
+{"items":[{"metadata":{"name":"p"},"spec":{"podSelector":{"matchLabels":{"app":"demo-tool"}},"policyTypes":["Egress","Ingress"],
+ "ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"aster-guard"}}}],"ports":[{"protocol":"TCP","port":8080}]}]}}]}
+EOF
+static_violation match_expressions_selector_fails networkpolicies.json unsupported_selector <<'EOF'
+{"items":[{"metadata":{"name":"p"},"spec":{"podSelector":{"matchExpressions":[{"key":"app","operator":"Exists"}]},"policyTypes":["Ingress"],"ingress":[]}}]}
+EOF
 static_violation agents_namespace_with_sa_binding_fails rolebindings.json agents_sa_binding <<'EOF'
 {"items":[{"metadata":{"name":"oops"},"subjects":[{"kind":"ServiceAccount","name":"default"}]}]}
 EOF
@@ -136,6 +148,18 @@ new_case truncated_log_is_inconclusive
 grep -v '^DONE$' "$FAKE_BASE/log-same.txt" >"$CASE/log-same.txt"
 run 3 "${NET[@]}" && ok
 
+new_case malformed_result_line_is_inconclusive
+sed 's#^RESULT http://10.42.3.17:8080/mcp 28 000#RESULT http://10.42.3.17:8080/mcp x 000#' "$FAKE_BASE/log-same.txt" >"$CASE/log-same.txt"
+run 3 "${NET[@]}" && expect "原因：行格式异常" summary_has '.reasons | any(contains("格式异常"))' && ok
+
+new_case duplicate_result_target_is_inconclusive
+sed 's#^RESULT http://10.42.3.17:8080/mcp 28 000#RESULT http://demo-tool.aster-tools.svc.cluster.local:8080/mcp 28 000#' "$FAKE_BASE/log-same.txt" >"$CASE/log-same.txt"
+run 3 "${NET[@]}" && expect "原因：目标不符" summary_has '.reasons | any(contains("目标与期望不符"))' && ok
+
+new_case run_query_failure_is_inconclusive
+touch "$CASE/run-query-fails"
+run 3 "${NET[@]}" && expect "phases=query-failed" summary_has '.reasons | any(contains("query-failed"))' && ok
+
 new_case pod_not_scheduled_is_inconclusive
 sed 's/"Succeeded"/"Pending"/g' "$FAKE_BASE/probe-run.json" >"$CASE/probe-run.json"
 run 3 "${NET[@]}" && expect "原因：未成功结束" summary_has '.reasons | any(contains("未在时限内成功结束"))' && ok
@@ -177,6 +201,14 @@ done
 
 new_case auth_status_non_json_is_inconclusive
 echo "curl: (6) Could not resolve host" >"$CASE/job-log.txt"
+run 3 "${AUTH[@]}" && ok
+
+new_case auth_status_pod_query_failure_is_inconclusive
+touch "$CASE/job-pods-fails"
+run 3 "${AUTH[@]}" && ok
+
+new_case auth_status_two_pods_is_inconclusive
+jq '.items += [.items[0] | .metadata.name = "guard-auth-probe-29000002-zzzzz"]' "$FAKE_BASE/job-pods.json" >"$CASE/job-pods.json"
 run 3 "${AUTH[@]}" && ok
 
 new_case auth_status_timeout_is_inconclusive

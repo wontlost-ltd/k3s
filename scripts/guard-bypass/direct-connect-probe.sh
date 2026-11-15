@@ -53,6 +53,8 @@ finish() {
 # ───────────────────────────── network ─────────────────────────────
 
 # 探针 Pod 内执行的脚本（busybox sh + curl）。每个目标一行 RESULT，正向对照一行 POSITIVE，金丝雀两行 CANARY。
+# 正向对照用 curl -k：它只证明该 Pod 的 DNS 与出站可用（红队副本里指向 https://kubernetes.default.svc/livez，
+# 而探针 Pod 不挂 SA token 也就没有集群 CA），TLS 身份与此无关；任何 HTTP 状态都算可达。
 # 金丝雀判定依赖 aster-guard 的 JSON 序列化（JSON.stringify，无空白）：
 #   echo   成功 ⇔ 无 "isError":true 且 _meta.asterGuard 以 {"decisionId":"<uuid>","attemptId" 开头；
 #   delete 被拒 ⇔ "isError":true 且 asterGuard 以 {"status":"denied" 开头。
@@ -229,8 +231,12 @@ network() {
   # ── 4. 等两个 Pod 结束 ──
   local deadline=$(( $(date +%s) + POD_TIMEOUT )) phases=""
   while :; do
-    "$KUBECTL" get pods -n "$AGENTS_NS" -l "guard-bypass/run-id=$RUN_ID" -o json >"$tmp/run.json" || true
-    phases="$(jq -r '[.items[] | .status.phase // "Unknown"] | sort | join(",")' "$tmp/run.json" 2>/dev/null || echo "")"
+    # 查询失败不当作任何状态：记为 query-failed 继续等，到时限即判 3（不会沿用旧输出——重定向先截断文件）。
+    if "$KUBECTL" get pods -n "$AGENTS_NS" -l "guard-bypass/run-id=$RUN_ID" -o json >"$tmp/run.json" 2>/dev/null; then
+      phases="$(jq -r '[.items[] | .status.phase // "Unknown"] | sort | join(",")' "$tmp/run.json" 2>/dev/null || echo "unparseable")"
+    else
+      phases="query-failed"
+    fi
     [[ "$phases" == "Succeeded,Succeeded" ]] && break
     if [[ "$phases" == *Failed* || $(date +%s) -ge $deadline ]]; then
       finish inconclusive 3 "$(jq -cn --arg p "$phases" '{reasons: ["探针 Pod 未在时限内成功结束（phases=\($p)）：调度失败、准入拒绝或镜像拉取失败"]}')"
@@ -248,9 +254,15 @@ network() {
     if [[ "$path" == cross && "$node" == "$tool_node" ]]; then inconclusive+=("cross Pod 落在工具节点 ${tool_node}，跨节点路径未覆盖"); fi
     log="$("$KUBECTL" logs -n "$AGENTS_NS" "$pod" 2>/dev/null)" || { inconclusive+=("无法读取 ${pod} 日志"); continue; }
     grep -q '^DONE$' <<<"$log" || inconclusive+=("${pod} 日志不完整")
-    local n=0 target rc code class
+    local n=0 target rc code class seen=""
     while read -r _ target rc code; do
       n=$((n + 1))
+      seen="${seen}${target} "
+      # 行格式异常（非数字退出码 / 状态码）一律无法判定，不交给 classify_curl。
+      if ! [[ "$rc" =~ ^[0-9]+$ && "$code" =~ ^[0-9]{3}$ ]]; then
+        inconclusive+=("${pod} 的 RESULT 行格式异常：${target} ${rc} ${code}")
+        continue
+      fi
       class="$(classify_curl "$rc" "$code")"
       results+=("$(jq -cn --arg pod "$path" --arg node "$node" --arg t "$target" --arg rc "$rc" --arg code "$code" --arg c "$class" \
         '{path: $pod, node: $node, target: $t, curlExit: ($rc | tonumber), httpCode: $code, class: $c}')")
@@ -258,6 +270,9 @@ network() {
       [[ "$class" == inconclusive ]] && inconclusive+=("${path} → ${target} 无法判定（curl ${rc}）")
     done < <(grep '^RESULT ' <<<"$log" || true)
     [[ "$n" == 2 ]] || inconclusive+=("${pod} 的 RESULT 行数须为 2，实为 ${n}")
+    # 两个目标必须恰好各出现一次（防止重复行或目标被替换后仍凑足两行）。
+    [[ "$(tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort | tr '\n' ' ')" == "$(tr ' ' '\n' <<<"$targets" | sort | tr '\n' ' ')" ]] ||
+      inconclusive+=("${pod} 的 RESULT 目标与期望不符：${seen}")
     if [[ -n "$POSITIVE_URL" ]]; then
       local prc pcode
       read -r _ prc pcode < <(grep '^POSITIVE ' <<<"$log" || echo "POSITIVE missing 000")
@@ -317,8 +332,11 @@ auth_status() {
     sleep "$AUTH_POLL"
   done
   local pod line
-  pod="$("$KUBECTL" get pods -n "$guard_ns" -l "job-name=$job" -o json | jq -r '[.items[]] | sort_by(.metadata.creationTimestamp) | last | .metadata.name // ""')"
-  [[ -n "$pod" ]] || finish inconclusive 3 "$(jq -cn --arg j "$job" '{reasons: ["Job \($j) 没有 Pod"]}')"
+  "$KUBECTL" get pods -n "$guard_ns" -l "job-name=$job" -o json >"$tmp/pods.json" 2>/dev/null ||
+    finish inconclusive 3 "$(jq -cn --arg j "$job" '{reasons: ["无法列出 Job \($j) 的 Pod"]}')"
+  # CronJob 的 backoffLimit 为 0：每个 Job 恰一个 Pod。
+  pod="$(jq -r 'if (.items | length) == 1 then .items[0].metadata.name else "" end' "$tmp/pods.json")"
+  [[ -n "$pod" ]] || finish inconclusive 3 "$(jq -cn --arg j "$job" '{reasons: ["Job \($j) 的 Pod 数须恰为 1"]}')"
   line="$("$KUBECTL" logs -n "$guard_ns" "$pod" 2>/dev/null | tail -n1)" || true
   local verdict
   verdict="$(jq -r '.verdict // ""' <<<"$line" 2>/dev/null || true)"

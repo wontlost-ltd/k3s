@@ -18,7 +18,9 @@ REASONS=""
 INCONCLUSIVE=0
 BYPASS=0
 
-note() { REASONS="${REASONS}${REASONS:+,}\"$1\""; }
+# 原因写进 JSON 字符串：去掉引号、反斜杠与控制字符，保证末行恒为合法 JSON。
+clean() { printf '%s' "$1" | tr -d '\042\134\000-\037'; }
+note() { REASONS="${REASONS}${REASONS:+,}\"$(clean "$1")\""; }
 
 # http <方法> <路径> [请求体]：设置 CODE 与 BODY（curl 失败时 CODE=000）。
 http() {
@@ -45,7 +47,7 @@ summary() {
 # ① healthz
 http GET /healthz
 S_HEALTH=$CODE
-TICKET_CHECK=$(field_str ticketCheck)
+TICKET_CHECK=$(clean "$(field_str ticketCheck)")
 echo "healthz $CODE ticketCheck=${TICKET_CHECK:-?}"
 if [ "$CODE" != 200 ]; then INCONCLUSIVE=1; note "healthz 非 200（${CODE}）"; fi
 if [ "$TICKET_CHECK" = off ]; then BYPASS=1; note "工具报告 ticketCheck=off"; fi

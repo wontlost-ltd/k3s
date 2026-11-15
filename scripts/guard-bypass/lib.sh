@@ -37,7 +37,9 @@ policy_union_violations() {
     | ($all | map(select(.sel == "unsupported")) | .[] | "unsupported_selector \(.name): podSelector 含 matchExpressions，无法离线判定"),
       (if ($all | map(select(.sel == true)) | length) == 0 then "no_policy: 没有任何 NetworkPolicy 选中工具 Pod" else empty end),
       ($all | map(select(.sel == true)) | .[] | .name as $n | .p.spec as $s
-        | (if ($s.policyTypes // ["Ingress"]) != ["Ingress"] then "policy_types \($n): policyTypes 须恰为 [Ingress]，实为 \($s.policyTypes)" else empty end),
+        # 缺省 policyTypes 的语义：恒含 Ingress，有 egress 字段时另含 Egress（k8s API 文档）。
+        | ($s.policyTypes // (["Ingress"] + (if $s.egress != null then ["Egress"] else [] end))) as $types
+        | (if ($types | sort) != ["Ingress"] then "policy_types \($n): 生效的 policyTypes 须恰为 [Ingress]，实为 \($types)" else empty end),
           (if ($s.egress // null) != null then "egress \($n): 不得有 egress 规则" else empty end),
           (($s.ingress // []) | to_entries[] | .key as $i | .value
             | (if (.from // []) | length == 0 then "empty_from \($n)[\($i)]: from 为空即放行所有来源" else empty end),

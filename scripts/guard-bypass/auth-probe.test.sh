@@ -81,6 +81,13 @@ new_case unexpected_reason_is_inconclusive
 set_resp forged 401 '{"error":"ticket_rejected","reason":"action_mismatch"}'
 run 3 && ok
 
+new_case hostile_reason_keeps_summary_json
+printf '401' >"$CASE/forged.code"
+printf '%s' '{"error":"ticket_rejected","reason":"a\\b"}' >"$CASE/forged.body"
+printf '200' >"$CASE/healthz.code"
+printf '%s' '{"status":"ok","ticketCheck":"o\\n"}' >"$CASE/healthz.body"
+run 3 && ok
+
 new_case batch_accepted_is_bypass
 set_resp batch 200 '[{"result":{},"jsonrpc":"2.0","id":5}]'
 run 1 && summary_has '.steps.batch == 200' && ok

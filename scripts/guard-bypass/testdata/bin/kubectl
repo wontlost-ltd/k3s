@@ -19,12 +19,12 @@ case "$*" in
     cat >"$FAKE_OUT/created-$n.json"
     [[ ! -f "$FAKE_CASE/create-fails" ]] || exit 1
     echo "pod/created" ;;
-  "get pods -n aster-agents -l guard-bypass/run-id=t1 -o json") f probe-run.json ;;
+  "get pods -n aster-agents -l guard-bypass/run-id=t1 -o json") [[ ! -f "$FAKE_CASE/run-query-fails" ]] || exit 1; f probe-run.json ;;
   "logs -n aster-agents guard-bypass-probe-t1-same") f log-same.txt ;;
   "logs -n aster-agents guard-bypass-probe-t1-cross") f log-cross.txt ;;
   "delete "*) : ;;
   "get jobs -n aster-guard -o json") f jobs.json ;;
-  "get pods -n aster-guard -l job-name=guard-auth-probe-29000002 -o json") f job-pods.json ;;
+  "get pods -n aster-guard -l job-name=guard-auth-probe-29000002 -o json") [[ ! -f "$FAKE_CASE/job-pods-fails" ]] || exit 1; f job-pods.json ;;
   "logs -n aster-guard guard-auth-probe-29000002-abcde") f job-log.txt ;;
   *) echo "fake kubectl: 未预期的调用：$*" >&2; exit 99 ;;
 esac
