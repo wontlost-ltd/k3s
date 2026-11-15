@@ -363,8 +363,11 @@ auth_status() {
   esac
 }
 
-case "${1:-}" in
-  network) shift; network "$@" ;;
-  auth-status) shift; auth_status "$@" ;;
-  *) usage ;;
-esac
+# 被 source 时只提供函数（vap-check.sh 用 probe_pod_json 生成与生产相同的「合法探针 Pod」作为准入用例基底）。
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-}" in
+    network) shift; network "$@" ;;
+    auth-status) shift; auth_status "$@" ;;
+    *) usage ;;
+  esac
+fi
