@@ -169,7 +169,7 @@ fresh; c="$(FAKE_MASQ_PERM=trusted run preflight audit)"
 
 echo "== apply / verify / rollback"
 fresh; c="$(run apply audit)"
-mode_of() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }  # GNU 优先：GNU stat -f 是文件系统信息，不会失败
 if [[ "$c" == 0 ]] && installed 50-aster-audit.yaml && [[ "$(mode_of "$ROOT_DIR/etc/rancher/k3s/aster/audit-policy.yaml")" == 600 &&
   "$(mode_of "$ROOT_DIR/etc/rancher/k3s/config.yaml.d/50-aster-audit.yaml")" == 600 && "$(mode_of "$ROOT_DIR/etc/rancher/k3s/aster")" == 700 &&
   "$(mode_of "$ROOT_DIR/var/lib/rancher/k3s/server/logs")" == 700 && "$(restarts)" == 1 ]] &&

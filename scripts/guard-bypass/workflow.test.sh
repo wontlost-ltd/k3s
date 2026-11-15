@@ -61,7 +61,7 @@ check "模式值经 env 传入（不在 run 里内联插值 vars）" bash -c "
   ! yq '.jobs.probe.steps[].run' '$WF' | grep -q 'vars\.'"
 want_steps='["actions/checkout@v6","Select credential mode","Install kubectl / kustomize / yq / jq (pinned + sha256)","Write probe kubeconfig","Configure OIDC credential","Assert probe identity (auth whoami)","Token expiry","Wait for convergence"]'
 check "步骤顺序：选模式 → 装工具 → 静态 / OIDC 凭证 → 身份断言 → 有效期 → 收敛" bash -c "
-  [[ \"\$(yq -o=json -I=0 '[.jobs.probe.steps[0:8][] | (.name // .uses)]' '$WF')\" == '$want_steps' ]]"
+  [[ \"\$(yq -o=json -I=0 '[.jobs.probe.steps[] | (.name // .uses)]' '$WF' | jq -c '.[0:8]')\" == '$want_steps' ]]"
 check "oidc_steps_gated：静态凭证两步在 oidc 模式跳过；OIDC 步骤在 static 模式跳过" bash -c "
   for n in 'Write probe kubeconfig' 'Token expiry'; do
     [[ \"\$(yq \".jobs.probe.steps[] | select(.name == \\\"\$n\\\") | .if\" '$WF')\" == \"env.GUARD_PROBE_AUTH != 'oidc'\" ]] || exit 1

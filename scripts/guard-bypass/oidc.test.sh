@@ -67,7 +67,7 @@ if [[ "$c" == 0 && "$(cat "$WORK/out")" == "$kc" && -s "$D/token" ]] && [[ "$(ca
    grep -q 'audience=k3s-guard-probe' "$WORK/curl.log" && grep -q 'Authorization: bearer req-token' "$WORK/curl.log"; then
   pass "init_writes_exec_free_kubeconfig_with_token_file（server + CA + tokenFile，无 exec；audience 与请求头正确）"
 else fail init_writes_exec_free_kubeconfig_with_token_file "$c $(cat "$WORK/err")"; fi
-mode_of() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }  # GNU 优先：GNU stat -f 是文件系统信息，不会失败
 [[ "$(mode_of "$D/token")" == 600 && "$(mode_of "$kc")" == 600 ]] && pass "token 与 kubeconfig 为 0600" || fail "文件权限" "$(mode_of "$D/token") $(mode_of "$kc")"
 ! grep -qF "$(cut -d. -f2 "$WORK/jwt")" "$WORK/out" "$WORK/err" && pass init_never_prints_token || fail init_never_prints_token
 
