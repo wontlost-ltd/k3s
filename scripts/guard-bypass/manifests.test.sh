@@ -139,7 +139,9 @@ check "探针 Role 不含 secrets、exec / attach / portforward / ephemeralconta
       or (.verbs | any(. == "*")) or (.apiGroups | any(. == "*")))
   | "\($n)：越权规则 \(tojson)"'
 check "RoleBinding 只绑定 aster-guard/guard-bypass-probe；aster-agents 内无指向本命名空间 SA 的绑定" jq_none "$WORK/all.json" '
-  .[] | select(.kind == "RoleBinding") | .metadata as $m | .subjects[]
+  .[] | select(.kind == "RoleBinding") | .metadata as $m
+  | (if (.subjects // []) | length != 1 then "\($m.namespace)/\($m.name)：subjects 须恰为 1 项" else empty end),
+    (.subjects // [])[]
   | select(.kind != "ServiceAccount" or .name != "guard-bypass-probe" or .namespace != "aster-guard")
   | "\($m.namespace)/\($m.name)：意外的 subject \(tojson)"'
 
