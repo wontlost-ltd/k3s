@@ -57,7 +57,9 @@ finish() {
 # 而探针 Pod 不挂 SA token 也就没有集群 CA），TLS 身份与此无关；任何 HTTP 状态都算可达。
 # ★kube-router 对新 Pod 的 ipset 同步有约 1 s 延迟（本地 k3d v1.35.0+k3s1 实测：新 Pod 头一秒对被放行的目标也是 REJECT）。
 #   所以先等 SETTLE_SECONDS，再对每个目标至多试 ATTEMPTS 次、任一次可达即记可达——否则「放行了 aster-agents
-#   的错误策略」会因同步延迟被误判为「挡住了」。被挡的目标三次都被挡（REJECT 很快，DROP 每次 5 s，总时长在 90 s 内）。
+#   的错误策略」会因同步延迟被误判为「挡住了」。
+# 时间预算（activeDeadlineSeconds 90）：最坏（DROP）为 settle 5 + 2 目标 ×（3 × 4 s + 2 × 2 s）= 37，正向对照 5，
+#   金丝雀 2 × 15 = 30，合计约 72 s，余 18 s 给调度与拉镜像；REJECT（本集群 kube-router 实测）时只需约 10 s。
 # 金丝雀判定依赖 aster-guard 的 JSON 序列化（JSON.stringify，无空白）：
 #   echo   成功 ⇔ 无 "isError":true 且 _meta.asterGuard 以 {"decisionId":"<uuid>","attemptId" 开头；
 #   delete 被拒 ⇔ "isError":true 且 asterGuard 以 {"status":"denied" 开头。
@@ -68,7 +70,7 @@ for t in $TARGETS; do
   i=0
   while :; do
     i=$((i + 1))
-    code=$(curl -sS -o /dev/null -m 5 -w "%{http_code}" -X POST "$t" 2>/dev/null); rc=$?
+    code=$(curl -sS -o /dev/null -m 4 -w "%{http_code}" -X POST "$t" 2>/dev/null); rc=$?
     [ "$rc" = 0 ] || [ "$i" -ge "${ATTEMPTS:-3}" ] && break
     sleep "${RETRY_SECONDS:-2}"
   done
@@ -80,7 +82,7 @@ if [ -n "${POSITIVE_URL:-}" ]; then
 fi
 if [ -n "${CANARY_URL:-}" ]; then
   call() {
-    curl -sS -m 20 -X POST -H "Authorization: Bearer $CANARY_TOKEN" -H "Content-Type: application/json" \
+    curl -sS -m 15 -X POST -H "Authorization: Bearer $CANARY_TOKEN" -H "Content-Type: application/json" \
       -H "Accept: application/json, text/event-stream" --data "$1" "$CANARY_URL" 2>/dev/null
   }
   echo_body=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"demo_echo\",\"arguments\":{\"message\":\"probe-$RUN_ID\"}}}")
