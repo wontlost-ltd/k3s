@@ -59,3 +59,16 @@ classify_curl() {
     *) echo inconclusive ;;
   esac
 }
+
+# jwt_claims：从 stdin 读一个 JWT，stdout 输出其 payload（JSON）。只解码不验签——用途是检查 TokenRequest
+# 签发结果的 exp / iat（签名由 API server 校验）。token 本身不回显。
+jwt_claims() {
+  local payload pad
+  payload="$(cut -d. -f2 | tr '_-' '/+')"
+  pad=$(( (4 - ${#payload} % 4) % 4 ))
+  printf '%s%s' "$payload" "$(printf '%*s' "$pad" '' | tr ' ' '=')" | base64 -d 2>/dev/null
+}
+
+# 探针凭证的有效期上限：90 天 + 1 小时（TokenRequest 的签发结果可能比请求值长，见计划 §3）。
+# shellcheck disable=SC2034  # 供 source 方（token-expiry.sh、kubeconfig-for-probe.sh）使用
+PROBE_TOKEN_MAX_LIFETIME=$((90 * 86400 + 3600))
