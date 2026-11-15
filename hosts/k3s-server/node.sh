@@ -83,21 +83,40 @@ component_state() {
 
 # firewalld：trusted 区不得开 masquerade（#466：跨节点 Pod 流量被伪装后 kube-router 的命名空间 ipset 匹配不上，
 # 被放行的跨节点路径被丢弃）。运行时与永久配置都查——只改运行时，下次重载 firewalld 就会复发。
+# masq_state <firewall-cmd 参数…> → yes | no | error。firewall-cmd --query-* 约定：0 = 开启、1 = 未开启，
+# 其它退出码（firewalld 未响应、区不存在等）是「查不到」——不得当成「没开」放行。
+masq_state() {
+  local code=0
+  "$FIREWALL_CMD" "$@" --query-masquerade >/dev/null 2>&1 || code=$?
+  case "$code" in 0) echo yes ;; 1) echo no ;; *) echo error ;; esac
+}
+
+# firewalld：trusted 区不得开 masquerade（#466：跨节点 Pod 流量被伪装后 kube-router 的命名空间 ipset 匹配不上，
+# 被放行的跨节点路径被丢弃）。运行时与永久配置都查——只改运行时，下次重载 firewalld 就会复发。
 check_firewall() {
   if ! "$SYSTEMCTL" is-active --quiet firewalld; then ok "firewalld 未运行（无 masquerade 风险）"; return; fi
-  if "$FIREWALL_CMD" --zone=trusted --query-masquerade >/dev/null 2>&1; then
-    bad "firewalld trusted 区运行时开着 masquerade（#466）：firewall-cmd --zone=trusted --remove-masquerade"
-  else ok "firewalld trusted 区运行时无 masquerade"; fi
-  if "$FIREWALL_CMD" --permanent --zone=trusted --query-masquerade >/dev/null 2>&1; then
-    bad "firewalld trusted 区永久配置（permanent）开着 masquerade（#466）：firewall-cmd --permanent --zone=trusted --remove-masquerade"
-  else ok "firewalld trusted 区永久配置无 masquerade"; fi
-  local z
+  case "$(masq_state --zone=trusted)" in
+    no) ok "firewalld trusted 区运行时无 masquerade" ;;
+    yes) bad "firewalld trusted 区运行时开着 masquerade（#466）：firewall-cmd --zone=trusted --remove-masquerade" ;;
+    *) bad "firewalld trusted 区运行时 masquerade 查询失败（firewall-cmd 非 0/1 退出）：先确认 firewalld 正常" ;;
+  esac
+  case "$(masq_state --permanent --zone=trusted)" in
+    no) ok "firewalld trusted 区永久配置无 masquerade" ;;
+    yes) bad "firewalld trusted 区永久配置（permanent）开着 masquerade（#466）：firewall-cmd --permanent --zone=trusted --remove-masquerade" ;;
+    *) bad "firewalld trusted 区永久配置 masquerade 查询失败（firewall-cmd 非 0/1 退出）：先确认 firewalld 正常" ;;
+  esac
+  local z zones
+  if ! zones="$("$FIREWALL_CMD" --get-active-zones 2>/dev/null)"; then
+    bad "firewall-cmd --get-active-zones 查询失败：无法核对其它区"
+    return
+  fi
   while read -r z; do
     [[ -n "$z" && "$z" != trusted ]] || continue
-    if "$FIREWALL_CMD" --zone="$z" --query-masquerade >/dev/null 2>&1; then
-      warn "firewalld $z 区开着 masquerade：确认它不承载 Pod 流量（cni0 / flannel.1 不在该区）"
-    fi
-  done < <("$FIREWALL_CMD" --get-active-zones 2>/dev/null | grep -v '^[[:space:]]' || true)
+    case "$(masq_state --zone="$z")" in
+      yes) warn "firewalld $z 区开着 masquerade：确认它不承载 Pod 流量（cni0 / flannel.1 不在该区）" ;;
+      error) warn "firewalld $z 区 masquerade 查询失败" ;;
+    esac
+  done < <(grep -v '^[[:space:]]' <<<"$zones" || true)
 }
 
 # config.yaml 与非本组件 drop-in 中不得出现审计 / 认证相关键（与 --authentication-config 冲突或与本组件重复）。

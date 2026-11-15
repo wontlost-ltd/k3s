@@ -42,8 +42,9 @@ SH
 cat >"$BIN/firewall-cmd" <<'SH'
 #!/usr/bin/env bash
 echo "firewall-cmd $*" >>"$FAKE_LOG"
+[[ -n "${FAKE_FW_ERR:-}" && "$*" == "$FAKE_FW_ERR" ]] && { echo "Error: something" >&2; exit 252; }
 case "$*" in
-  "--get-active-zones") for z in ${FAKE_ZONES:-public trusted}; do echo "$z"; echo "  interfaces: eth0"; done ;;
+  "--get-active-zones") [[ "${FAKE_ZONES_ERR:-0}" == 1 ]] && exit 252; for z in ${FAKE_ZONES:-public trusted}; do echo "$z"; echo "  interfaces: eth0"; done ;;
   "--permanent --zone="*" --query-masquerade") z="${2#--zone=}"; [[ " ${FAKE_MASQ_PERM:-} " == *" $z "* ]] && { echo yes; exit 0; }; echo no; exit 1 ;;
   "--zone="*" --query-masquerade") z="${1#--zone=}"; [[ " ${FAKE_MASQ_RUNTIME:-} " == *" $z "* ]] && { echo yes; exit 0; }; echo no; exit 1 ;;
   *) exit 2 ;;
@@ -135,6 +136,10 @@ fresh; c="$(FAKE_MASQ_PERM=trusted run check)"
 [[ "$c" == 1 ]] && grep -qi 'permanent\|永久' "$WORK/out" && pass check_fails_on_trusted_masquerade_permanent || fail check_fails_on_trusted_masquerade_permanent "$c"
 fresh; c="$(FAKE_MASQ_RUNTIME=public run check)"
 [[ "$c" == 0 ]] && grep -q '^warn.*public' "$WORK/out" && pass check_warns_other_zone_masquerade || fail check_warns_other_zone_masquerade "$c $(cat "$WORK/out")"
+fresh; c1="$(FAKE_FW_ERR="--zone=trusted --query-masquerade" run check)"; o1="$(cat "$WORK/out")"
+c2="$(FAKE_FW_ERR="--permanent --zone=trusted --query-masquerade" run check)"; c3="$(FAKE_ZONES_ERR=1 run check)"
+[[ "$c1 $c2 $c3" == "1 1 1" ]] && grep -q '查询失败' <<<"$o1" &&
+  pass "check_fails_when_firewalld_query_errors（非 0/1 退出码 ≠ 无 masquerade）" || fail check_fails_when_firewalld_query_errors "$c1 $c2 $c3"
 fresh; c="$(FAKE_FW_ACTIVE=0 FAKE_MASQ_RUNTIME=trusted run check)"
 [[ "$c" == 0 ]] && ! grep -q 'firewall-cmd' "$WORK/log" && pass check_skips_firewall_when_inactive || fail check_skips_firewall_when_inactive "$c"
 fresh; run apply audit --no-restart >/dev/null; echo "# 手改" >>"$ROOT_DIR/etc/rancher/k3s/aster/audit-policy.yaml"; c="$(run check)"

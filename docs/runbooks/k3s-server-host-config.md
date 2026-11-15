@@ -27,7 +27,7 @@
 ## 2. 维护窗口前
 
 1. k3s 仓的 PR 已合并，本地 `main` 是最新：`cd ~/IdeaProjects/k3s && git pull --ff-only`。
-2. 窗口避开 **03:17 UTC**（探针定时运行）。master-1 重启的 1–3 分钟里，探针与管理员 kubeconfig 都连不上 API，这是预期现象。
+2. 窗口避开 **03:17 UTC**（探针定时运行）。master-1 重启的 1–3 分钟里，探针与管理员 kubeconfig 都连不上 API，这是预期现象。窗口期间**不要手动触发** `guard-bypass-probe`（`workflow_dispatch`），也不要合并会触发它的 PR（`apps/aster-lang/{agents,guard,tools}/**`、`scripts/guard-bypass/**`）。如果它在窗口内运行并以 3 退出，这是预期内的失败：窗口结束后执行 `gh workflow run guard-bypass-probe.yml -R wontlost-ltd/k3s --ref main` 重跑一次，确认变绿，否则 watchdog 的 36 小时口径会受影响。
 3. 在 Mac 上执行：
    ```bash
    export KUBECONFIG=~/.kube/k3s-config
@@ -91,7 +91,7 @@ for line in sys.stdin:
 ```
 
 - 日志可能含 Pod 规格（RequestResponse 级），**不要整份外传**；需要贴出时只贴上面这种摘要。
-- 容量上限：每节点约 0.5 GB（100 MB × 20 份 gzip + 当前文件）。实际速率偏离 ADR 0057 §3 的估算 2 倍以上时，调整 `50-aster-audit.yaml` 的 `audit-log-maxbackup`，走 PR 后再逐台 `apply audit`（策略文件不热加载，需要重启）。
+- 容量：按 ADR 0057 §3 的估算，每节点每天 90–260 MB 原始日志。20 份备份的份数上限先于 30 天到达，可保留约 8–22 天。磁盘占用预计约 0.5 GB（gzip 后，属估算），未压缩的硬上限约 2.1 GB。上线 24 小时后用 `status` 核对实际速率：偏离估算 2 倍以上，或保留天数低于 7 天，就调整 `50-aster-audit.yaml` 的 `audit-log-maxbackup`，走 PR 后再逐台 `apply audit`（策略文件不热加载，需要重启）。
 - apiserver 延迟：在 Grafana 看 `histogram_quantile(0.99, sum by (le) (rate(apiserver_request_duration_seconds_bucket{verb!~"WATCH|CONNECT"}[10m])))`，安装前后各看一次。上升超过 20% 时，按 ADR 0057 §8 改为 `audit-log-mode=batch`。
 
 ## 5. 回滚
