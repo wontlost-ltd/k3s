@@ -1,0 +1,12 @@
+# kube-apiserver 审计日志（aster-api ADR 0057 D6）。由 hosts/k3s-server/node.sh apply audit 安装到
+# /etc/rancher/k3s/config.yaml.d/；`+` 后缀表示追加到既有 kube-apiserver-arg，不覆盖 config.yaml 中的同名键。
+# 容量：100 MB 轮转、gzip、保留 20 份、最长 30 天。按估算的 90–260 MB/天，份数先到上限，可留约 8–22 天；
+# 磁盘预计约 0.5 GB（gzip 后，估算值），未压缩的硬上限约 2.1 GB（21 × 100 MB），preflight 因此要求 ≥ 2 GiB 可用。
+kube-apiserver-arg+:
+  - audit-policy-file=/etc/rancher/k3s/aster/audit-policy.yaml
+  - audit-log-path=/var/lib/rancher/k3s/server/logs/audit.log
+  - audit-log-format=json
+  - audit-log-maxage=30
+  - audit-log-maxbackup=20
+  - audit-log-maxsize=100
+  - audit-log-compress=true

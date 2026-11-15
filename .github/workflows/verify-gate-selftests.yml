@@ -24,6 +24,7 @@
 #
 # 同一步也跑 scripts/guard-bypass/*.test.sh（部署层绕过探针与清单断言，aster-api ADR 0054 §12 / #466）：
 #   探针的判定（尤其「坏了 ≠ 挡住了」的 exit 3 分支）同样只能靠这些离线用例防回归。
+# 以及 hosts/*/*.test.sh（control-plane 主机配置：审计策略求值、认证配置与身份一致性、node.sh，aster-api ADR 0057）。
 #
 # 触发：每个 PR 与 main push 都跑。不加 paths 过滤——守门脚本的行为可能被
 #   任何改动间接影响（例如 allowed-images schema、kustomization 结构），
@@ -90,7 +91,7 @@ jobs:
         run: |
           set -uo pipefail
           shopt -s nullglob
-          tests=(scripts/image-pin/*.test.sh scripts/guard-bypass/*.test.sh)
+          tests=(scripts/image-pin/*.test.sh scripts/guard-bypass/*.test.sh hosts/*/*.test.sh)
           if [ "${#tests[@]}" -eq 0 ]; then
             echo "::error::未找到任何 .test.sh —— 套件被删除或路径变更，本 gate 形同虚设"
             exit 1

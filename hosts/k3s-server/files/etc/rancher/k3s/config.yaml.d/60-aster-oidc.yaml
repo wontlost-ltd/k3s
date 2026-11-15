@@ -1,0 +1,5 @@
+# kube-apiserver 结构化认证配置（aster-api ADR 0057 §4.1）。由 hosts/k3s-server/node.sh apply oidc 安装。
+# ★与任何 --oidc-* 参数互斥（同时出现 apiserver 直接退出）；node.sh check 断言 config.yaml 中没有这些键。
+# ★认证配置文件之后的改动 apiserver 每分钟自动重读（无效则保留旧配置），无需重启；加这一行参数需要重启。
+kube-apiserver-arg+:
+  - authentication-config=/etc/rancher/k3s/aster/authentication-config.yaml
