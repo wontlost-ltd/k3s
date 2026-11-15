@@ -1,0 +1,4 @@
+{"apiVersion":"v1","kind":"List","items":[
+ {"metadata":{"name":"demo-tool-ingress","namespace":"aster-tools"},
+  "spec":{"podSelector":{"matchLabels":{"app":"demo-tool"}},"policyTypes":["Ingress"],
+   "ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"aster-guard"}}}],"ports":[{"protocol":"TCP","port":8080}]}]}}]}

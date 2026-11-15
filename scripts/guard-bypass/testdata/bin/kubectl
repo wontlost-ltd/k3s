@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# 假 kubectl（direct-connect-probe.test.sh 用）：按参数分派到用例目录 $FAKE_CASE（缺省回落 $FAKE_BASE）的夹具；
+# 每次调用追加到 $FAKE_OUT/calls.log，create 的 stdin 存为 $FAKE_OUT/created-<n>.json。未预期的调用以 99 退出。
+set -euo pipefail
+echo "$*" >>"$FAKE_OUT/calls.log"
+f() {
+  if [[ -f "$FAKE_CASE/$1" ]]; then cat "$FAKE_CASE/$1"
+  elif [[ -f "$FAKE_BASE/$1" ]]; then cat "$FAKE_BASE/$1"
+  else echo "fake kubectl: 缺夹具 $1" >&2; exit 1; fi
+}
+case "$*" in
+  "get networkpolicy -n aster-tools -o json") f networkpolicies.json ;;
+  "get pods -n aster-tools -l app=demo-tool -o json") f tool-pods.json ;;
+  "get rolebindings -n aster-agents -o json") f rolebindings.json ;;
+  "get deployment -n aster-tools demo-tool -o json") f deployment.json ;;
+  "get pods -n aster-agents -l app.kubernetes.io/name=guard-bypass-probe -o json") f probe-old.json ;;
+  "create -f -")
+    n="$(find "$FAKE_OUT" -name 'created-*.json' | wc -l | tr -d ' ')"
+    cat >"$FAKE_OUT/created-$n.json"
+    [[ ! -f "$FAKE_CASE/create-fails" ]] || exit 1
+    echo "pod/created" ;;
+  "get pods -n aster-agents -l guard-bypass/run-id=t1 -o json") f probe-run.json ;;
+  "logs -n aster-agents guard-bypass-probe-t1-same") f log-same.txt ;;
+  "logs -n aster-agents guard-bypass-probe-t1-cross") f log-cross.txt ;;
+  "delete "*) : ;;
+  "get jobs -n aster-guard -o json") f jobs.json ;;
+  "get pods -n aster-guard -l job-name=guard-auth-probe-29000002 -o json") f job-pods.json ;;
+  "logs -n aster-guard guard-auth-probe-29000002-abcde") f job-log.txt ;;
+  *) echo "fake kubectl: 未预期的调用：$*" >&2; exit 99 ;;
+esac

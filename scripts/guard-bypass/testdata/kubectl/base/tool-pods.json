@@ -1,0 +1,2 @@
+{"items":[{"metadata":{"name":"demo-tool-7d9c-x1","labels":{"app":"demo-tool","pod-template-hash":"7d9c"}},
+ "spec":{"nodeName":"worker-1"},"status":{"phase":"Running","podIP":"10.42.3.17"}}]}

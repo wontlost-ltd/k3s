@@ -1,0 +1,7 @@
+{"items":[
+ {"metadata":{"name":"guard-auth-probe-29000001","ownerReferences":[{"kind":"CronJob","name":"guard-auth-probe"}]},
+  "status":{"startTime":"2027-01-15T07:50:00Z","conditions":[{"type":"Complete","status":"True"}]}},
+ {"metadata":{"name":"guard-auth-probe-29000002","ownerReferences":[{"kind":"CronJob","name":"guard-auth-probe"}]},
+  "status":{"startTime":"2027-01-15T08:10:00Z","conditions":[{"type":"Complete","status":"True"}]}},
+ {"metadata":{"name":"other-job","ownerReferences":[{"kind":"CronJob","name":"other"}]},
+  "status":{"startTime":"2027-01-15T08:05:00Z","conditions":[{"type":"Complete","status":"True"}]}}]}
