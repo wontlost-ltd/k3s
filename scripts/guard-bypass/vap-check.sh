@@ -83,21 +83,26 @@ judge S2 deny-vap "管理员建 service-account-token 类型的 guard-demo-agent
 secret_case S3 not-vap "管理员建 Opaque guard-demo-agent（成功或 AlreadyExists）" generic guard-demo-agent --from-literal=k=v
 
 echo "== 探针 Pod 形状（guard-probe-pod-scope）"
+TMP_SA="vap-check-sa-$RUN"
+K create serviceaccount "$TMP_SA" -n "$NS" -o name >/dev/null
+trap 'K delete serviceaccount "$TMP_SA" -n "$NS" --ignore-not-found >/dev/null 2>&1 || true' EXIT
 case_ P1  allow    probe "合法探针 Pod（secretKeyRef guard-demo-agent、emptyDir、configMap 卷）" '.'
 case_ P1b allow    probe "合法探针 Pod 变体：无卷、无 env" 'del(.spec.volumes) | del(.spec.containers[0].volumeMounts) | del(.spec.containers[0].env)'
 case_ P2a deny-vap probe "缺 app.kubernetes.io/name 标签" 'del(.metadata.labels["app.kubernetes.io/name"])'
 case_ P2b deny-vap probe "缺 guard-bypass/run-id 标签" 'del(.metadata.labels["guard-bypass/run-id"])'
-case_ P3  deny     probe "serviceAccountName: other" '.spec.serviceAccountName = "other"'
+# P3 用管理员临时建的 SA（否则 ServiceAccount 准入先以「SA 不存在」拒绝，证明不了本策略），核对后删除。
+case_ P3  deny-vap probe "serviceAccountName 指向本命名空间另一个已存在的 SA" ".spec.serviceAccountName = \"$TMP_SA\""
 case_ P4a deny-vap probe "automountServiceAccountToken 缺省" 'del(.spec.automountServiceAccountToken)'
 case_ P4b deny-vap probe "automountServiceAccountToken: true" '.spec.automountServiceAccountToken = true'
 case_ P5a deny-vap probe "projected 卷（serviceAccountToken 源）" '.spec.volumes += [{name: "p", projected: {sources: [{serviceAccountToken: {path: "t"}}]}}]'
 case_ P5b deny-vap probe "projected 卷（secret 源）" '.spec.volumes += [{name: "p", projected: {sources: [{secret: {name: "guard-demo-agent"}}]}}]'
 case_ P6a deny-vap probe "secret 卷 secretName: other" '.spec.volumes += [{name: "s", secret: {secretName: "other"}}]'
 case_ P6b allow    probe "secret 卷 secretName: guard-demo-agent" '.spec.volumes += [{name: "s", secret: {secretName: "guard-demo-agent"}}]'
-case_ P7a deny     probe "hostPath 卷（PSA restricted 也会拒）" '.spec.volumes += [{name: "h", hostPath: {path: "/etc"}}]'
+# hostPath 在 PSA restricted 命名空间里先被 PodSecurity 拒（先于本策略），这里只确认它被挡住，不区分是哪一层。
+case_ P7a deny     probe "hostPath 卷（PSA restricted 先拒；本策略为第二道）" '.spec.volumes += [{name: "h", hostPath: {path: "/etc"}}]'
 case_ P7b deny-vap probe "persistentVolumeClaim 卷" '.spec.volumes += [{name: "c", persistentVolumeClaim: {claimName: "x"}}]'
 case_ P7c deny-vap probe "ephemeral 卷" '.spec.volumes += [{name: "e", ephemeral: {volumeClaimTemplate: {spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: "1Mi"}}}}}}]'
-case_ P7d deny     probe "csi 卷（PSA restricted 也可能拒）" '.spec.volumes += [{name: "i", csi: {driver: "x.example.com"}}]'
+case_ P7d deny-vap probe "csi 内联卷" '.spec.volumes += [{name: "i", csi: {driver: "x.example.com"}}]'
 case_ P8a deny-vap probe "containers[0] env secretKeyRef other" '.spec.containers[0].env += [{name: "X", valueFrom: {secretKeyRef: {name: "other", key: "k"}}}]'
 case_ P8b deny-vap probe "initContainers[0] env secretKeyRef other" '.spec.initContainers = [.spec.containers[0] | .name = "init" | .env = [{name: "X", valueFrom: {secretKeyRef: {name: "other", key: "k"}}}]]'
 case_ P9a deny-vap probe "containers[0] envFrom secretRef other" '.spec.containers[0].envFrom = [{secretRef: {name: "other"}}]'
@@ -114,7 +119,8 @@ pause_pod() {
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}}]}}'
 }
 LABELED="vap-check-labeled-$RUN" PLAIN="vap-check-plain-$RUN"
-trap 'K delete pod -n "$NS" "$LABELED" "$PLAIN" --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
+trap 'K delete pod -n "$NS" "$LABELED" "$PLAIN" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  K delete serviceaccount "$TMP_SA" -n "$NS" --ignore-not-found >/dev/null 2>&1 || true' EXIT
 pause_pod "$LABELED" "{\"app.kubernetes.io/name\":\"guard-bypass-probe\",\"guard-bypass/run-id\":\"$RUN\"}" | K create -f - -o name >/dev/null
 pause_pod "$PLAIN" '{}' | K create -f - -o name >/dev/null
 
@@ -126,6 +132,10 @@ code=0
 out="$(K patch pod -n "$NS" "$LABELED" --subresource=ephemeralcontainers --type=json --dry-run=server "${AS[@]}" \
   -p '[{"op":"add","path":"/spec/ephemeralContainers","value":[{"name":"dbg","image":"'"$PAUSE"'"}]}]' 2>&1)" || code=$?
 judge R1 forbidden "探针身份追加 ephemeralContainers（RBAC 无该子资源）" "$code" "$out" guard-probe-pod-scope
+# 集合删除（DELETE …/pods，不带名字）走 deletecollection 动词；探针 Role 只有 delete，由 RBAC 拒绝——
+# 否则「只能删探针标签 Pod」的约束可被一次集合删除绕过。dryRun=All 保证即使放行也不真删。
+code=0; out="$(K delete --raw "/api/v1/namespaces/$NS/pods?dryRun=All" "${AS[@]}" 2>&1)" || code=$?
+judge R2 forbidden "探针身份集合删除 aster-agents 的 Pod（RBAC 无 deletecollection）" "$code" "$out" guard-probe-pod-scope
 
 if [[ "$FAILED" != 0 ]]; then
   echo "vap-check：有用例不符合期望——不得发放探针凭证（U-K6）" >&2
