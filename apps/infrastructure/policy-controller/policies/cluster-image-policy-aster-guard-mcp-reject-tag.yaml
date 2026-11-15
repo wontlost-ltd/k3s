@@ -1,0 +1,17 @@
+# tag-fail CIP：aster-guard-mcp（闭 unresolved-tag TOCTOU）
+#
+# CI 推送可变 tag（<sha>），但部署只允许 cosign-verified digest；tag 形式一律在准入阶段拒绝。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-guard-mcp-reject-tag
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-guard-mcp:**"
+  authorities:
+    - static:
+        action: fail
+        message: "受控仓 aster-guard-mcp 只允许 cosign-verified digest；tag 形式一律拒绝（S2-0 TOCTOU 闭合）"
+  mode: enforce
