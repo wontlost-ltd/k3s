@@ -92,6 +92,15 @@ code=0; FAKE_ROLLOUT_FAIL=1 bash "$SCRIPT" --kubeconfig /dev/null >/dev/null 2>&
 [[ "$code" != 0 ]] && grep -q '^delete ns aster-rt-4242-agents aster-rt-4242-guard aster-rt-4242-tools' "$FAKE_LOG" &&
   pass "trap_deletes_three_namespaces_on_failure" || fail trap_deletes_three_namespaces_on_failure
 
+echo "== 启动清扫查询失败"
+: >"$FAKE_LOG"
+cp "$WORK/bin/kubectl" "$WORK/kubectl.ok"
+sed -i.bak 's/^  "get ns -l guard-bypass\/redteam-expires -o json")$/  "get ns -l guard-bypass\/redteam-expires -o json") exit 1 ;;\n  "never")/' "$WORK/bin/kubectl"
+code=0; bash "$SCRIPT" --kubeconfig /dev/null >/dev/null 2>&1 || code=$?
+[[ "$code" != 0 ]] && ! grep -q '^apply ' "$FAKE_LOG" && grep -q '^delete ns aster-rt-4242-agents aster-rt-4242-guard aster-rt-4242-tools' "$FAKE_LOG" &&
+  pass "sweep_query_failure_aborts_before_apply_and_cleans_up" || fail sweep_query_failure_aborts_before_apply_and_cleans_up "$(cat "$FAKE_LOG")"
+cp "$WORK/kubectl.ok" "$WORK/bin/kubectl"
+
 echo "== R-A 只看退出码不够"
 sed -i.bak 's/"markerExecuted":true/"markerExecuted":false/' "$WORK/bin/kubectl"
 code=0; bash "$SCRIPT" --kubeconfig /dev/null >"$WORK/real2.out" 2>&1 || code=$?
