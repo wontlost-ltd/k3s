@@ -82,3 +82,69 @@ gh secret delete GUARD_PROBE_KUBECONFIG --env guard-probe -R wontlost-ltd/k3s   
 - **GitHub 侧**：Environment `guard-probe` 的部署记录（每次取用凭证的运行、提交与触发者）；org 审计日志（Environment / secret 的变更）。
 - **集群侧**：探针 Pod 带 `guard-bypass/run-id=<run_id>-<attempt>` 标签，可以回溯到具体运行。API 请求级审计取决于 k3s 是否开启了 apiserver 审计日志。核实方法：查看三台 control-plane 的 `/etc/rancher/k3s/config.yaml`，看 `kube-apiserver-arg` 里有没有 `audit-log-path` / `audit-policy-file`。
 - 如果没开审计日志，缺的证据是该 SA 何时、从哪个源 IP、发了哪些 API 请求（含失败的越权尝试）。可以补一份只记录 `system:serviceaccount:aster-guard:guard-bypass-probe` 的 Metadata 级审计策略，然后逐台重启三台 control-plane 上的 k3s。
+
+## 7. 已知问题：被放行的跨节点路径（#466 生产发现，2026-11-15）
+
+**现象**：`aster-guard` 里的 Pod 落在**另一个节点**时连不上 `demo-tool`。代理启动时 `fetch failed` 后崩溃重启；票据探针 30 s 预热后判 3。落在**工具所在节点**时一切正常。
+
+**只读证据（kubectl）**：
+- 7 个落在 master-1 的代理 Pod（RS `59899555c8` / `7c9fb94ff7` / `b5b5bcc8c`）全部 CrashLoop，唯一落在 master-3 的 `5ff9978cb8-9mrmn` 就绪。
+- 票据探针 `29912420`（master-1）BackoffLimitExceeded；`29912390/400/410/430`（master-3）全部 Complete。
+- 网络探针运行 43713055499 中，master-1 上的 `aster-agents` Pod 能经 VXLAN 访问 master-3 上的代理 `/healthz`（不受策略保护的跨节点路径通），对工具的直连为 curl 7。
+- 节点上 flannel 为 vxlan（VNI 1），`public-ip` 是各节点 192.168.0.x / 192.168.1.2，k3s 参数中没有 flannel / kube-router 的自定义项。
+
+**结论**：数据面的跨节点转发正常，问题只出在**受策略保护的目标 + 被放行的跨节点来源**。工具所在节点上的 kube-router 没有按「来源命名空间 = aster-guard」放行这份流量。可能原因有二：
+- **H1**：工具节点上该策略的来源 ipset 不含远端 Pod IP；
+- **H2**：来源 IP 在跨节点途中被改写（SNAT / 伪装成节点或 flannel 地址），不再是 Pod IP，自然不在 ipset 里。
+
+### 在节点上区分 H1 / H2（只读，用户执行）
+
+工具节点（`kubectl get pod -n aster-tools -l app=demo-tool -o wide` 的 NODE，今天是 master-3），`ssh root@master-3`：
+
+```bash
+# 1) 找到 demo-tool-ingress 对应的链与来源 ipset
+iptables-save | grep -E 'demo-tool-ingress' | head
+#    记下规则里的 `--match-set KUBE-SRC-xxxx src`（与 KUBE-DST-yyyy）
+ipset list KUBE-SRC-xxxx
+#    H1 成立：Members 里只有本节点（10.42.2.x）的 aster-guard Pod，没有 master-1 上代理的 IP（例如 10.42.0.248）
+#    H1 不成立：远端代理 IP 在里面
+# 2) 看被拒流量的真实来源（等代理下一次重启，或在票据探针落在别的节点时）
+timeout 300 tcpdump -ni any 'tcp dst port 8080 and dst host <demo-tool Pod IP> and tcp[tcpflags] & tcp-syn != 0' -c 10
+#    H2 成立：源地址是 10.42.0.0（master-1 的 flannel.1 地址）或 192.168.0.2（节点 IP），而不是代理 Pod IP
+#    H2 不成立：源地址就是代理 Pod IP（此时结合 1)，若 IP 不在 ipset 即 H1）
+# 3) 策略拒绝计数是否随之增长
+iptables-save -c | grep -E 'KUBE-NWPLCY|KUBE-POD-FW' | grep -E 'REJECT|DROP'
+# 4) kube-router 同步错误
+journalctl -u k3s --since '3 hours ago' | grep -iE 'netpol|network.?polic|ipset|iptables-restore' | tail -50
+```
+
+来源节点（代理所在节点，今天是 master-1），`ssh root@master-1`：
+
+```bash
+iptables --version            # nf_tables 还是 legacy；与 k3s 自带的 iptables 是否一致
+ls -l /var/lib/rancher/k3s/data/current/bin/aux/ 2>/dev/null | grep -i iptables
+iptables -t nat -S POSTROUTING; iptables -t nat -S FLANNEL-POSTRTG; iptables -t nat -S KUBE-POSTROUTING
+nft list ruleset 2>/dev/null | grep -nE 'masquerade|snat' | head -40
+#    H2 的成因：存在命中「-s 10.42.0.0/16 -d 10.42.0.0/16」的 MASQUERADE（FLANNEL-POSTRTG 的 RETURN 没有先命中），
+#    或 legacy 与 nft 两套规则并存（RHEL / Oracle Linux 9 上常见），导致 Pod 到 Pod 的跨节点流量被伪装
+ip route get <demo-tool Pod IP> from <代理 Pod IP> iif cni0   # 应经 flannel.1
+cat /etc/rancher/k3s/config.yaml; cat /var/lib/rancher/k3s/agent/etc/flannel/net-conf.json
+```
+
+### 修复方向与取舍（安全目标：只有 aster-guard 命名空间能到达工具）
+
+| 方案 | 结论 |
+|---|---|
+| 给策略加 `ipBlock`（节点 IP / flannel 地址） | **不可接受**。被伪装后，同一来源节点上的**所有** Pod（含 aster-agents 的模型 Pod）都表现为该地址，放行它就等于放行整个节点，网络层隔离失效。而且 `ipBlock` peer 正是本集群 kube-router 出过事故的形态（R31） |
+| 修 k3s / flannel / iptables 配置 | **正解**。H2：消除跨节点 Pod 流量的伪装（统一 iptables 后端；flannel 伪装规则按 k3s 默认只对出集群流量生效）。H1：把 k3s 升级到修复 kube-router 跨节点 ipset 的版本，或换 Calico。修好后由下述回归检查证明 |
+| 代理与工具同节点（required podAffinity） | **只能作临时止血**：策略不变，隔离目标不变，但掩盖了缺陷，也让回归检查无法覆盖。止血期间须把工作流的 `--require-admitted-cross-node` 一并去掉，并在 #466 记录 |
+| peer 改为 `namespaceSelector + podSelector` | **不可行**。组合 peer 正是本集群 kube-router 已知会退化为 deny-all 的形态（apps/aster-lang/cloud、lsp 注释）；而且 H1 / H2 下来源同样不在 ipset 里，改 peer 无济于事 |
+
+### 回归检查
+
+- 代理 Deployment 与票据探针 CronJob 对 `aster-tools/demo-tool` 设 **preferred 反亲和**（`manifests.test.sh` 断言）。这样金丝雀（模型 → 代理 → 工具）与票据探针走的都是被放行的跨节点路径。
+- 工作流的网络探针带 `--proxy-ns aster-guard --proxy-selector app=aster-guard-mcp --require-admitted-cross-node`：
+  - 摘要多出 `admitted: {proxyNode, proxyReady, crossNode}`；
+  - 代理未就绪、金丝雀失败或代理与工具同节点，都判 3；
+  - 跨节点时原因文本直接指向本节。
+- `auth-status` 带 `--tool-ns/--tool-selector`：票据探针在放行位置连不上工具，且与工具跨节点时，原因文本也指向本节。

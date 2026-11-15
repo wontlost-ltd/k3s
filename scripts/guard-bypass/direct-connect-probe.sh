@@ -35,8 +35,11 @@ usage() {
 用法：
   direct-connect-probe.sh network --agents-ns <ns> --tool-ns <ns> --tool-selector <k=v> --tool-svc <name:port>
                                   --admit-ns <ns> --probe-image <ref@sha256:…> [--positive-url <url>]
-                                  [--canary-proxy <url> --canary-secret <name>] [--run-id <id>] [--dry-run]
+                                  [--canary-proxy <url> --canary-secret <name>]
+                                  [--proxy-ns <ns> --proxy-selector <k=v> [--require-admitted-cross-node]]
+                                  [--run-id <id>] [--dry-run]
   direct-connect-probe.sh auth-status --guard-ns <ns> --cronjob <name> --since <RFC3339> [--wait <seconds>]
+                                      [--tool-ns <ns> --tool-selector <k=v>]
 USAGE
   exit 2
 }
@@ -154,6 +157,7 @@ cleanup_run() {
 
 network() {
   AGENTS_NS="" TOOL_NS="" TOOL_SELECTOR="" TOOL_SVC="" ADMIT_NS="" PROBE_IMAGE="" POSITIVE_URL="" CANARY_PROXY="" CANARY_SECRET=""
+  PROXY_NS="" PROXY_SELECTOR="" REQUIRE_XNODE=0
   RUN_ID="" DRY_RUN=0 TOOL_SHAPE=1
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -166,6 +170,9 @@ network() {
       --positive-url) POSITIVE_URL="${2:-}"; shift 2 ;;
       --canary-proxy) CANARY_PROXY="${2:-}"; shift 2 ;;
       --canary-secret) CANARY_SECRET="${2:-}"; shift 2 ;;
+      --proxy-ns) PROXY_NS="${2:-}"; shift 2 ;;
+      --proxy-selector) PROXY_SELECTOR="${2:-}"; shift 2 ;;
+      --require-admitted-cross-node) REQUIRE_XNODE=1; shift ;;
       --run-id) RUN_ID="${2:-}"; shift 2 ;;
       --dry-run) DRY_RUN=1; shift ;;
       # 只给 redteam-window.sh 的反向记录 R-A 用：那里故意设了 TICKET_CHECK=off，网络探针只证明网络层。
@@ -178,6 +185,10 @@ network() {
   [[ "$TOOL_SVC" =~ ^[a-z0-9-]+:[0-9]+$ ]] || { echo "--tool-svc 须为 name:port" >&2; usage; }
   [[ "$PROBE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "--probe-image 须按 @sha256 固定" >&2; usage; }
   [[ -z "$CANARY_PROXY" || -n "$CANARY_SECRET" ]] || { echo "--canary-proxy 需要 --canary-secret" >&2; usage; }
+  [[ ( -z "$PROXY_NS" && -z "$PROXY_SELECTOR" ) || ( -n "$PROXY_NS" && "$PROXY_SELECTOR" =~ ^[A-Za-z0-9./_-]+=[A-Za-z0-9._-]+$ ) ]] ||
+    { echo "--proxy-ns 与 --proxy-selector（k=v）须成对给出" >&2; usage; }
+  [[ "$REQUIRE_XNODE" == 0 || ( -n "$PROXY_NS" && -n "$CANARY_PROXY" ) ]] ||
+    { echo "--require-admitted-cross-node 需要 --proxy-ns / --proxy-selector 与金丝雀" >&2; usage; }
   RUN_ID="${RUN_ID:-local-$(now_epoch)}"
   [[ "$RUN_ID" =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || { echo "--run-id 须为 ≤40 字符的小写字母数字与 -" >&2; usage; }
   local svc_name="${TOOL_SVC%%:*}" port="${TOOL_SVC##*:}"
@@ -258,6 +269,31 @@ network() {
   done
 
   # ── 5. 读结果并判定 ──
+  # 被放行路径（代理所在节点 → 工具）。金丝雀经代理调用工具，所以它同时是「被放行的路径确实通」的正向检查；
+  # 代理与工具不在同一节点时，它覆盖的是**被放行的跨节点路径**——#466 生产发现：kube-router 在 k3s v1.35 上
+  # 曾把 aster-guard（master-1）→ demo-tool（master-3）的被放行流量挡掉，而同节点与未受策略保护的跨节点路径都通。
+  local proxy_node="" proxy_ready="" xnode="unknown" admitted_hint="" admitted_inc=()
+  if [[ -n "$PROXY_NS" ]]; then
+    if "$KUBECTL" get pods -n "$PROXY_NS" -l "$PROXY_SELECTOR" -o json >"$tmp/proxy.json" 2>/dev/null; then
+      read -r proxy_node proxy_ready < <(jq -r '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running")]
+        | if length == 1 then "\(.[0].spec.nodeName) \((.[0].status.conditions // []) | any(.type == "Ready" and .status == "True"))" else "- false" end' "$tmp/proxy.json") || true
+    else
+      proxy_node="-" proxy_ready=false
+    fi
+    if [[ "$proxy_node" != "-" && -n "$proxy_node" ]]; then
+      if [[ "$proxy_node" == "$tool_node" ]]; then xnode=false; else xnode=true; fi
+    fi
+    if [[ "$xnode" == true ]]; then
+      admitted_hint="被放行的跨节点路径 ${PROXY_NS}（${proxy_node}）→ 工具（${tool_node}）不通：疑为 kube-router 跨节点放行缺陷（#466 生产发现，见 docs/runbooks/guard-bypass-probe.md「被放行的跨节点路径」）"
+    fi
+    if [[ "$proxy_ready" != true ]]; then
+      admitted_inc+=("代理未就绪或不唯一（节点 ${proxy_node:--}）：/readyz 要求上游 tools/list 可达${admitted_hint:+；}${admitted_hint}")
+    fi
+    if [[ "$REQUIRE_XNODE" == 1 && "$xnode" != true ]]; then
+      admitted_inc+=("被放行的跨节点路径未覆盖：代理与工具同在 ${tool_node}（或代理节点未知），金丝雀只证明了同节点放行")
+    fi
+  fi
+
   local results=() inconclusive=() bypass=() positive="" canary_echo="" canary_delete=""
   local path pod node log
   for path in same cross; do
@@ -295,19 +331,22 @@ network() {
     if [[ "$path" == cross && -n "$CANARY_PROXY" ]]; then
       canary_echo="$(sed -n 's/^CANARY echo //p' <<<"$log")"
       canary_delete="$(sed -n 's/^CANARY delete //p' <<<"$log")"
-      [[ "$canary_echo" == ok ]] || inconclusive+=("金丝雀 demo_echo 经代理未成功：代理或链路故障")
+      [[ "$canary_echo" == ok ]] || inconclusive+=("金丝雀 demo_echo 经代理未成功：代理或链路故障${admitted_hint:+；}${admitted_hint}")
       [[ "$canary_delete" == ok ]] || inconclusive+=("金丝雀 demo_delete 未被 DENY：策略或代理故障")
     fi
   done
 
+  inconclusive+=("${admitted_inc[@]+"${admitted_inc[@]}"}")
   local extra
   extra="$(jq -cn \
     --argjson results "$(printf '%s\n' "${results[@]}" | jq -cs .)" \
     --argjson bypass "$(printf '%s\n' "${bypass[@]+"${bypass[@]}"}" | jq -R 'select(. != "")' | jq -cs .)" \
     --argjson inc "$(printf '%s\n' "${inconclusive[@]+"${inconclusive[@]}"}" | jq -R 'select(. != "")' | jq -cs .)" \
     --arg toolNode "$tool_node" --arg positive "$positive" --arg ce "$canary_echo" --arg cd "$canary_delete" \
+    --arg pn "$proxy_node" --arg pr "$proxy_ready" --arg xn "$xnode" \
     --argjson static "$(printf '%s\n' "${reasons[@]+"${reasons[@]}"}" | jq -R 'select(. != "")' | jq -cs .)" \
-    '{toolNode: $toolNode, results: $results, positive: $positive, canary: {echo: $ce, delete: $cd}, static: $static, reasons: ($static + $bypass + $inc)}')"
+    '{toolNode: $toolNode, results: $results, positive: $positive, canary: {echo: $ce, delete: $cd},
+      admitted: {proxyNode: $pn, proxyReady: ($pr == "true"), crossNode: $xn}, static: $static, reasons: ($static + $bypass + $inc)}')"
   if [[ ${#bypass[@]} -gt 0 || ${#reasons[@]} -gt 0 ]]; then finish bypass 1 "$extra"; fi
   if [[ ${#inconclusive[@]} -gt 0 ]]; then finish inconclusive 3 "$extra"; fi
   finish pass 0 "$extra"
@@ -316,13 +355,15 @@ network() {
 # ───────────────────────────── auth-status ─────────────────────────────
 
 auth_status() {
-  local guard_ns="" cronjob="" since="" wait=1500
+  local guard_ns="" cronjob="" since="" wait=1500 tool_ns="" tool_sel=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --guard-ns) guard_ns="${2:-}"; shift 2 ;;
       --cronjob) cronjob="${2:-}"; shift 2 ;;
       --since) since="${2:-}"; shift 2 ;;
       --wait) wait="${2:-}"; shift 2 ;;
+      --tool-ns) tool_ns="${2:-}"; shift 2 ;;
+      --tool-selector) tool_sel="${2:-}"; shift 2 ;;
       *) echo "未知参数：$1" >&2; usage ;;
     esac
   done
@@ -354,8 +395,20 @@ auth_status() {
   line="$("$KUBECTL" logs -n "$guard_ns" "$pod" 2>/dev/null | tail -n1)" || true
   local verdict
   verdict="$(jq -r '.verdict // ""' <<<"$line" 2>/dev/null || true)"
+  # 票据探针 Pod 与工具所在节点：放行位置连不上工具（tools/list 不通）且二者跨节点时，指向 #466 的跨节点放行缺陷。
+  local job_node tool_node="" hint=""
+  job_node="$(jq -r '.items[0].spec.nodeName // ""' "$tmp/pods.json")"
+  if [[ -n "$tool_ns" && -n "$tool_sel" ]]; then
+    tool_node="$("$KUBECTL" get pods -n "$tool_ns" -l "$tool_sel" -o json 2>/dev/null |
+      jq -r '[.items[] | select(.status.phase == "Running")] | if length == 1 then .[0].spec.nodeName else "" end' 2>/dev/null)" || tool_node=""
+  fi
+  if [[ "$verdict" != pass && "$verdict" != bypass && -n "$job_node" && -n "$tool_node" && "$job_node" != "$tool_node" ]] &&
+     [[ "$(jq -r '.steps.list // ""' <<<"$line" 2>/dev/null)" != 200 ]]; then
+    hint="被放行的跨节点路径 ${guard_ns}（${job_node}）→ 工具（${tool_node}）不通：疑为 kube-router 跨节点放行缺陷（#466 生产发现，见 docs/runbooks/guard-bypass-probe.md「被放行的跨节点路径」）"
+  fi
   local extra
-  extra="$(jq -cn --arg j "$job" --arg l "$line" '{job: $j, summary: ($l | fromjson? // $l)}')"
+  extra="$(jq -cn --arg j "$job" --arg l "$line" --arg jn "$job_node" --arg tn "$tool_node" --arg h "$hint" \
+    '{job: $j, jobNode: $jn, toolNode: $tn, summary: ($l | fromjson? // $l)} + (if $h == "" then {} else {reasons: [$h]} end)')"
   case "$verdict" in
     pass) finish pass 0 "$extra" ;;
     bypass) finish bypass 1 "$extra" ;;

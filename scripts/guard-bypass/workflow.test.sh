@@ -34,6 +34,10 @@ check "每个下载都校验 sha256" bash -c "
   run=\"\$(yq '.jobs.probe.steps[] | select(.name | test(\"^Install\")) | .run' '$WF')\"
   [[ \$(grep -c 'curl -fsSL -o' <<<\"\$run\") -ge 4 && \$(grep -c 'curl -fsSL -o' <<<\"\$run\") == \$(grep -c 'sha256sum -c -' <<<\"\$run\") ]]"
 check "生产探针不传 --no-tool-shape-check，且带金丝雀" bash -c "! grep -v '^[[:space:]]*#' '$WF' | grep -q -- '--no-tool-shape-check' && grep -q -- '--canary-proxy' '$WF'"
+check "生产探针要求被放行的跨节点路径（--require-admitted-cross-node + 代理选择器），auth-status 带工具选择器" bash -c "
+  run=\"\$(yq '.jobs.probe.steps[] | select(.name | test(\"^Network-layer\")) | .run' '$WF')\"
+  grep -q -- '--require-admitted-cross-node' <<<\"\$run\" && grep -q -- '--proxy-ns aster-guard --proxy-selector app=aster-guard-mcp' <<<\"\$run\" &&
+  yq '.jobs.probe.steps[] | select(.name | test(\"^Ticket-layer\")) | .run' '$WF' | grep -q -- '--tool-ns aster-tools --tool-selector app=demo-tool'"
 check "kubeconfig 用后删除（always）" bash -c "[[ \"\$(yq '.jobs.probe.steps[] | select(.name == \"Remove kubeconfig\") | .if' '$WF')\" == 'always()' ]]"
 check "watchdog：仅 schedule，权限只有 actions: read" bash -c "[[ \"\$(yq '.jobs.watchdog.if' '$WF')\" == \"github.event_name == 'schedule'\" && \"\$(yq -o=json -I=0 '.jobs.watchdog.permissions' '$WF')\" == '{\"actions\":\"read\"}' ]]"
 

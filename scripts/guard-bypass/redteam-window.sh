@@ -62,7 +62,9 @@ render() {
 # 票据探针 Job 模板：CronJob 的 jobTemplate，TOOL_URL 指向副本工具，ConfigMap 名称沿用渲染结果（带哈希后缀）。
 kustomize build "$APPS/guard" | yq -o=json -I=0 '.' | jq -c --arg g "$NS_GUARD" --arg t "$NS_TOOLS" '
   select(. != null and .kind == "CronJob") | {apiVersion: "batch/v1", kind: "Job", metadata: {namespace: $g, labels: {"guard-bypass/redteam": "auth-probe"}}, spec: .spec.jobTemplate.spec}
-  | (.spec.template.spec.containers[0].env[] | select(.name == "TOOL_URL") | .value) |= sub("\\.aster-tools\\."; ".\($t).")' >"$WORK/auth-job.json"
+  | (.spec.template.spec.containers[0].env[] | select(.name == "TOOL_URL") | .value) |= sub("\\.aster-tools\\."; ".\($t).")
+  # 其余恰为生产命名空间名的字段（如对工具 Pod 反亲和的 namespaces）一并映射到副本。
+  | walk(if . == "aster-tools" then $t elif . == "aster-guard" then $g else . end)' >"$WORK/auth-job.json"
 PROBE_IMAGE="$(jq -r '.spec.template.spec.containers[0].image' "$WORK/auth-job.json")"
 
 # 副本工具的 dummy 凭据（工具在 TICKET_CHECK=on 时启动必需；伪造票据因此得到 guard_unavailable）。
