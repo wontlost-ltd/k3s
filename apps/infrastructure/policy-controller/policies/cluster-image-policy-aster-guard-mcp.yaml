@@ -1,0 +1,21 @@
+# digest-verify CIP：aster-guard-mcp（aster-api ADR 0054 §12 D5，#466 阶段 C）—— aster-guard-mcp 代理（Streamable HTTP 监听模式）
+# 信任根：sourceRepo aster-cloud/aster-guard, workflowFile image.yml,
+#   sourceRef refs/heads/main（对齐该仓 image.yml 的 cosign keyless 签名身份；该工作流没有 pull_request 触发）。
+#
+# 生效前提：aster-guard 命名空间带 policy.sigstore.dev/include: "true"（见 apps/aster-lang/guard/namespace.yaml）。
+# ★须与 allowed-images.yaml 的 aster-guard-mcp 条目原子同落（verify-cip-sync.sh 的「N 仓 → 2N CIP」契约）。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: wontlost-aster-guard-mcp
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  images:
+    - glob: "index.docker.io/wontlost/aster-guard-mcp@sha256:**"
+  authorities:
+    - keyless:
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subject: https://github.com/aster-cloud/aster-guard/.github/workflows/image.yml@refs/heads/main
+  mode: enforce
