@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 守 S2-0 的 4 个 ClusterImagePolicy 与信任根 allowed-images.yaml 的契约一致性。
+# 守 S2-0 起全部 ClusterImagePolicy 与信任根 allowed-images.yaml 的契约一致性。
 #
 # 契约（见 docs/p0a-s2-0-cosign-admission-design.md §7）：
 #   - 信任根每 repository 恰 1 digest-verify CIP + 1 tag-fail CIP（N 仓 → 2N CIP）。
