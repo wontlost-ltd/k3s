@@ -118,7 +118,7 @@ run() {
   local code=0
   env PATH="$BIN:$PATH" NODE_ROOT="$ROOT_DIR" FAKE_STATE="$STATE" FAKE_LOG="$WORK/log" FAKE_MEMBERS="$WORK/members.json" \
     K3S_KUBECTL="$BIN/kubectl" SYSTEMCTL="$BIN/systemctl" FIREWALL_CMD="$BIN/firewall-cmd" JOURNALCTL="$BIN/journalctl" \
-    CURL="$BIN/curl" DF="$BIN/df" NODE_NAME=master-2 NODE_WAIT_TIMEOUT="${NODE_WAIT_TIMEOUT:-2}" NODE_POLL=0.2 \
+    CURL="$BIN/curl" DF="$BIN/df" NODE_NAME=master-2 NODE_WAIT_TIMEOUT="${NODE_WAIT_TIMEOUT:-2}" NODE_POLL=0.2 NODE_AUDIT_WAIT=1 \
     bash "$NODE" "$@" >"$WORK/out" 2>&1 || code=$?
   echo "$code"
 }

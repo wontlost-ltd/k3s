@@ -14,7 +14,7 @@
 # ★不读取、不打印 /etc/rancher/k3s/config.yaml 的任何值（含 server token），只按键名计数。
 # ★一次只在一台节点上运行；滚动顺序与节点间核对见手册。
 # 测试注入：NODE_ROOT、NODE_BUNDLE、SYSTEMCTL、FIREWALL_CMD、JOURNALCTL、CURL、K3S_KUBECTL、DF、NODE_NAME、
-#           NODE_WAIT_TIMEOUT（秒，缺省 300）、NODE_POLL（秒，缺省 5）；见 node.test.sh。
+#           NODE_WAIT_TIMEOUT（秒，缺省 300）、NODE_POLL（秒，缺省 5）、NODE_AUDIT_WAIT（等首条审计事件，秒，缺省 30）；见 node.test.sh。
 # shellcheck disable=SC2015  # ok 恒成功，A && ok || bad 即 if-else
 set -euo pipefail
 
@@ -30,6 +30,7 @@ read -r -a KUBECTL <<<"${K3S_KUBECTL:-k3s kubectl}"
 NODE_NAME="${NODE_NAME:-$(hostname -s)}"
 WAIT_TIMEOUT="${NODE_WAIT_TIMEOUT:-300}"
 POLL="${NODE_POLL:-5}"
+AUDIT_WAIT="${NODE_AUDIT_WAIT:-30}"
 ETCD_TLS="$R/var/lib/rancher/k3s/server/tls/etcd"
 AUDIT_LOG_DIR="$R/var/lib/rancher/k3s/server/logs"
 BACKUP_ROOT="$R/var/lib/rancher/aster-host-backup"
@@ -217,7 +218,7 @@ do_verify() {
     else bad "本次启动的 apiserver 参数里没有 ${flag}（drop-in 未被读取？）"; fi
     case "$c" in
       audit)
-        deadline=$((SECONDS + 30))
+        deadline=$((SECONDS + AUDIT_WAIT))
         until [[ -s "$AUDIT_LOG_DIR/audit.log" ]] || ((SECONDS >= deadline)); do sleep "$POLL"; done
         if [[ -s "$AUDIT_LOG_DIR/audit.log" ]] && tail -n1 "$AUDIT_LOG_DIR/audit.log" | grep -q '"apiVersion":"audit.k8s.io/v1"'; then
           ok "审计日志在写（最后一行是 audit.k8s.io/v1 Event）"
