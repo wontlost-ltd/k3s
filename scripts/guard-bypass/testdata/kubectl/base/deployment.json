@@ -1,0 +1,2 @@
+{"metadata":{"name":"demo-tool"},"spec":{"replicas":1,"strategy":{"type":"Recreate"},
+ "template":{"spec":{"containers":[{"name":"demo-tool","env":[{"name":"PORT","value":"8080"}]}]}}}}

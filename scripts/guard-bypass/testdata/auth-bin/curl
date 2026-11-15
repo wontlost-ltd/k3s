@@ -1,0 +1,41 @@
+#!/bin/sh
+# 假 curl（auth-probe.test.sh 用，POSIX sh）：按请求判定步骤，回放 $FAKE_CASE（缺省回落 $FAKE_BASE）中的
+# <步骤>.code / <步骤>.body；每次调用追加「方法 URL 步骤」到 $FAKE_OUT/curl.log。只支持 auth-probe.sh 用到的参数。
+method=GET data="" fmt="" url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method=$2; shift 2 ;;
+    --data) data=$2; shift 2 ;;
+    -w) fmt=$2; shift 2 ;;
+    -H|-m) shift 2 ;;
+    -*) shift ;;
+    *) url=$1; shift ;;
+  esac
+done
+case "$url" in
+  */healthz) step=healthz ;;
+  */effects\?marker=*) step=effects-marker ;;
+  */effects)
+    n=$(grep -c ' effects' "$FAKE_OUT/curl.log" 2>/dev/null || true)
+    step=effects$(( ${n:-0} + 1 )) ;;
+  */mcp)
+    case "$data" in
+      \[*) step='batch' ;;
+      *'"tools/list"'*) step=list ;;
+      *'"decisionId":"x"'*) step=malformed ;;
+      *'"envelope"'*) step=forged ;;
+      *'"tools/call"'*) step=missing ;;
+      *) step=unknown ;;
+    esac ;;
+  *) step=unknown ;;
+esac
+echo "$method $url $step" >>"$FAKE_OUT/curl.log"
+pick() { if [ -f "$FAKE_CASE/$1" ]; then cat "$FAKE_CASE/$1"; elif [ -f "$FAKE_BASE/$1" ]; then cat "$FAKE_BASE/$1"; fi; }
+[ -f "$FAKE_CASE/$step.exit" ] && exit "$(cat "$FAKE_CASE/$step.exit")"
+# <步骤>.exits：逐次消费的退出码序列（用完后按正常响应），模拟「先被挡、后可达」。
+if [ -s "$FAKE_CASE/$step.exits" ]; then
+  rc=$(head -n1 "$FAKE_CASE/$step.exits"); sed '1d' "$FAKE_CASE/$step.exits" >"$FAKE_CASE/$step.exits.tmp"
+  mv "$FAKE_CASE/$step.exits.tmp" "$FAKE_CASE/$step.exits"; exit "$rc"
+fi
+pick "$step.body"
+if [ -n "$fmt" ]; then printf '\n%s' "$(pick "$step.code")"; fi

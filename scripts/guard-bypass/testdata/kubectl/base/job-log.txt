@@ -1,0 +1,2 @@
+healthz 200 ticketCheck=on
+{"verdict":"pass","ticketCheck":"on","unticketedDelta":0,"marker":"auth-probe-0011223344556677","markerExecuted":false,"steps":{"missing":401,"forged":401,"malformed":401,"batch":400}}

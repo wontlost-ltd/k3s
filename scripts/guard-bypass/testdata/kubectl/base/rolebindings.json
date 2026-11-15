@@ -1,0 +1,1 @@
+{"items":[{"metadata":{"name":"guard-bypass-probe"},"subjects":[{"kind":"ServiceAccount","name":"guard-bypass-probe","namespace":"aster-guard"}]}]}
