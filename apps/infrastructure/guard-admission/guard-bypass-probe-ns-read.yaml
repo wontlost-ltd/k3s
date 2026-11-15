@@ -1,0 +1,23 @@
+# 探针 SA 的唯一集群级权限：列命名空间名（计划 Task 7 权限表最后一行），用于发现遗留的红队副本命名空间
+# （guard-bypass/redteam-expires 标签，见 scripts/guard-bypass/redteam-window.sh），只告警不判定。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: guard-bypass-probe-ns-read
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: guard-bypass-probe-ns-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: guard-bypass-probe-ns-read
+subjects:
+  - kind: ServiceAccount
+    name: guard-bypass-probe
+    namespace: aster-guard

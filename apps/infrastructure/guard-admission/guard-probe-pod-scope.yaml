@@ -1,0 +1,78 @@
+# 部署层探针身份在 aster-agents 的 Pod 形状约束（aster-api ADR 0054 §12 D9；计划 Task 7c、§3）。
+#
+# 只对 system:serviceaccount:aster-guard:guard-bypass-probe 生效（matchConditions），其它身份不受影响。
+#   DELETE：只能删带 app.kubernetes.io/name=guard-bypass-probe 标签的 Pod——RBAC 是命名空间级的，
+#           没有这条，探针凭证（会出现在 GitHub 托管机器上）就能删光 aster-agents 里的 Agent Pod。
+#   CREATE：必须带探针标签与 guard-bypass/run-id；SA 为空或 default；automountServiceAccountToken 显式 false；
+#           卷只允许 emptyDir、configMap 与 secretName=guard-demo-agent 的 secret 卷——projected（可投射任意 Secret
+#           与 serviceAccountToken）、hostPath、PVC、ephemeral、csi 等一律拒绝；containers / initContainers 的
+#           env.valueFrom.secretKeyRef 与 envFrom.secretRef 只能指向 guard-demo-agent。
+#   ephemeralContainers 不能在 CREATE 时设置，只能经 pods/ephemeralcontainers 子资源追加，而探针身份没有该子资源的
+#   RBAC——由 RBAC 而非本策略拒绝（vap-check.sh 的 R1 用例核对）。
+# 由此探针 Pod 拿不到任何 ServiceAccount token；行为由 scripts/guard-bypass/vap-check.sh 以服务端 dry-run 逐条核对。
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: guard-probe-pod-scope
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "DELETE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: probe-identity-only
+      expression: "request.userInfo.username == 'system:serviceaccount:aster-guard:guard-bypass-probe'"
+  variables:
+    - name: isCreate
+      expression: "request.operation == 'CREATE'"
+    - name: labels
+      expression: "has(object.metadata.labels) ? object.metadata.labels : {}"
+    - name: oldLabels
+      expression: "has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}"
+    - name: allContainers
+      expression: "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"
+  validations:
+    - expression: >-
+        variables.isCreate
+        || ('app.kubernetes.io/name' in variables.oldLabels && variables.oldLabels['app.kubernetes.io/name'] == 'guard-bypass-probe')
+      message: 探针身份只能删除带 app.kubernetes.io/name=guard-bypass-probe 标签的 Pod（ADR 0054 §12 D9）
+    - expression: >-
+        !variables.isCreate
+        || ('app.kubernetes.io/name' in variables.labels && variables.labels['app.kubernetes.io/name'] == 'guard-bypass-probe'
+            && 'guard-bypass/run-id' in variables.labels)
+      message: 探针 Pod 必须带 app.kubernetes.io/name=guard-bypass-probe 与 guard-bypass/run-id 标签
+    - expression: >-
+        !variables.isCreate
+        || !has(object.spec.serviceAccountName) || object.spec.serviceAccountName in ['', 'default']
+      message: 探针 Pod 不得指定 default 以外的 ServiceAccount
+    - expression: >-
+        !variables.isCreate
+        || (has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false)
+      message: 探针 Pod 必须显式 automountServiceAccountToken=false
+    - expression: >-
+        !variables.isCreate || !has(object.spec.volumes)
+        || object.spec.volumes.all(v, has(v.emptyDir) || has(v.configMap)
+             || (has(v.secret) && has(v.secret.secretName) && v.secret.secretName == 'guard-demo-agent'))
+      message: 探针 Pod 的卷只允许 emptyDir、configMap 与 guard-demo-agent 的 secret 卷（projected / hostPath / PVC / ephemeral / csi 一律拒绝）
+    - expression: >-
+        !variables.isCreate
+        || variables.allContainers.all(c,
+             (!has(c.env) || c.env.all(e, !has(e.valueFrom) || !has(e.valueFrom.secretKeyRef)
+                                          || e.valueFrom.secretKeyRef.name == 'guard-demo-agent'))
+             && (!has(c.envFrom) || c.envFrom.all(f, !has(f.secretRef) || f.secretRef.name == 'guard-demo-agent')))
+      message: 探针 Pod 的 env / envFrom 只能引用 Secret guard-demo-agent
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: guard-probe-pod-scope
+spec:
+  policyName: guard-probe-pod-scope
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: aster-agents

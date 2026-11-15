@@ -23,6 +23,10 @@ for app in agents guard tools; do
     { echo "  ✗ kustomize build apps/aster-lang/$app 失败"; exit 1; }
 done
 jq -s 'add' "$WORK/agents.json" "$WORK/guard.json" "$WORK/tools.json" >"$WORK/all.json"
+# 集群级准入策略与探针命名空间只读（Task 7c，platform-apps 的 guard-admission）。
+ADMISSION="${GUARD_ADMISSION_ROOT:-$ROOT/apps/infrastructure/guard-admission}"
+kustomize build "$ADMISSION" | yq -o=json -I=0 '.' | jq -s 'map(select(. != null))' >"$WORK/admission.json" ||
+  { echo "  ✗ kustomize build apps/infrastructure/guard-admission 失败"; exit 1; }
 
 check() {
   local name="$1" out
@@ -171,6 +175,33 @@ check "aster-agents 没有工作负载（只有探针临时 Pod）" jq_none "$WO
 check "aster-agents 配额：pods 4、limits 1 CPU / 1 Gi" jq_none "$WORK/agents.json" '
   [.[] | select(.kind == "ResourceQuota")][0].spec.hard as $h
   | if $h == null or $h.pods != "4" or $h["limits.cpu"] != "1" or $h["limits.memory"] != "1Gi" then "ResourceQuota 不符：\($h)" else empty end'
+
+# ── Task 7c：准入策略的**形状**（CEL 规则的行为离线测不了，由 vap-check.sh 以服务端 dry-run 核对）──
+check "两条 ValidatingAdmissionPolicy 与绑定：Deny、Fail、只作用于 aster-agents" jq_none "$WORK/admission.json" '
+  ([.[] | select(.kind == "ValidatingAdmissionPolicy") | .metadata.name] | sort) as $p
+  | (if $p != ["guard-agents-secret-allowlist","guard-probe-pod-scope"] then "策略集合不符：\($p)" else empty end),
+    (.[] | select(.kind == "ValidatingAdmissionPolicy" and .spec.failurePolicy != "Fail") | "\(.metadata.name)：failurePolicy 须为 Fail"),
+    ([.[] | select(.kind == "ValidatingAdmissionPolicyBinding")] as $b
+      | (if ($b | map(.spec.policyName) | sort) != $p then "绑定与策略不一一对应：\($b | map(.spec.policyName))" else empty end),
+        ($b[] | select(.spec.validationActions != ["Deny"]
+            or .spec.matchResources.namespaceSelector.matchLabels != {"kubernetes.io/metadata.name": "aster-agents"}
+            or .metadata.name != .spec.policyName)
+          | "\(.metadata.name)：须 validationActions [Deny] 且 namespaceSelector 恰为 aster-agents"))'
+check "Secret 白名单只匹配 secrets CREATE；Pod 范围只匹配探针 SA 的 pods CREATE / DELETE" jq_none "$WORK/admission.json" '
+  (.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "guard-agents-secret-allowlist") | .spec
+    | (if .matchConstraints.resourceRules != [{"apiGroups":[""],"apiVersions":["v1"],"operations":["CREATE"],"resources":["secrets"]}] then "secret 策略 resourceRules 不符" else empty end),
+      (if (.validations[0].expression | contains("guard-demo-agent") and contains("Opaque")) | not then "secret 策略须限定 guard-demo-agent 与 Opaque" else empty end)),
+  (.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "guard-probe-pod-scope") | .spec
+    | (if .matchConstraints.resourceRules != [{"apiGroups":[""],"apiVersions":["v1"],"operations":["CREATE","DELETE"],"resources":["pods"]}] then "pod 策略 resourceRules 不符" else empty end),
+      (if .matchConditions != [{"name":"probe-identity-only","expression":"request.userInfo.username == '"'"'system:serviceaccount:aster-guard:guard-bypass-probe'"'"'"}] then "pod 策略 matchConditions 须只匹配探针 SA" else empty end),
+      (if (.validations | map(.expression) | join(" ") | (contains("emptyDir") and contains("configMap") and contains("secretKeyRef") and contains("envFrom") and contains("automountServiceAccountToken"))) | not
+        then "pod 策略缺少卷 / env / automount 规则" else empty end))'
+check "探针集群级权限只有 namespaces list，且只绑定探针 SA" jq_none "$WORK/admission.json" '
+  ([.[] | select(.kind == "ClusterRole")] | map({n: .metadata.name, r: .rules})) as $r
+  | (if $r != [{"n":"guard-bypass-probe-ns-read","r":[{"apiGroups":[""],"resources":["namespaces"],"verbs":["list"]}]}] then "ClusterRole 不符：\($r)" else empty end),
+    (.[] | select(.kind == "ClusterRoleBinding")
+      | select(.roleRef.name != "guard-bypass-probe-ns-read" or .subjects != [{"kind":"ServiceAccount","name":"guard-bypass-probe","namespace":"aster-guard"}])
+      | "\(.metadata.name)：绑定不符")'
 
 if [[ "$FAILED" != 0 ]]; then
   echo "manifests.test.sh：有断言失败" >&2

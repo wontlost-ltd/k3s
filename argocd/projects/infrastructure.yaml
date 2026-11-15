@@ -122,6 +122,11 @@ spec:
       kind: ValidatingWebhookConfiguration
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
+    # CEL 准入策略（apps/infrastructure/guard-admission，aster-api ADR 0054 §12 D9）
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
     # CRDs - Required for operator installations (CNPG, cert-manager, etc.)
     # SECURITY NOTE: CRD creation is restricted by sourceRepos whitelist.
     # Only trusted Helm charts from official repos can create CRDs.

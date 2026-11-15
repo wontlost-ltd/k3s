@@ -30,6 +30,10 @@ spec:
           # 季度自动轮换 PG 密码（Vault → Hyperdrive → ESO → Reloader）
           - name: secret-rotation
             namespace: secret-rotation
+          # aster-api ADR 0054 §12 D9（#466 阶段 C Task 7c）：aster-agents 的准入策略与探针 SA 的命名空间只读。
+          # 全是集群级对象，目标命名空间不参与；用 kube-system 只为满足 destination 字段。
+          - name: guard-admission
+            namespace: kube-system
   template:
     metadata:
       name: 'platform-{{ .name }}'
