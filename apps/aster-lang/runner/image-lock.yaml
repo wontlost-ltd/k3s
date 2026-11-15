@@ -25,6 +25,6 @@ images:
   #   步覆写（LOCK_PATH 指向本文件）。占位：digest 全零 + sourceSha=UNVERIFIED-SEED，
   #   首个真 pin 由 launcher 首个 CI PR 写入。★与 runner 条独立（两个不同镜像的两个 pin）。
   - image: docker.io/wontlost/aster-runner-launcher
-    digest: sha256:1e7a49cf6394d7f773225368dc2dcbd1e2882f2fa7ea1cbc66291dea342ac127
-    sourceSha: a68b8793389c2d59e2bb6530aa27c02861aba0f9 # launcher 首个 CI PR 覆盖为真实 github.sha
-    runId: "43658376596"
+    digest: sha256:2e515ca529e9531bc725a5de4b5086a9b73062b07af70eec8a4d89835f73cf3c
+    sourceSha: e93010c4c564d7ddc8c8871f5737a23490ad7404 # launcher 首个 CI PR 覆盖为真实 github.sha
+    runId: "43667008090"
