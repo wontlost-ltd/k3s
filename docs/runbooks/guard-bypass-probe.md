@@ -80,7 +80,7 @@ gh secret delete GUARD_PROBE_KUBECONFIG --env guard-probe -R wontlost-ltd/k3s   
 ## 6. 审计（U-K8）
 
 - **GitHub 侧**：Environment `guard-probe` 的部署记录（每次取用凭证的运行、提交与触发者）；org 审计日志（Environment / secret 的变更）。
-- **集群侧**：探针 Pod 带 `guard-bypass/run-id=<run_id>-<attempt>` 标签，可以回溯到具体运行。API 请求级审计取决于 k3s 是否开启了 apiserver 审计日志。核实方法：查看三台 control-plane 的 `/etc/rancher/k3s/config.yaml`，看 `kube-apiserver-arg` 里有没有 `audit-log-path` / `audit-policy-file`。
+- **集群侧**：探针 Pod 带 `guard-bypass/run-id=<run_id>-<attempt>` 标签，可以回溯到具体运行。API 请求级审计取决于 k3s 是否开启了 apiserver 审计日志。核实方法：在三台 control-plane 上执行 `grep -E 'audit-log-path|audit-policy-file' /etc/rancher/k3s/config.yaml`。只 grep 相关键：config.yaml 含 server token，不要整份输出或贴出（同 §7）。
 - 如果没开审计日志，缺的证据是该 SA 何时、从哪个源 IP、发了哪些 API 请求（含失败的越权尝试）。可以补一份只记录 `system:serviceaccount:aster-guard:guard-bypass-probe` 的 Metadata 级审计策略，然后逐台重启三台 control-plane 上的 k3s。
 
 ## 7. 已知问题：被放行的跨节点路径（#466 生产发现，2026-11-15）
