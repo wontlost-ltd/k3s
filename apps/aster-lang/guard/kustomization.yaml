@@ -26,4 +26,4 @@ configMapGenerator:
       - probe/auth-probe.sh
 images:
   - name: docker.io/wontlost/aster-guard-mcp
-    digest: sha256:a46a34518af074395b39848eb729a14af48714b071e900e22b38ede11115963e
+    digest: sha256:e2018aea23535dcce46734cce626beb4f994677141df4a0839b02cd11253351e
