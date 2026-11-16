@@ -17,4 +17,4 @@ resources:
 # 镜像 digest pin（部署真相）——由 aster-guard 的 image-pin PR 与 image-lock.yaml 双写；当前为 bootstrap 全零占位。
 images:
   - name: docker.io/wontlost/aster-guard-demo-tool
-    digest: sha256:bb98bb1d941cce9d9e618e9b3f3a69602d3d2e0af737bf31919ea2fbda50da63
+    digest: sha256:b308543bdeba62f52b2f4d154e0c92dd4f0d3e0b757f4595bd2eaf7123bd8710
