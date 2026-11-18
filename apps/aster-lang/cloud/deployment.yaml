@@ -210,6 +210,21 @@ spec:
                 secretKeyRef:
                   name: aster-api-guard-receipt-keys
                   key: active-kid
+            # 策略包导出签名密钥（ADR 0059 P2-R2）：optional——Secret 缺失时导出 503、Pod 照常启动。
+            # 只写了其中一项或 JSON 畸形则 aster-api 启动失败（见 docs/runbooks/export-signing-keys.md）。
+            # 包导出开关 ASTER_EXPORT_PACKAGE_ENABLED 不在此处设置（缺省 false，上线步骤 U6 另行打开）。
+            - name: ASTER_EXPORT_SIGNING_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-export-signing-keys
+                  key: signing-keys
+                  optional: true
+            - name: ASTER_EXPORT_ACTIVE_KID
+              valueFrom:
+                secretKeyRef:
+                  name: aster-api-export-signing-keys
+                  key: active-kid
+                  optional: true
             # BYOK 自定义 Provider URL allowlist 已迁到**动态管理**（ByokAllowlistService，
             # Redis SET + admin UI，零 CI）：right.codes 现由平台管理员在 aster-lang.cloud/admin
             # 的「BYOK 端点白名单」卡片以 dynamic 项维护，可在界面增删。故此处不再配静态 env
