@@ -11,6 +11,6 @@
 version: 1
 images:
   - image: docker.io/wontlost/aster-resolver-migration
-    digest: sha256:ca414b864f2984d9c816fcacb8b645bd5cb851a1fe5cb0446fbb4b29f06a9547
-    sourceSha: 760897aa200ff5b821393c363fc6af0ed1d2f839
-    runId: "44615293361"
+    digest: sha256:f3e58cc7e260137e4acc801133af77b290e0dc7f89705fd6c9d44e8e0b0b3459
+    sourceSha: c7f510e41eee8e2cb9020878e8fef5c7f3858096
+    runId: "44645106216"
