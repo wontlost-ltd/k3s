@@ -25,4 +25,4 @@ configMapGenerator:
       - summary.mjs
 images:
   - name: docker.io/wontlost/aster-resolver-migration
-    digest: sha256:0c998ae268b4b418878e702fe5bc51677be4ea70f2388993ab7432eb8c4f3154
+    digest: sha256:a03ed4da7f3fee5d65f11960699cdd0942019b54e5d6f8ed6c500d53fa28b0e4
