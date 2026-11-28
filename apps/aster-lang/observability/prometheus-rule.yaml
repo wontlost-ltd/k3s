@@ -218,3 +218,23 @@ spec:
           annotations:
             summary: "Guard 对账已超过 30 分钟没有完整跑完"
             description: "所有 aster-api 副本的 guard_reconciliation_last_success_seconds 都已过期：对账调度停止或持续失败，绕过检测失效。查看 aster-api 日志中的「Guard 对账」与 GET /api/v1/guard/reconciliation 的 lastRun。"
+    # ADR 0065：cloud 定时任务 guard-orphan-notify（Cloudflare Worker，每 5 分钟）每个 tick 至少调用一次 aster-api 孤儿通知源，
+    # 成功时 guard_orphan_feed_requests_total{outcome="ok"} +1。以此作心跳，无需外部 Healthchecks：
+    # 开关从未打开（近 7 天无成功请求）时无告警；打开后若 20 分钟（约 4 个 tick）没有一次成功请求即视为停摆。
+    # 7 天与通知源的回看窗口一致：停摆期间告警持续，直到积压本身滑出回看窗口（届时那批孤儿已不会再通知）。
+    # 有意关闭开关后，本告警会持续到最近一次成功请求滑出 7 天窗口——关闭时请在 Alertmanager 静默 7 天。
+    - name: aster.guard.orphan-notify
+      interval: 1m
+      rules:
+        - alert: AsterGuardOrphanNotifyStalled
+          expr: |
+            sum(increase(guard_orphan_feed_requests_total{outcome="ok"}[7d])) > 0
+            and
+            sum(increase(guard_orphan_feed_requests_total{outcome="ok"}[20m])) == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "Guard 孤儿通知定时任务停摆：20 分钟以上没有一次成功调用 aster-api 通知源"
+            description: "cloud guard-orphan-notify 停摆或持续失败，租户不会收到新的 critical 孤儿通知（ADR 0065）。查 cloud 库 CronJobLease（job_name='guard-orphan-notify'）的 error_message，并对照 guard_orphan_feed_requests_total{outcome=~\"unauthorized|invalid|replayed\"}：unauthorized 上涨多为两侧 ASTER_PLAN_GATE_HMAC_KEY 不一致或时钟偏差。处置见 aster-cloud docs/runbooks/guard-orphan-notifications.md §5；若开关是有意关闭的，静默本告警即可。"
