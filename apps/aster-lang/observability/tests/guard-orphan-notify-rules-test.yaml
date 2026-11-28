@@ -1,0 +1,132 @@
+# Guard 孤儿通知心跳告警单元测试（promtool test rules，ADR 0065）
+#
+# 跑法（从仓根，同 guard-reconciliation-rules-test.yaml）：
+#   python3 -c "import yaml;d=yaml.safe_load(open('apps/aster-lang/observability/prometheus-rule.yaml'));\
+#     open('.tmp-rules.yaml','w').write(yaml.safe_dump({'groups':d['spec']['groups']},allow_unicode=True))"
+#   promtool test rules apps/aster-lang/observability/tests/guard-orphan-notify-rules-test.yaml
+#   rm .tmp-rules.yaml
+#
+# 锁的是：开关从未打开（无成功请求）不告警；正常每 5 分钟一次成功请求不告警；两个副本分摊请求按总和判定；
+# 停摆 20 分钟 + for 5m 后告警且停摆超过 1 天仍持续，直到最近一次成功滑出 7 天窗口；未授权请求不能代替成功心跳；
+# 副本更替（旧序列消失、新序列从 0 计）不误报。
+rule_files:
+  - ../../../../.tmp-rules.yaml
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: 从未有成功请求（开关关闭）不告警，即使有外部未签名探测
+    input_series:
+      - series: 'guard_orphan_feed_requests_total{outcome="unauthorized",pod="aster-api-a"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 110m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
+
+  - interval: 1m
+    name: 两个副本轮流接到每 5 分钟一次的成功请求时不告警
+    input_series:
+      # 每 10 分钟各 +1，合计每 5 分钟一次
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-a"}'
+        values: '0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3 3 4 4 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5 5 5 6'
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-b"}'
+        values: '0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3 3 4 4 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5 5 5 6 6 6 6 6 6'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
+
+  - interval: 1m
+    name: 成功请求停止 20 分钟、再持续 5 分钟后告警；期间未授权请求不算心跳
+    input_series:
+      # 前 30 分钟每 5 分钟成功一次（计数到 6），之后不再增长
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-a"}'
+        values: '0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 4 4 4 4 4 5 5 5 5 5 6+0x60'
+      - series: 'guard_orphan_feed_requests_total{outcome="unauthorized",pod="aster-api-a"}'
+        values: '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0+1x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations: &stalled_annotations
+              summary: "Guard 孤儿通知定时任务停摆：20 分钟以上没有一次成功调用 aster-api 通知源"
+              description: "cloud guard-orphan-notify 停摆或持续失败，租户不会收到新的 critical 孤儿通知（ADR 0065）。查 cloud 库 CronJobLease（job_name='guard-orphan-notify'）的 error_message，并对照 guard_orphan_feed_requests_total{outcome=~\"unauthorized|invalid|replayed\"}：unauthorized 上涨多为两侧 ASTER_PLAN_GATE_HMAC_KEY 不一致或时钟偏差。处置见 aster-cloud docs/runbooks/guard-orphan-notifications.md §5；若开关是有意关闭的，静默本告警即可。"
+
+  - interval: 1m
+    name: 副本重启导致计数器归零不误报
+    input_series:
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-a"}'
+        values: '0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 4 4 4 4 4 5'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
+
+  - interval: 5m
+    name: 停摆超过 1 天告警仍持续，最近一次成功滑出 7 天窗口后解除
+    input_series:
+      # 前 1 小时每 5 分钟成功一次（计数到 12），之后停摆 8 天
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-a"}'
+        values: '0+1x12 12+0x2400'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations: *stalled_annotations
+      - eval_time: 6d
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations: *stalled_annotations
+      # 最后一次成功（55m→60m 之间）仍在 7 天窗口内：告警
+      - eval_time: 7d50m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations: *stalled_annotations
+      # 刚滑出窗口：解除
+      - eval_time: 7d1h10m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
+
+  - interval: 1m
+    name: 两个副本更替（旧序列消失、新序列从 0 计）且请求不断时不误报
+    input_series:
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-old"}'
+        values: '0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 _x40'
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-new"}'
+        values: '_x20 0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 4 4 4 4 4 5 5 5 5 5 6 6 6 6 6 7 7 7 7 7'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
+
+  - interval: 1m
+    name: 两个旧副本同时被两个新副本替换且请求不断时不误报
+    input_series:
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-old-a"}'
+        values: '0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 _x40'
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-old-b"}'
+        values: '0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 _x40'
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-new-a"}'
+        values: '_x20 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3 3 4 4 4 4 4'
+      - series: 'guard_orphan_feed_requests_total{outcome="ok",pod="aster-api-new-b"}'
+        values: '_x20 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3 3'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: AsterGuardOrphanNotifyStalled
+        exp_alerts: []
